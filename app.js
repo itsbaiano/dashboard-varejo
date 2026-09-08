@@ -18,29 +18,32 @@
 
 // ===== extraído de index.html linhas 1520-1541 =====
     (function(){
-      // Achado 2026-09-08 testando ao vivo (no V2, mesmo código): no fluxo de login real
-      // (onAuthStateChanged pode disparar mais de uma vez pro mesmo usuário — comportamento
-      // normal do Firebase), esse bloco corria mais de uma vez, colocando dois listeners de
-      // clique no mesmo botão — cada clique alternava o estado duas vezes seguidas (uma
-      // desfazendo a outra), então clicar parecia não fazer nada. Essa trava faz o bloco só
-      // ter efeito uma vez, não importa quantas vezes seja executado.
-      if (window.__dhTeamToggleInit__) return;
-      window.__dhTeamToggleInit__ = true;
-
+      // Achado 2026-09-08 testando ao vivo: esse bloco roda mais de uma vez no fluxo de
+      // login real (confirmado direto — mesmo com uma trava por variável global impedindo o
+      // bloco inteiro de rodar de novo, o clique continuava disparando a mudança de atributo
+      // duas vezes seguidas, uma desfazendo a outra). Pra não depender de entender exatamente
+      // quantas vezes o bloco roda, a solução é usar `toggle.onclick =` (substitui o handler
+      // anterior, nunca acumula) em vez de `addEventListener` (empilha um handler novo por
+      // chamada) — assim não importa quantas vezes esse trecho execute, só o último handler
+      // atribuído conta.
       var toggle = document.getElementById('dhTeamToggle');
       var list = document.getElementById('dhTeamList');
-      toggle.addEventListener('click', function(){
+      toggle.onclick = function(){
         var open = toggle.getAttribute('aria-expanded') === 'true';
         toggle.setAttribute('aria-expanded', String(!open));
         list.classList.toggle('open', !open);
-      });
+      };
 
       // "Atualizado há Xs" — igual ao original que você mandou: conta a partir do momento
       // que a página abriu (não do publishedAt real), pra ficar idêntico ao que foi pedido.
+      // Mesmo cuidado aqui: se esse bloco rodar mais de uma vez, cada setInterval novo teria
+      // seu próprio contador começando do zero — inofensivo (ambos escrevem o mesmo texto no
+      // mesmo ritmo), mas guardamos o id só do último pra não deixar intervalos acumulando à toa.
+      if (window.__dhUpdatedTextInterval__) clearInterval(window.__dhUpdatedTextInterval__);
       var updatedText = document.getElementById('dhUpdatedText');
       var seconds = 0;
       updatedText.textContent = 'Atualizado agora';
-      setInterval(function(){
+      window.__dhUpdatedTextInterval__ = setInterval(function(){
         seconds += 1;
         if (seconds < 60) updatedText.textContent = 'Atualizado há ' + seconds + 's';
         else updatedText.textContent = 'Atualizado há ' + Math.floor(seconds/60) + ' min';
