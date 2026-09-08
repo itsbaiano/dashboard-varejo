@@ -1,36 +1,4 @@
-// ===== extraído de index.html (dhTeamToggle/dhUpdatedText, ficou fora da extração
-//       mecânica original — corrigido em 2026-09-08, achado ao testar o site publicado) =====
-(function(){
-  // Achado 2026-09-08 testando ao vivo: no fluxo de login real (onAuthStateChanged pode
-  // disparar mais de uma vez pro mesmo usuário — comportamento normal do Firebase), esse
-  // bloco corria mais de uma vez, o que colocava dois listeners de clique no mesmo botão —
-  // cada clique alternava o estado duas vezes seguidas (uma desfazendo a outra), então
-  // clicar parecia não fazer nada. Essa trava faz o bloco só ter efeito uma vez, não importa
-  // quantas vezes seja executado.
-  if (window.__dhTeamToggleInit__) return;
-  window.__dhTeamToggleInit__ = true;
-
-  var toggle = document.getElementById('dhTeamToggle');
-  var list = document.getElementById('dhTeamList');
-  toggle.addEventListener('click', function(){
-    var open = toggle.getAttribute('aria-expanded') === 'true';
-    toggle.setAttribute('aria-expanded', String(!open));
-    list.classList.toggle('open', !open);
-  });
-
-  // "Atualizado há Xs" — igual ao original que o Victor mandou: conta a partir do momento
-  // que a página abriu (não do publishedAt real), pra ficar idêntico ao que foi pedido.
-  var updatedText = document.getElementById('dhUpdatedText');
-  var seconds = 0;
-  updatedText.textContent = 'Atualizado agora';
-  setInterval(function(){
-    seconds += 1;
-    if (seconds < 60) updatedText.textContent = 'Atualizado há ' + seconds + 's';
-    else updatedText.textContent = 'Atualizado há ' + Math.floor(seconds/60) + ' min';
-  }, 1000);
-})();
-
-// ===== extraído de index.html linhas 1385-1402 =====
+// ===== extraído de index.html linhas 1453-1470 =====
 // Liga o botão de tema — troca o atributo + salva a escolha + recarrega a página (mais simples
 // e seguro do que tentar recriar na mão todo gráfico já desenhado nas 5 abas; recarregar é rápido
 // porque os dados já ficam em cache do navegador, só os filtros voltam ao padrão).
@@ -48,7 +16,38 @@
   });
 })();
 
-// ===== extraído de index.html linhas 2516-2578 =====
+// ===== extraído de index.html linhas 1520-1541 =====
+    (function(){
+      // Achado 2026-09-08 testando ao vivo (no V2, mesmo código): no fluxo de login real
+      // (onAuthStateChanged pode disparar mais de uma vez pro mesmo usuário — comportamento
+      // normal do Firebase), esse bloco corria mais de uma vez, colocando dois listeners de
+      // clique no mesmo botão — cada clique alternava o estado duas vezes seguidas (uma
+      // desfazendo a outra), então clicar parecia não fazer nada. Essa trava faz o bloco só
+      // ter efeito uma vez, não importa quantas vezes seja executado.
+      if (window.__dhTeamToggleInit__) return;
+      window.__dhTeamToggleInit__ = true;
+
+      var toggle = document.getElementById('dhTeamToggle');
+      var list = document.getElementById('dhTeamList');
+      toggle.addEventListener('click', function(){
+        var open = toggle.getAttribute('aria-expanded') === 'true';
+        toggle.setAttribute('aria-expanded', String(!open));
+        list.classList.toggle('open', !open);
+      });
+
+      // "Atualizado há Xs" — igual ao original que você mandou: conta a partir do momento
+      // que a página abriu (não do publishedAt real), pra ficar idêntico ao que foi pedido.
+      var updatedText = document.getElementById('dhUpdatedText');
+      var seconds = 0;
+      updatedText.textContent = 'Atualizado agora';
+      setInterval(function(){
+        seconds += 1;
+        if (seconds < 60) updatedText.textContent = 'Atualizado há ' + seconds + 's';
+        else updatedText.textContent = 'Atualizado há ' + Math.floor(seconds/60) + ' min';
+      }, 1000);
+    })();
+
+// ===== extraído de index.html linhas 2584-2646 =====
 /* =========================================================
    NAVEGAÇÃO ENTRE VIEWS
    ========================================================= */
@@ -111,7 +110,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   if (window.renderEligibilidade) window.renderEligibilidade();
 });
 
-// ===== extraído de index.html linhas 2580-3527 =====
+// ===== extraído de index.html linhas 2648-3596 =====
 /* =========================================================
    VIEW 1 — META JUNHO (dados e lógica isolados em IIFE)
    ========================================================= */
@@ -127,8 +126,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // único e "atual" (MJ_CORRETORAS achatado): trocar o "Mês de Referência" no dropdown não
   // mudava essa tabela nenhum pouco, sempre repetindo os dados do último import "ao vivo" —
   // e reimportar um mês passado nem sequer gravava (updateMetaJunhoData só tocava nisso
-  // quando isLive). Achado por Victor em 2026-09-02. Migração: se o data.json ainda for do
-  // formato antigo (campo achatado), usa ele como valor do mês atual.
+  // quando isLive). Achado por Victor em 2026-09-02 (no V2, mesmo bug herdado aqui no V1).
+  // Migração: se o data.json ainda for do formato antigo (campo achatado), usa ele como
+  // valor do mês atual.
   let MJ_CORRETORAS_BY_MONTH = window.__DASH_DATA__.MJ_CORRETORAS_BY_MONTH ||
     (window.__DASH_DATA__.MJ_CORRETORAS ? {[currentMonth]: window.__DASH_DATA__.MJ_CORRETORAS} : {});
   function getCorretoras(month){
@@ -1059,7 +1059,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   });
 })();
 
-// ===== extraído de index.html linhas 3529-6516 =====
+// ===== extraído de index.html linhas 3598-6566 =====
 /* =========================================================
    VIEW 2 — ELEGIBILIDADE & REATIVAÇÃO (dados e lógica isolados em IIFE)
    ========================================================= */
@@ -1401,12 +1401,6 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
 
   let DATA = window.__DASH_DATA__.DATA;
   let RANKDATA = window.__DASH_DATA__.RANKDATA;
-  // Carteira (código→gestor) publicada junto com o resto — antes só existia na memória da
-  // aba onde foi importada, então tinha que ser subida de novo toda vez que alguém abria o
-  // dashboard pra atualizar o dia. Agora, subir ela uma vez (ou quando ela mudar de verdade)
-  // já basta: fica disponível pra todo mundo a partir da próxima publicação. Ver conversa
-  // 2026-08-27 — Victor: "eu teria que subir toda vez o banco de dados né".
-  window.CARTEIRA_MAP = window.__DASH_DATA__.CARTEIRA_MAP || null;
   let PROPOSTAS = window.__DASH_DATA__.PROPOSTAS;
   let RANK_CUR_LABEL = window.__DASH_DATA__.RANK_CUR_LABEL;
   let RANK_PREV_LABEL = window.__DASH_DATA__.RANK_PREV_LABEL;
@@ -2137,27 +2131,22 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // sem contexto isso parece "não achei nada". Deixa isso explícito antes dos cards.
     const searchQ = document.getElementById('fSearch').value.trim();
     const searchBanner = document.getElementById('execSearchBanner');
-    // Qualquer filtro que restrinja a uma fatia específica (busca por nome/código, um dos
-    // cards de KPI, OU os dropdowns de Elegibilidade/Ranking) faz os gráficos de % pararem
-    // de fazer sentido: com poucas corretoras eles ficam vazios, e com uma categoria inteira
-    // já pré-selecionada (ex.: "Não Elegíveis") o resultado vira meio óbvio/redundante —
-    // "Elegibilidade por Gestor" mostra 0% pra todo mundo, o funil zera a última etapa, etc.
-    // Achado em 2026-08-28 (Victor: "os mesmos gráficos zerados, sem sentido"): os dropdowns
-    // de Elegibilidade e Ranking causavam exatamente esse mesmo problema que já tinha sido
-    // resolvido pra busca/clique-no-card — só não incluíam esses dois filtros na checagem.
-    // Troca por algo direto: cards por corretora quando sobra pouca gente, ou um resumo por
-    // gestor quando a fatia ainda é grande (mesmo comportamento já validado pros outros casos).
+    // Qualquer filtro que restrinja a uma fatia específica (busca por nome/código, clique num
+    // dos cards de KPI, ou os dropdowns de Elegibilidade/Ranking) faz os gráficos de % pararem
+    // de fazer sentido: com poucas corretoras eles ficam vazios, e com uma categoria inteira já
+    // pré-selecionada (ex.: "Não Elegíveis") o resultado vira meio óbvio/redundante — os
+    // dropdowns causavam esse mesmo problema mas não entravam nessa checagem. Troca por algo
+    // direto: cards por corretora quando sobra pouca gente, ou um resumo por gestor quando a
+    // fatia ainda é grande (mesmo comportamento já validado pros outros casos).
     const elFilterActive = document.getElementById('fEleg').value !== '';
     const rkFilterActive = selRank.value !== '';
     const isNarrowed = !!(searchQ || activeKpiFilter || elFilterActive || rkFilterActive);
     const smallSlice = isNarrowed && n > 0 && n <= 8;
     const bigSlice = isNarrowed && n > 8;
     // Rótulo do filtro ativo, pra título das duas views "fatia estreita" (smallSlice/bigSlice)
-    // — cobre os 4 jeitos de chegar numa fatia restrita: card de KPI, busca por texto, e
-    // agora também os dropdowns de Elegibilidade e Ranking (ver comentário do isNarrowed acima).
-    // Precisa vir ANTES do bloco "if (smallSlice)" logo abaixo, que já usa essa variável —
-    // declará-la só lá embaixo (perto do "if (bigSlice)") quebrava render() inteiro com
-    // ReferenceError sempre que smallSlice desse true, silenciosamente (achado testando).
+    // — cobre os 4 jeitos de chegar numa fatia restrita: card de KPI, busca por texto, e os
+    // dropdowns de Elegibilidade e Ranking. Precisa vir ANTES do bloco "if (smallSlice)" logo
+    // abaixo, que já usa essa variável.
     const narrowedLabel = searchQ ? `"${searchQ}"`
       : activeKpiFilter ? ({ eleg:'Elegíveis', quase:'Quase Elegíveis (76–99%)', risco:'Em Risco', distantes:'Não Elegíveis (distantes)' }[activeKpiFilter] || activeKpiFilter)
       : elFilterActive ? (document.getElementById('fEleg').selectedOptions[0].text)
@@ -3455,8 +3444,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     }
   }
 
-  // rkNormName/mesLabel/shiftMonth: usados por updateRankingData mais abaixo (rótulos do
-  // Ranking e o corte por proposta real no Planium ao injetar corretora sem venda).
+  // ---- Propostas (aba PLANIUM) por corretora ----
   const rkNormName = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/\b(LTDA|ME|EPP|EIRELI|S\/?A|SA|CORRETORA|DE|SEGUROS|E)\b/g,'').replace(/[^A-Z0-9]/g,'');
   const MES_NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -3945,15 +3933,10 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   };
   window.getEligibilidadeData = function(){ return DATA; };
   window.applyCorretorasToEligibilidade = function(byGestor){
-    // Achado em 2026-08-28: essa função comparava d.c (código cru da aba ELEGIBILIDADE,
-    // pode vir como número do Excel — ex.: célula "2" pra representar "0002") contra c.c
-    // (código também cru, mas sempre texto zero-padded, vindo do extrato do BI) sem
-    // normalizar nenhum dos dois lados — o mesmo tipo de bug de zero à esquerda já achado
-    // e corrigido em normalizeCodigo pro fluxo de Desempenho Comercial, só que esse aqui
-    // ficou pra trás. Toda corretora cujo código na Elegibilidade é um número puro (sem o
-    // zero à esquerda preservado) nunca batia com o extrato, então ficava com o mês
-    // corrente sempre zerado/desatualizado mesmo com a venda certinha no Desempenho
-    // Comercial — exatamente o sintoma "elegibilidade não bate 100%" que Victor notou.
+    // Compara código normalizado dos dois lados (célula numérica do Excel perde zero à
+    // esquerda, extrato do BI sempre vem com zero) — sem isso, toda corretora cujo código na
+    // Elegibilidade é número puro nunca batia com o extrato, ficando com o mês corrente
+    // sempre zerado/desatualizado mesmo com a venda certinha no Desempenho Comercial.
     const allCorretoras = {};
     Object.values(byGestor).forEach(g => {
       (g.corretoras||[]).forEach(c => { allCorretoras[window.normalizeCodigo(c.c)] = c; });
@@ -3961,8 +3944,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     let atualizadas = 0;
     // Trimestre vigente (o último balde de PERIOD_DEFS.trimestre — sempre o trimestre em
     // andamento, mesmo parcial) — usado abaixo pra recalcular Elegível/Ranking igual
-    // computePeriodElegRank já faz pra quem olha a tela com um período específico
-    // selecionado. Resolvido uma vez fora do loop (não muda por corretora).
+    // computePeriodElegRank já usa pro período corrente. Resolvido uma vez fora do loop.
     const curTri = (typeof PERIOD_DEFS !== 'undefined' && PERIOD_DEFS.trimestre && PERIOD_DEFS.trimestre.length)
       ? PERIOD_DEFS.trimestre[PERIOD_DEFS.trimestre.length - 1] : null;
     DATA.forEach(d => {
@@ -3972,15 +3954,14 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         d.m[lastIdx] = c.total;
         if (d.mc){ d.mc.pf[lastIdx] = c.ind; d.mc.ss[lastIdx] = c.ss; d.mc.pme[lastIdx] = c.pme; }
         d.tot = d.m.reduce((s,v)=>s+v, 0);
-        // Achado em 2026-08-28 (mesmo dia, mesma investigação): mudar d.m acima não bastava
-        // — Elegível/Ranking (d.el/d.rk) e a meta do trimestre vigente (d.meta3tri) só eram
-        // calculados uma vez, na hora de subir a planilha "Elegibilidade (17 meses)"
-        // inteira, e ficavam congelados depois disso (Desempenho Comercial atualiza ao
-        // vivo, Elegibilidade não). Corrigido: reusa computePeriodElegRank (já validado
-        // contra o arquivo mestre real da Hapvida — ver comentário lá) com o trimestre
-        // vigente, do mesmo jeito que a tela já faz quando alguém filtra por período
-        // manualmente. NÃO mexe em d.t1/d.t2/d.meta/d.gap — esses descrevem o 2TRI26, um
-        // trimestre já fechado, que não muda com vendas novas de hoje.
+        // Mudar d.m acima não basta — Elegível/Ranking (d.el/d.rk) e a meta do trimestre
+        // vigente (d.meta3tri) só eram calculados uma vez, na hora de subir a planilha
+        // "Elegibilidade (17 meses)" inteira, e ficavam congelados depois disso (Desempenho
+        // Comercial atualiza ao vivo, Elegibilidade não). Reusa computePeriodElegRank (já
+        // validado contra o arquivo mestre real da Hapvida) com o trimestre vigente, do
+        // mesmo jeito que a tela já faz quando alguém filtra por período manualmente. NÃO
+        // mexe em d.t1/d.t2/d.meta/d.gap — esses descrevem o trimestre já fechado, que não
+        // muda com vendas novas de hoje.
         if (curTri && typeof computePeriodElegRank === 'function'){
           const calc = computePeriodElegRank(d, curTri.months);
           d.meta3tri = calc.meta;
@@ -3997,10 +3978,10 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     'JONATHAN LEAL DOS SANTOS SILVA':'Jonathan Leal','PABLO SERGIO RIBEIRO AMORA':'Pablo Amora'
   };
   window.detectNewCorretorasCaudaLonga = function(carteira, dryRun){
-    // Mesma normalização de normalizeCodigo aplicada aqui — carteira.byCodigo já vem
-    // normalizado, mas d.c (código cru da aba ELEGIBILIDADE) não vinha, então uma
-    // corretora já cadastrada com código "2" (sem zero à esquerda) podia ser marcada como
-    // "nova" só por não bater string-a-string contra a chave normalizada "0002" da Carteira.
+    // Mesma normalização aplicada aqui — carteira.byCodigo já vem normalizado, mas d.c
+    // (código cru da aba ELEGIBILIDADE) não vinha, então uma corretora já cadastrada com
+    // código sem zero à esquerda podia ser marcada como "nova" só por não bater string-a-
+    // string contra a chave normalizada da Carteira.
     const existingCodes = new Set(DATA.map(d=>window.normalizeCodigo(d.c)));
     const seen = new Set();
     const found = [];
@@ -4047,7 +4028,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   };
 })();
 
-// ===== extraído de index.html linhas 6517-6795 =====
+// ===== extraído de index.html linhas 6567-6845 =====
 /* =========================================================
    VIEW 0 — VISÃO GERAL (consolida Desempenho Comercial + Elegibilidade)
    ========================================================= */
@@ -4326,7 +4307,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   renderOverview();
 })();
 
-// ===== extraído de index.html linhas 6796-7236 =====
+// ===== extraído de index.html linhas 6846-7286 =====
 /* =========================================================
    VIEW 3 — COMPARATIVO (time vs. time, gestor vs. gestor, ou misto)
    ========================================================= */
@@ -4767,7 +4748,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   window.renderCompare = renderCompare;
 })();
 
-// ===== extraído de index.html linhas 7237-8725 =====
+// ===== extraído de index.html linhas 7287-8731 =====
 /* =========================================================
    IMPORTAÇÃO DE DADOS — parsing client-side via SheetJS
    ========================================================= */
@@ -5098,46 +5079,35 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   const RANK_RIO_GESTORES = ['CARLOS EDUARDO FARIAS DA SILVA','FABIO FERREIRA DE AVELLAR','TBA RJ','BIANCA PEIXOTO LEITE'];
   // Gestores desligados — corretoras dela continuam na Carteira (não removidas mais, ver
   // parseCarteiraWorkbook) mas são excluídas por completo do fluxo de Corretoras bruto,
-  // igual ao Rio: nem em time nenhum, nem em "não atribuído". Corrigido em 2026-08-27 —
-  // antes, tirar essas linhas direto da Carteira fazia o código achar "nem existe" pra
-  // esses códigos, empurrando-os pro balde de "não atribuído" quando na real deveriam
-  // simplesmente sumir (confirmado: a própria planilha manual de Victor também não conta
-  // essas vidas em lugar nenhum do total, mesmo achando "Flavia Auana" pelo VLOOKUP).
+  // igual ao Rio: nem em time nenhum, nem em "não atribuído". Corrigido — antes, tirar
+  // essas linhas direto da Carteira fazia o código achar "nem existe" pra esses códigos,
+  // empurrando-os pro balde de "não atribuído" quando na real deveriam simplesmente sumir
+  // (confirmado: a própria planilha manual de Victor também não conta essas vidas em lugar
+  // nenhum do total, mesmo achando "Flavia Auana" pelo VLOOKUP).
   const GESTORES_DESLIGADOS = ['FLAVIA AUANA SILVA DE OLIVEIRA'];
   // Gestores do time "Interior" (Maria Aparecida Cabral) — existem no arquivo de Meta e na
   // Carteira, mas esse time não faz parte da diretoria da Fabyanna, fora do escopo deste
-  // dash (confirmado com Victor em 2026-08-28). Mesma exclusão total do Rio/Desligados: nem
-  // em time nenhum, nem em "não atribuído". Achado ao investigar por que Kaique Araujo da
-  // Silva (código 03BL) e Daniela Frederico Martins (dois cadastros na Carteira, um por
-  // filial: AM e Campinas — confirmado ser a mesma pessoa) tinham nome bonito no
-  // FULL_19_GESTOR_RAW_MAP mas nenhum card em MJ_TEAMS: as vidas deles simplesmente
-  // desapareciam (não contavam em time nenhum nem em não-atribuído) — sintoma de um bug,
-  // mas a causa real é que são Interior, deveriam ser excluídos por completo desde sempre,
-  // igual Rio/Desligados, não silenciosamente "esquecidos" por falta de card.
+  // dash. Mesma exclusão total do Rio/Desligados: nem em time nenhum, nem em "não
+  // atribuído".
   const INTERIOR_GESTORES = ['KAIQUE ARAUJO DA SILVA','DANIELA FREDERICO MARTINS CAMPINAS','DANIELA FREDERICO MARTINS AM'];
   // "VENDA INTERNA" (código "900", RAZAO SOCIAL "HAPVIDA" na Carteira) é o marcador
-  // interno da própria Hapvida, nunca uma corretora — não faz parte dos números do dash
-  // (confirmado com Victor em 2026-08-28: "o que a Venda Interna tem a ver? não faz parte
-  // dos números do dash"). Achava-se "ambíguo" com Erika de Sousa Silva só por causa do
-  // bug de colisão "900"/"0900" em normalizeCodigo (ver comentário lá) — corrigido esse
-  // bug, código 900 nunca mais tem candidato de verdade junto, então dá pra excluir com
-  // segurança, igual Rio/Desligados/Interior — sem risco de esconder uma venda real.
+  // interno da própria Hapvida, nunca uma corretora — não faz parte dos números do dash.
+  // Só dá pra excluir com segurança depois de corrigir a colisão "900"/"0900" em
+  // normalizeCodigo (ver comentário lá) — sem isso, "900" parecia "ambíguo" com uma
+  // corretora de verdade que só compartilhava os 3 primeiros dígitos.
   const VENDA_INTERNA_MARCADOR = 'VENDA INTERNA';
   function isOutOfScopeGestor(rawUp){
     return RANK_RIO_GESTORES.includes(rawUp) || GESTORES_DESLIGADOS.includes(rawUp) || INTERIOR_GESTORES.includes(rawUp) || rawUp === VENDA_INTERNA_MARCADOR;
   }
-  // Correção manual confirmada por Victor pra um cadastro duplicado específico na
-  // Carteira que nenhuma regra genérica acerta sozinha: código "0834" (IN COMPANY
-  // CORRETORA DE SEGUROS LTDA ME, CNPJ 9616507000149) tem DUAS linhas — Flavia Auana
-  // (Interior) e Pablo Amora (Cauda Longa). Achamos primeiro que era um cadastro velho
-  // esquecido e Victor confirmou "pode atribuir pro Pablo" (2026-08-28) — só que ao
-  // conferir contra o relatório real "NDI SP - Por Gestor" ele viu que não, essa
-  // corretora É da Flavia de verdade; a linha do Pablo pra esse CNPJ que está errada, não
-  // deve ser movida (2026-08-28, mesmo dia, correção do Victor). Sem esse override, o
-  // "match" exato código+nome (carteira.map, que fica com a ÚLTIMA linha processada — a
-  // do Pablo, só por estar mais embaixo na planilha) resolvia pro Pablo por acidente de
-  // ordem das linhas, não por regra de negócio nenhuma. Checado ANTES de tudo em
-  // resolveGestorFromCarteira pra nem passar pelo match exato.
+  // Correção manual confirmada por Victor pra um cadastro duplicado específico na Carteira
+  // que nenhuma regra genérica acerta sozinha: código "0834" (IN COMPANY CORRETORA DE
+  // SEGUROS LTDA ME, CNPJ 9616507000149) tem DUAS linhas — Flavia Auana (Interior) e Pablo
+  // Amora (Cauda Longa). Confirmado contra o relatório real "NDI SP - Por Gestor": essa
+  // corretora É da Flavia de verdade; a linha do Pablo pra esse CNPJ está errada, não deve
+  // ser movida. Sem esse override, o "match" exato código+nome (carteira.map, que fica com
+  // a ÚLTIMA linha processada) resolvia pro Pablo por acidente de ordem das linhas, não por
+  // regra de negócio nenhuma. Checado ANTES de tudo em resolveGestorFromCarteira pra nem
+  // passar pelo match exato.
   const CODIGO_GESTOR_OVERRIDE = { '0834': 'FLAVIA AUANA SILVA DE OLIVEIRA' };
   // Parser da base "NDI SP - Por Gestor" -> mapa código -> {t,ind,pim,mid,adm,n,g}
   function parseRankingWorkbook(workbook){
@@ -5240,35 +5210,25 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // Códigos numéricos "puros" (ex.: "0002") ficam gravados como número no Excel da Carteira,
   // perdendo o zero à esquerda ("2") — enquanto no extrato bruto o código sempre chega como
   // texto, com o zero. Sem normalizar os dois lados pro mesmo formato antes de comparar, um
-  // monte de código que na verdade existe na Carteira caía em "sem gestor" por engano — achado
-  // e corrigido em 2026-08-27 (inflava "semGestorCount" de ~30 pra mais de 130 no teste real).
+  // monte de código que na verdade existe na Carteira caía em "sem gestor" por engano.
   function normalizeCodigo(v){
-    // Códigos de corretora de verdade sempre têm 4 caracteres (ex.: "0002", "03BL",
-    // "9560") — confirmado varrendo a Carteira inteira. Números guardados como célula
-    // numérica de verdade (Excel perde o zero à esquerda no valor bruto, ex.: célula "2"
-    // exibida como "0002" só por formatação) precisam ser preenchidos de volta pra 4
-    // dígitos pra bater com o texto sempre-preenchido do extrato do BI ("0002").
+    // Códigos de corretora de verdade sempre têm 4 caracteres (ex.: "0002", "03BL", "9560").
+    // Números guardados como célula numérica de verdade (Excel perde o zero à esquerda no
+    // valor bruto, ex.: célula "2" exibida como "0002" só por formatação) precisam ser
+    // preenchidos de volta pra 4 dígitos pra bater com o texto sempre-preenchido do extrato
+    // do BI ("0002").
     if (v === null || v === undefined || v === '') return '';
     if (typeof v === 'number') return String(Math.trunc(v)).padStart(4, '0');
-    // Só isso — NÃO usar parseInt/stripar zero à esquerda de strings. Achado em
-    // 2026-08-28: código "900" (HAPVIDA, venda interna) e "0900" (MAXDALA CONSULTORIA,
-    // corretora de verdade da Erika) são DOIS registros diferentes na Carteira, ambos já
-    // guardados como texto — stripar o zero de "0900" os transformava no mesmo código
-    // "900", fazendo o motor achar (errado) que "900" tinha dois "candidatos" (Venda
-    // Interna x Erika) quando na real são corretoras completamente diferentes, sem
-    // relação nenhuma. "900" (3 dígitos, sem padding) é a única exceção de propósito —
-    // marcador interno da Hapvida, nunca uma corretora — e deve continuar distinto de
-    // qualquer código de 4 dígitos. Confirmado com Victor: "o que a Venda Interna tem a
-    // ver? não faz parte dos números do dash" — o problema era essa colisão, não o
-    // conceito de "sem gestor".
+    // Só isso — NÃO usar parseInt/stripar zero à esquerda de strings. Código "900" (HAPVIDA,
+    // venda interna) e "0900" (MAXDALA CONSULTORIA, corretora de verdade) são DOIS registros
+    // diferentes na Carteira, ambos já guardados como texto — stripar o zero de "0900" os
+    // transformava no mesmo código "900", fazendo o motor achar (errado) que "900" tinha dois
+    // "candidatos" quando na real são corretoras completamente diferentes, sem relação
+    // nenhuma. "900" (3 dígitos, sem padding) é a única exceção de propósito — marcador
+    // interno da Hapvida, nunca uma corretora — e deve continuar distinto de qualquer código
+    // de 4 dígitos.
     return String(v).trim().toUpperCase();
   }
-  // Exposto em window: applyCorretorasToEligibilidade/detectNewCorretorasCaudaLonga vivem
-  // numa IIFE anterior (escopo diferente deste arquivo, ~linha 3039-6112) e não enxergam
-  // esta função por escopo léxico — sem isso, dava ReferenceError ali (achado em
-  // 2026-08-28 debugando por que o recálculo de Elegível/Ranking não tinha efeito nenhum:
-  // a exceção não tratada interrompia o handler de "Confirmar Atualização" no meio, então
-  // nem Carteira nem Ranking terminavam de aplicar naquele clique).
   window.normalizeCodigo = normalizeCodigo;
 
   function parseCarteiraWorkbook(workbook){
@@ -5312,18 +5272,10 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const preferred = candidates.find(c => c.equipe && c.equipe.toUpperCase().indexOf(preferTeam) === 0);
       if (preferred) return preferred;
     }
-    // Histórico (2026-08-27/28, resumido): quando o preferTeam não acha ninguém, sobra
-    // decidir o que fazer com múltiplos candidatos "ruins" (Rio/Desligado/Interior/Venda
-    // Interna). Já tentei e revertei "preferir qualquer pessoa real" (jogava vidas de ADM
-    // do código 900 pra Erika por engano, achando que "VENDA INTERNA" era só mais um nome
-    // ambíguo). O que resolveu de vez: código 900 (HAPVIDA/Venda Interna) só parecia
-    // ambíguo com Erika de Sousa Silva por causa de um bug em normalizeCodigo que colidia
-    // "900" com "0900" (dois códigos DIFERENTES na Carteira — ver comentário lá). Corrigido
-    // esse bug, "900" nunca mais tem candidato de verdade junto — e com isOutOfScopeGestor
-    // cobrindo Rio+Desligado+Interior+Venda Interna, a regra abaixo fica simples: se depois
-    // de tirar todo mundo fora de escopo sobrar exatamente UM candidato, não tem mais
-    // ambiguidade real, retorna ele (ex.: um código com Rio + uma pessoa rastreada de
-    // verdade). Se sobrar zero ou mais de um, continua null — não adivinha.
+    // Quando o preferTeam não acha ninguém, sobra decidir o que fazer com múltiplos
+    // candidatos "ruins" (Rio/Desligado/Interior/Venda Interna). Se depois de tirar todo
+    // mundo fora de escopo sobrar exatamente UM candidato, não tem mais ambiguidade real,
+    // retorna ele. Se sobrar zero ou mais de um, continua null — não adivinha.
     const validos = candidates.filter(c => {
       const up = c.gestorRaw ? c.gestorRaw.trim().toUpperCase() : '';
       return !isOutOfScopeGestor(up);
@@ -5352,8 +5304,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       // Pula a linha de rodapé "Total" e o bloco de texto dos filtros aplicados que o BI
       // sempre deixa embaixo da última corretora — sem essa checagem, os dois viravam
       // "corretoras" fantasmas sem gestor, inflando muito o total de vidas não atribuídas
-      // (a linha "Total" sozinha somava as vidas de TODAS as corretoras de novo). Achado
-      // e corrigido em 2026-08-27.
+      // (a linha "Total" sozinha somava as vidas de TODAS as corretoras de novo).
       if (/^total$/i.test(canalTxt) || canalTxt.length > 100) continue;
       const parts = canalTxt.split('-').map(s=>s.trim());
       const codigo = parts[0];
@@ -5372,47 +5323,30 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const byGestor = {};
     let semGestorCount = 0, semGestorVidas = 0;
     // Quebra por categoria de quem ficou sem gestor — pra alimentar o mesmo "balde" de
-    // não-atribuído que a Visão Geral mostra (MJ_NAO_ATRIBUIDO_BY_MONTH). Achado em
-    // 2026-08-27: sem isso, importar só o extrato bruto (sem a planilha "NDI SP - Por
-    // Gestor" inteira) deixava esse número parado no valor do último import manual —
-    // o Integrado total da Visão Geral ficava desatualizado mesmo com tudo mais certo.
+    // não-atribuído que a Visão Geral mostra (MJ_NAO_ATRIBUIDO_BY_MONTH). Sem isso, importar
+    // só o extrato bruto (sem a planilha "NDI SP - Por Gestor" inteira) deixava esse número
+    // parado no valor do último import manual.
     const semGestorCat = {ind:0, ss:0, pme:0, adm:0};
     Object.keys(agg).forEach(codigo => {
       const c = agg[codigo];
       let friendly = null;
       if (carteira){
-        // Código não existe na Carteira (nenhuma linha, de nenhum time) — geralmente
-        // Regional 1 (fora do NDI SP/Regional 2). Corrigido em 2026-08-27 (revertendo um
-        // exagero meu de mais cedo no mesmo dia): a própria planilha "NDI SP - AGOSTO" de
-        // Victor SOMA esses casos em "CÓDIGOS QUE NÃO ESTÃO NO DATABASE", que entra no
-        // total geral (TOTAL FABYANNA BOAVENTURA) — só não atribui a nenhum time
-        // específico. Ou seja, cai no MESMO "balde" de sem-gestor abaixo, não é excluído
-        // do total como o Rio (que a própria planilha dele já descarta por completo, sem
-        // nem entrar nas OBSERVAÇÕES). Diferente do Rio (lista de nomes conhecida e sempre
-        // descartada), aqui só sabemos que o código simplesmente não bateu com nada.
-        //
         // Prefere CAUDA LONGA quando o código aparece mais de uma vez na Carteira (mesmo
         // código usado por corretoras diferentes em times diferentes) — mesma regra já
-        // aplicada em diffCarteira/applyCarteira pro fluxo de Elegibilidade; faltava aqui
-        // no fluxo de Desempenho Comercial/Ranking, confirmado com Victor em 2026-08-27.
+        // aplicada em diffCarteira/applyCarteira.
         const r = resolveGestorFromCarteira({c: codigo, n: c.nome}, carteira, 'CAUDA LONGA');
         if (r && r.gestorRaw){
           const rawUp = r.gestorRaw.trim().toUpperCase();
-          // Gestores do Rio de Janeiro, desligados ou do time "Interior" (fora da
-          // diretoria da Fabyanna) — mesma lista já usada em parseRankingWorkbook/
-          // resolveGestorFromCarteira. Não contam como "sem gestor": são vendas de
-          // verdade, só que de fora do escopo deste dashboard, e não devem aparecer nem
-          // no Integrado nem no "código não localizado". Confirmado com Victor.
+          // Gestores do Rio de Janeiro, desligados ou do time "Interior" (fora da diretoria
+          // da Fabyanna) não contam como "sem gestor": são vendas de verdade, só que de fora
+          // do escopo deste dashboard, e não devem aparecer nem no Integrado nem no "código
+          // não localizado".
           if (isOutOfScopeGestor(rawUp)) return;
           friendly = FULL_19_GESTOR_RAW_MAP[rawUp] || null;
         } else {
-          // r veio null: pode ser "código não existe na Carteira" OU "existe, mas todo
-          // mundo que aparece pra esse código é Rio/Desligado/Interior" (ex.: código 03BL
-          // — Kaique Araujo da Silva + Flavia Auana, os dois fora de escopo por motivos
-          // diferentes). Achado em 2026-08-28: sem essa checagem, esse segundo caso caía
-          // no balde de "não atribuído" (contando no total geral) quando deveria ser
-          // exclusão total, igual um código 100% Rio. Só cai em "não atribuído" de
-          // verdade quando sobra pelo menos um candidato de dentro do escopo (ambíguo
+          // r veio null: pode ser "código não existe na Carteira" OU "existe, mas todo mundo
+          // que aparece pra esse código é Rio/Desligado/Interior". Só cai em "não atribuído"
+          // de verdade quando sobra pelo menos um candidato de dentro do escopo (ambíguo
           // entre times, por ex.) ou quando o código simplesmente não existe na Carteira.
           const candidatosDoCodigo = carteira.byCodigo[normalizeCodigo(codigo)];
           if (candidatosDoCodigo && candidatosDoCodigo.length &&
@@ -5424,7 +5358,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (!friendly){
         // Chegou aqui só quando o código EXISTE na Carteira (dentro do escopo NDI SP) mas
         // não deu pra achar um gestor de verdade — esse sim é "sem gestor" de verdade
-        // (cadastro incompleto na Carteira), diferente do caso de Regional 1 acima.
+        // (cadastro incompleto na Carteira).
         semGestorCount++; semGestorVidas += c.total;
         semGestorCat.ind += c.ind; semGestorCat.ss += c.ss; semGestorCat.pme += c.pme; semGestorCat.adm += c.adm;
         return;
@@ -5441,9 +5375,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
   // Achata o resultado de parseCorretorasRawWorkbook pro formato que updateRankingData
   // espera — assim o upload do extrato bruto (sem o arquivo "NDI SP - Por Gestor" inteiro)
-  // também atualiza o Ranking de Vendas, não só Desempenho Comercial/Elegibilidade. Antes
-  // disso Victor precisava sempre subir a planilha inteira (com Meta) só pra manter o
-  // Ranking em dia, mesmo quando só o Integrado do dia tinha mudado — ver conversa 2026-08-27.
+  // também atualiza o Ranking de Vendas, não só Desempenho Comercial/Elegibilidade.
   function corretorasRawToRankList(byGestor){
     const list = [];
     Object.keys(byGestor).forEach(g => {
@@ -5666,6 +5598,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const key = String(raw||'').trim().toUpperCase();
     return FULL_19_GESTOR_RAW_MAP[key] || ABREV_GESTOR_MAP[key] || raw;
   };
+
   function parsePfPendenciasWorkbook(workbook){
     const sheet = findSheet(workbook, '2026_ORCAMENTOS') || findSheet(workbook, 'ORCAMENTOS');
     if (!sheet) throw new Error('Não encontrei a aba de orçamentos no arquivo PF.');
@@ -5851,16 +5784,21 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     // já trocou o nome uma vez (de "NDI SP - META <MÊS>" pra "NDI SP - <MÊS>").
     if (META_SHEET_PREFIXES.some(p => has(p))) return 'meta';
     if (has('ELEGIBILIDADE') || hasExact('ELEGIBILIDADE')) return 'elig';
-    // Achado 2026-08-27: o extrato bruto de Corretoras (aba única "Export", sem nenhuma
-    // "TB_BASE DE DADOS" junto) nunca era reconhecido aqui — só a condição "BASE" cobria o
-    // caso onde o arquivo "NDI SP - Por Gestor" inteiro vinha com essa aba extra. Como
-    // parseCorretorasRawWorkbook já procura por uma aba "EXPORT" (exata), esse formato
-    // precisa contar como 'corretoras' também, senão o caminho 100% automático (sem
-    // pré-processar nada no Excel) nunca conseguia nem passar da detecção do arquivo.
+    // Achado no V2 em 2026-08-27 (portado agora pro V1): o extrato bruto de Corretoras (aba
+    // única "Export", sem nenhuma "TB_BASE DE DADOS" junto) nunca era reconhecido aqui — só a
+    // condição "BASE" cobria o caso onde o arquivo "NDI SP - Por Gestor" inteiro vinha com
+    // essa aba extra. parseCorretorasRawWorkbook já procura uma aba "EXPORT" (exata), então
+    // esse formato precisa contar como 'corretoras' também.
     if (hasExact('EXPORT') || (has('BASE') && !has('ELEGIBILIDADE'))) return 'corretoras';
-    // A Carteira (banco de dados código→gestor) é outro arquivo separado, com só a aba
-    // "COMERCIAL" — antes só virava Carteira "de brinde" quando vinha junto de um arquivo já
-    // classificado como 'corretoras'; sozinha, nunca era reconhecida.
+    // Carteira/Gestores ("BANCO DE DADOS - COMERCIAL", abas CONSULTA/COMERCIAL/ASSESSORIAS) —
+    // faltava esse ramo inteiro. Sem ele, esse arquivo nunca batia em nenhum kind (não tem
+    // aba "BASE...", só "COMERCIAL") e caía direto em "não reconhecido" — SEM erro visível
+    // nenhum na tela sempre que subido junto do Extrato do BI, porque o outro arquivo da
+    // mesma leva já tinha sido reconhecido como 'meta' e a checagem de "nada reconhecido"
+    // só dispara quando NENHUM arquivo bate. Achado 2026-09-04: Victor subiu Carteira +
+    // Extrato do BI juntos, o resumo de Desempenho Comercial/Ranking apareceu normal, mas a
+    // Carteira nunca era processada (pendingCarteira ficava null) — corretora nova (ex.: F8,
+    // código 0540) nunca entrava em lugar nenhum, sem nenhum aviso de que algo tinha falhado.
     // has() (prefixo), não hasExact() — mesma regra de findSheet('COMERCIAL') que
     // parseCarteiraWorkbook já usa, sobrevive a algo tipo "COMERCIAL 2026" no futuro.
     if (has('COMERCIAL')) return 'carteira';
@@ -5969,9 +5907,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
           pendingEligBridge = extractEligibilidadeDataFromExport(metaWb);
           if (pendingEligBridge && window.getEligibilidadeData){
             const codigosArquivo = new Set();
-            Object.values(pendingEligBridge).forEach(g => (g.corretoras||[]).forEach(c => codigosArquivo.add(normalizeCodigo(c.c))));
+            Object.values(pendingEligBridge).forEach(g => (g.corretoras||[]).forEach(c => codigosArquivo.add(window.normalizeCodigo(c.c))));
             const eligData = window.getEligibilidadeData();
-            const matchCount = eligData.filter(d => codigosArquivo.has(normalizeCodigo(d.c))).length;
+            const matchCount = eligData.filter(d => codigosArquivo.has(window.normalizeCodigo(d.c))).length;
             summaryHtml += `<div style="font-size:12.5px; margin-top:6px; color:var(--blue);">Elegibilidade — histórico do mês será gravado em <b>${matchCount}</b> das ${eligData.length} corretoras (Cauda Longa), direto pela planilha manual.</div>`;
           }
         } else {
@@ -6065,7 +6003,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (pendingRankCur || pendingRankPrev) window.updateRankingData(pendingRankCur, pendingRankPrev, (pendingRankCur && pendingMeta) ? pendingMeta.detectedMonth : null);
     // Upload só do extrato bruto de Corretoras (sem a planilha "NDI SP - Por Gestor" inteira)
     // também atualiza o Ranking de Vendas agora — antes só o caminho com Meta fazia isso,
-    // obrigando Victor a subir o arquivo inteiro todo dia só pra manter o Ranking em dia.
+    // obrigando a subir o arquivo inteiro todo dia só pra manter o Ranking em dia.
     else if (pendingCorretorasRaw){
       const rankCurFromRaw = corretorasRawToRankList(pendingCorretorasRaw.byGestor);
       window.updateRankingData(rankCurFromRaw, null, window.getCurrentMonth ? window.getCurrentMonth() : null);
@@ -6104,8 +6042,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
      fsWriteSection no <script> do Firestore em index.html),
      substitui o antigo "Publicar no GitHub" (Contents API +
      token pessoal) na migração de segurança de 2026-09-08. Quem
-     publica só precisa estar logado como admin na allowlist —
-     sem token nenhum, a sessão já autenticada é a credencial, e
+     publica só precisa estar logado como admin na allowlist_v1
+     — sem token nenhum, a sessão já autenticada é a credencial, e
      as próprias Regras do Firestore recusam a escrita se a
      pessoa não for admin (não é só uma trava de tela).
      O id do botão continua "btnPublishGithub" por preguiça de
@@ -6131,7 +6069,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       CONV_ONTEM_HOJE: window.getConvOntemHoje ? window.getConvOntemHoje() : {},
       RANK_CUR_LABEL: window.getRankLabels ? window.getRankLabels().cur : 'Mês atual',
       RANK_PREV_LABEL: window.getRankLabels ? window.getRankLabels().prev : 'Mês anterior',
-      CARTEIRA_MAP: window.CARTEIRA_MAP || null,
       // Grava o momento da publicação DENTRO do dado — antes esse "Última atualização"
       // vinha de um texto fixo no index.html (PUBLISHED_AT), que só mudava quando alguém
       // editava o código; agora acompanha de verdade cada publicação de dados.
@@ -6156,7 +6093,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       status.innerHTML = '<span style="color:#1b7a63; font-weight:700;">Publicado! Quem já estiver com o painel aberto vê a atualização só no próximo login/recarregamento.</span>';
     } catch(err){
       const permMsg = (err.code === 'permission-denied')
-        ? ' Seu usuário pode não estar marcado como admin na allowlist do Firestore — confira com quem administra o painel.'
+        ? ' Seu usuário pode não estar marcado como admin na allowlist_v1 do Firestore — confira com quem administra o painel.'
         : '';
       status.innerHTML = '<span style="color:var(--red);">Erro ao publicar: ' + err.message + '.' + permMsg + ' Pode baixar o backup abaixo e tentar de novo depois.</span>';
     } finally {
