@@ -97,12 +97,16 @@ document.getElementById('navBtnEl').addEventListener('click', ()=>showView('el')
 document.getElementById('navBtnCompare').addEventListener('click', ()=>showView('compare'));
 document.getElementById('navBtnRank').addEventListener('click', ()=>showView('rank'));
 document.getElementById('navBtnConversao').addEventListener('click', ()=>showView('conversao'));
-// Some o botão da Elegibilidade da barra lateral pra quem está em NO_ELEG_EMAILS (evento
-// disparado pelo auth <script> lá em cima, no login) — showView('el') já bloqueia por trás
-// mesmo se o botão aparecer por algum motivo (defesa dupla). Pedido do Victor, 2026-09-08.
-document.addEventListener('authReady', (e) => {
-  if (e.detail && e.detail.noEleg) document.getElementById('navBtnEl').style.display = 'none';
-});
+// Some o botão da Elegibilidade da barra lateral pra quem está em NO_ELEG_EMAILS.
+// showView('el') já bloqueia por trás mesmo se o botão aparecer por algum motivo (defesa
+// dupla). Pedido do Victor, 2026-09-08.
+// Achado 2026-09-08 (migração Firestore): o evento 'authReady' dispara no login, ANTES do
+// app.js sequer ser buscado (login → busca dados no Firestore → só então injeta o app.js) —
+// então esse listener nunca chegava a tempo de ouvir o evento de verdade, e o botão continuava
+// visível pro Alexandre/Camila mesmo com a leitura da aba corretamente bloqueada por trás.
+// window.__noEleg__ já está definido (setado no login, bem antes do app.js carregar) —
+// checar direto aqui resolve, sem depender de pegar o evento no momento certo.
+if (window.__noEleg__) document.getElementById('navBtnEl').style.display = 'none';
 window.rankInitialized = false;
 let PUBLISHED_AT = window.__DASH_DATA__.publishedAt || "";
 document.getElementById('sidebarUpdatedAt').textContent = PUBLISHED_AT || new Date().toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'});
