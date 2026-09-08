@@ -1066,7 +1066,12 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     if (window.__appInjected__) return; // nunca injeta duas vezes
     window.__appInjected__ = true;
     var s = document.createElement('script');
-    s.src = 'app.js';
+    // ?v=timestamp evita que o navegador reaproveite uma cópia antiga do app.js guardada em
+    // cache (achado 2026-09-08: o GitHub Pages deixa arquivos em cache por um tempo — sem
+    // isso, alguém com a aba aberta há um tempo, ou revisitando dentro da janela de cache,
+    // podia rodar uma versão desatualizada do app.js mesmo com o index.html certo). Mesmo
+    // truque já usado no fetch do data.json no atalho de teste local, um pouco acima.
+    s.src = 'app.js?v=' + Date.now();
     document.body.appendChild(s);
   }
   window.__injectAppScript__ = injectApp;
