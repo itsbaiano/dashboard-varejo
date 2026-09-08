@@ -1076,14 +1076,21 @@
 
   // Administrador: publica pra todo mundo. Executivo: só prévia na própria tela.
   // Pra dar acesso a mais alguém, basta adicionar o e-mail na lista certa.
-  const ADMIN_EMAILS = ['victor.oliveirae@hapvida.com.br', 'estevao.cardoso@hapvida.com.br', 'amanda.ksilva@hapvida.com.br', 'brenda.romano@hapvida.com.br', 'emanueloliveira005@outlook.com', 'marcelo.alima@hapvida.com.br'];
-  const EXECUTIVO_EMAILS = ['jonathan.lsilva@hapvida.com.br', 'agatha.sakamoto@hapvida.com.br', 'patricia.monks@hapvida.com.br', 'pablo.amora@hapvida.com.br', 'psergiora@hotmail.com', 'daniel.vsoares@hapvida.com.br', 'helo.alvesmesquita@gmail.com'];
+  const ADMIN_EMAILS = ['victor.oliveirae@hapvida.com.br', 'estevao.cardoso@hapvida.com.br', 'amanda.ksilva@hapvida.com.br', 'brenda.romano@hapvida.com.br', 'emanueloliveira005@outlook.com', 'marcelo.alima@hapvida.com.br', 't_alexandre.calixto@hapvida.com.br'];
+  const EXECUTIVO_EMAILS = ['jonathan.lsilva@hapvida.com.br', 'agatha.sakamoto@hapvida.com.br', 'patricia.monks@hapvida.com.br', 'pablo.amora@hapvida.com.br', 'psergiora@hotmail.com', 'daniel.vsoares@hapvida.com.br', 'helo.alvesmesquita@gmail.com', 'camila.pertinhez@hapvida.com.br'];
   const norm = e => String(e || '').trim().toLowerCase();
   const ADMIN_SET = new Set(ADMIN_EMAILS.map(norm));
   const ALLOWED_SET = new Set(ADMIN_EMAILS.concat(EXECUTIVO_EMAILS).map(norm));
   const EMAIL_STORAGE_KEY = 'cl_signin_email';
+  // E-mails com acesso ao painel mas SEM a aba Elegibilidade (pedido do Victor, 2026-09-08:
+  // t_alexandre.calixto e camila.pertinhez têm login, mas não podem ver Elegibilidade). Vira
+  // window.__noEleg__ no login (ver onAuthStateChanged abaixo) — checado em showView('el') e
+  // usado pra esconder o botão da barra lateral. É uma trava só de tela (mesma ressalva do
+  // gate inteiro: data.json continua carregado por baixo pra quem está logado).
+  const NO_ELEG_EMAILS = new Set(['t_alexandre.calixto@hapvida.com.br', 'camila.pertinhez@hapvida.com.br'].map(norm));
 
   window.__userRole__ = null;
+  window.__noEleg__ = false;
   window.__userEmail__ = null;
 
   const IS_LOCAL_TEST = window.location.hostname === '' || /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
@@ -1126,6 +1133,7 @@
     'agatha.sakamoto@hapvida.com.br': 'Agatha', 'patricia.monks@hapvida.com.br': 'Patricia',
     'pablo.amora@hapvida.com.br': 'Pablo', 'psergiora@hotmail.com': 'Pablo', 'daniel.vsoares@hapvida.com.br': 'Daniel',
     'helo.alvesmesquita@gmail.com': 'Helo', 'marcelo.alima@hapvida.com.br': 'Marcelo',
+    't_alexandre.calixto@hapvida.com.br': 'Alexandre', 'camila.pertinhez@hapvida.com.br': 'Camila',
   };
   // Pedido do Victor, 2026-08-31: em vez de só sumir com fade, dar um momento de "bem-vindo"
   // — o cartão do formulário vira um check animado + saudação com o primeiro nome, segura um
@@ -1216,7 +1224,7 @@
     window.__userRole__ = 'admin';
     window.__userEmail__ = 'teste.local@dashboard-v2';
     gate.style.display = 'none';
-    document.dispatchEvent(new CustomEvent('authReady', { detail: { role: 'admin', email: window.__userEmail__ } }));
+    document.dispatchEvent(new CustomEvent('authReady', { detail: { role: 'admin', email: window.__userEmail__, noEleg: false } }));
   } else if (!completingLink){
     // Ainda não sabemos se existe sessão salva (onAuthStateChanged é assíncrono) — mostra
     // "Verificando seu acesso..." no lugar do formulário até ele responder, em vez do
@@ -1234,6 +1242,7 @@
     if (!user){
       window.__userRole__ = null;
       window.__userEmail__ = null;
+      window.__noEleg__ = false;
       document.getElementById('authGateCard').style.display = 'flex';
       gate.style.display = 'flex';
       gate.style.opacity = '1';
@@ -1248,9 +1257,10 @@
     }
     window.__userEmail__ = user.email;
     window.__userRole__ = ADMIN_SET.has(email) ? 'admin' : 'executivo';
+    window.__noEleg__ = NO_ELEG_EMAILS.has(email);
     setError('');
     showWelcomeThenFade(user.email);
-    document.dispatchEvent(new CustomEvent('authReady', { detail: { role: window.__userRole__, email: window.__userEmail__ } }));
+    document.dispatchEvent(new CustomEvent('authReady', { detail: { role: window.__userRole__, email: window.__userEmail__, noEleg: window.__noEleg__ } }));
   });
 })();
 </script>
@@ -2421,6 +2431,10 @@ window.debounce = function(fn, ms){
   return function(...args){ clearTimeout(t); t = setTimeout(()=>fn.apply(this, args), ms); };
 };
 function showView(view){
+  // Trava de tela pra e-mails em NO_ELEG_EMAILS (ver auth <script> lá em cima) — cobre não só
+  // o clique no botão da barra lateral, mas qualquer chamada de showView('el') no código
+  // (ex.: o atalho de busca global em execSearchResultsCards). Pedido do Victor, 2026-09-08.
+  if (view === 'el' && window.__noEleg__) view = 'overview';
   document.getElementById('viewOverview').classList.toggle('active', view==='overview');
   document.getElementById('viewMj').classList.toggle('active', view==='mj');
   document.getElementById('viewEl').classList.toggle('active', view==='el');
@@ -2453,6 +2467,12 @@ document.getElementById('navBtnEl').addEventListener('click', ()=>showView('el')
 document.getElementById('navBtnCompare').addEventListener('click', ()=>showView('compare'));
 document.getElementById('navBtnRank').addEventListener('click', ()=>showView('rank'));
 document.getElementById('navBtnConversao').addEventListener('click', ()=>showView('conversao'));
+// Some o botão da Elegibilidade da barra lateral pra quem está em NO_ELEG_EMAILS (evento
+// disparado pelo auth <script> lá em cima, no login) — showView('el') já bloqueia por trás
+// mesmo se o botão aparecer por algum motivo (defesa dupla). Pedido do Victor, 2026-09-08.
+document.addEventListener('authReady', (e) => {
+  if (e.detail && e.detail.noEleg) document.getElementById('navBtnEl').style.display = 'none';
+});
 window.rankInitialized = false;
 let PUBLISHED_AT = window.__DASH_DATA__.publishedAt || "";
 document.getElementById('sidebarUpdatedAt').textContent = PUBLISHED_AT || new Date().toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'});
