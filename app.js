@@ -3984,10 +3984,30 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // computePeriodElegRank já usa pro período corrente. Resolvido uma vez fora do loop.
     const curTri = (typeof PERIOD_DEFS !== 'undefined' && PERIOD_DEFS.trimestre && PERIOD_DEFS.trimestre.length)
       ? PERIOD_DEFS.trimestre[PERIOD_DEFS.trimestre.length - 1] : null;
+    // Índice do mês que o extrato do BI de HOJE deve corrigir — achado real 2026-09-09
+    // (Victor: "eu ainda preciso atualizar agosto, porém... a elegibilidade não bate por
+    // justamente as regras já estar focando em setembro"). A grade de comissão só fecha de
+    // verdade no dia 10 do mês seguinte (regra dada pelo Victor); antes disso, escrever
+    // sempre no ÚLTIMO índice (como este código sempre fez) é seguro enquanto o último mês
+    // ainda É o mês em fechamento — mas quebra assim que a Hapvida abre a coluna do mês novo
+    // na planilha mestre "Elegibilidade completa" (aconteceu hoje, virou Setembro): a partir
+    // daí, qualquer correção tardia de Agosto vinda do extrato diário passaria a cair, por
+    // engano, na coluna de Setembro. Do dia 1 ao 10, mira no mês ANTERIOR ao calendário atual;
+    // do dia 11 em diante, mira no mês corrente — igual ao critério que o próprio Victor usa
+    // pra saber se "ainda está terminando" o mês passado. Cai pro último índice existente
+    // quando o mês-alvo ainda nem tem coluna (ex.: dia 15, mas o mês corrente ainda não foi
+    // aberto na planilha mestre) — não tem onde escrever, mantém o comportamento de sempre.
+    const graceNow = new Date();
+    let graceTargetY = graceNow.getFullYear(), graceTargetM = graceNow.getMonth() + 1; // 1-12
+    if (graceNow.getDate() <= 10){
+      graceTargetM -= 1;
+      if (graceTargetM < 1){ graceTargetM = 12; graceTargetY -= 1; }
+    }
+    const graceIdx = (graceTargetY - 2025) * 12 + (graceTargetM - 1); // mesmo índice que MONTH_LABELS (0 = Jan/2025)
     DATA.forEach(d => {
       const c = allCorretoras[window.normalizeCodigo(d.c)];
       if (c){
-        const lastIdx = d.m.length - 1;
+        const lastIdx = (graceIdx >= 0 && graceIdx < d.m.length) ? graceIdx : d.m.length - 1;
         d.m[lastIdx] = c.total;
         if (d.mc){ d.mc.pf[lastIdx] = c.ind; d.mc.ss[lastIdx] = c.ss; d.mc.pme[lastIdx] = c.pme; }
         d.tot = d.m.reduce((s,v)=>s+v, 0);
