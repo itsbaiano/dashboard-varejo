@@ -1796,7 +1796,11 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
         <button class="btn-reset" id="cqgBtnLimpar">↺ Limpar filtros</button>
       </div>
 
-      <div class="table-wrap" style="margin-top:12px;">
+      <!-- max-height/overflow-y próprios — mesmo motivo do modal "Aguardando Assinatura"
+           (pedido do Victor, 2026-09-09): sem isso, a barra de rolagem horizontal só aparece
+           depois de rolar todas as corretoras até o final, dentro de um modal que já rola
+           verticalmente por conta própria. -->
+      <div class="table-wrap" style="margin-top:12px; max-height:50vh; overflow-y:auto;">
         <table>
           <thead><tr><th>Código</th><th>Corretora</th><th>Gestor</th><th class="num">Vidas (trim.)</th><th>Classificação</th><th class="num">R$/vida</th><th class="num">Bônus (75%)</th><th>Status</th></tr></thead>
           <tbody id="cqgTableBody"></tbody>
@@ -2539,9 +2543,14 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
         </div>
         <button id="btnCloseConvAssin" class="btn-reset">Fechar ✕</button>
       </div>
-      <div class="table-wrap" style="margin-top:16px;">
+      <!-- max-height/overflow-y próprios (pedido do Victor, 2026-09-09) — sem isso, a barra de
+           rolagem horizontal do .table-wrap fica lá no fim das linhas, e com contratos de
+           sobra (ex.: 81) só aparece depois de rolar todo o modal até o final. Rolando a
+           tabela dentro da própria caixa, a barra horizontal fica sempre visível, colada nas
+           linhas que já estão na tela. -->
+      <div class="table-wrap" style="margin-top:16px; max-height:50vh; overflow-y:auto;">
         <table>
-          <thead><tr><th>Contratante</th><th>Corretora</th><th>Motivo</th><th class="num">Vidas</th><th>Desde</th></tr></thead>
+          <thead><tr><th>Contratante</th><th>CNPJ/CPF</th><th>Corretora</th><th>Motivo</th><th class="num">Vidas</th><th>Desde</th></tr></thead>
           <tbody id="convAssinBody"></tbody>
         </table>
       </div>

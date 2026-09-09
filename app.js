@@ -3847,11 +3847,11 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     document.getElementById('convAssinSub').textContent = `${rows.length} contrato${rows.length!==1?'s':''} · ${total} vida${total!==1?'s':''} aguardando assinatura`;
     const motivoLabel = alvo => alvo==='cliente' ? 'Cliente' : (alvo==='decsau' ? 'Declaração de saúde' : (alvo || '—'));
     document.getElementById('convAssinBody').innerHTML = rows.length ? rows.map(r => `<tr>
-        <td>${r.contratante||'—'}</td><td>${r.corretora||'—'}</td>
+        <td>${r.contratante||'—'}</td><td>${r.doc||'—'}</td><td>${r.corretora||'—'}</td>
         <td>${motivoLabel(r.alvo)}</td>
         <td class="num">${r.beneficiarios||0}</td>
         <td>${r.dataCriacao ? r.dataCriacao.split('-').reverse().join('/') : '—'}</td>
-      </tr>`).join('') : '<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:20px;">Nenhum registro.</td></tr>';
+      </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:20px;">Nenhum registro.</td></tr>';
     document.getElementById('convAssinOverlay').style.display = 'flex';
   };
   document.getElementById('btnCloseConvAssin').addEventListener('click', () => { document.getElementById('convAssinOverlay').style.display='none'; });
@@ -5750,6 +5750,21 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (m) return `${m[3]}-${m[2]}-${m[1]}`;
     return s.slice(0,10);
   }
+  // Formata CNPJ (14 dígitos) ou CPF (11 dígitos) pro padrão brasileiro — pedido do Victor,
+  // 2026-09-09: "é interessante aparecer o CNPJ do contratante, pra que os executivos possam
+  // localizar no sistema". Um único helper pros dois formatos porque o arquivo real
+  // (stats_export_gndi) traz "contratante_cnpj" e "contratante_cpf" como colunas separadas —
+  // contrato PJ preenche uma, contrato PF preenche a outra (confirmado no arquivo real de
+  // 09/09: linha de exemplo com "contrato":"pj" tinha as duas colunas não-vazias, então não dá
+  // pra assumir "só uma delas sempre vem vazia" — o CNPJ é preferido quando os dois vêm, já que
+  // foi o que o Victor pediu, mas cai pro CPF se só ele existir).
+  function formatCnpjCpf(v){
+    const digits = String(v==null?'':v).replace(/\D/g,'');
+    if (!digits) return '';
+    if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+    if (digits.length === 11) return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+    return digits; // formato inesperado (nem 11 nem 14 dígitos) — mostra cru em vez de escondido
+  }
   function parseAssinaturaWorkbook(workbook){
     const sheet = findSheet(workbook, 'stats_export_gndi');
     if (!sheet) throw new Error('Não encontrei a aba "stats_export_gndi..." no arquivo de Aguardando Assinatura.');
@@ -5757,7 +5772,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const header = (rows[0]||[]).map(h => String(h||'').trim());
     const idx = name => header.indexOf(name);
     const iAlvo = idx('alvo'), iGestor = idx('GESTOR'), iCorretora = idx('CORRETORA'),
-          iData = idx('datacriacao'), iBenef = idx('beneficiarios'), iContratante = idx('contratante_nome');
+          iData = idx('datacriacao'), iBenef = idx('beneficiarios'), iContratante = idx('contratante_nome'),
+          iCnpj = idx('contratante_cnpj'), iCpf = idx('contratante_cpf');
     if ([iAlvo,iGestor].some(i=>i<0)) throw new Error('A aba não tem as colunas esperadas ("alvo", "GESTOR") — confirme que já rodou o cruzamento de GESTOR/CORRETORA antes de subir este arquivo.');
     const data = {};
     for (let i = 1; i < rows.length; i++){
@@ -5765,10 +5781,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const gestorRaw = row[iGestor];
       if (!gestorRaw) continue;
       const gestor = String(gestorRaw).trim();
+      const docRaw = (iCnpj>=0 && row[iCnpj]) ? row[iCnpj] : (iCpf>=0 ? row[iCpf] : null);
       (data[gestor] = data[gestor] || []).push({
         alvo: String(row[iAlvo]||'').trim(),
         corretora: iCorretora>=0 ? String(row[iCorretora]||'').trim() : '',
         contratante: iContratante>=0 ? String(row[iContratante]||'').trim() : '',
+        doc: formatCnpjCpf(docRaw),
         dataCriacao: iData>=0 ? assinaturaDateToStr(row[iData]) : '',
         beneficiarios: iBenef>=0 ? num(row[iBenef]) : 1,
       });
