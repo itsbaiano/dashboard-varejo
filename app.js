@@ -1275,7 +1275,22 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // Régua depende da era do período avaliado: 3TRI26+ usa ×0,80; anteriores ×1,10
     const factor = isNewEra(selectedMonths) ? 0.80 : 1.10;
     const meta = prevMonths ? prevTotal * factor : 0;
-    const el = (meta > 0 && periodTotal >= meta) ? 1 : 0;
+    let el = (meta > 0 && periodTotal >= meta) ? 1 : 0;
+    // Mês único, já superado como "mês vigente" (ex.: Agosto depois que Setembro chegou) —
+    // achado real 2026-09-09 (Victor: "se você olhar na planilha que tem a coluna de agosto,
+    // vai ver que a quantidade de elegíveis não bate"). O "el" calculado acima (mês isolado vs
+    // mês anterior × fator) é uma conta PRÓPRIA — nunca foi a régua oficial da Hapvida (sempre
+    // por trimestre, ver o branch isCurrentPeriod acima) e por isso nunca batia com o arquivo
+    // mestre real (92 elegíveis reais vs 106 inventados, no caso de Agosto). Quando existe um
+    // retrato salvo de "qual era a classificação oficial quando esse mês ainda era o vigente"
+    // (d.elByMonth[idx], gravado por updateEligibilidadeData/applyCorretorasToEligibilidade —
+    // ver comentários lá), usa ele no lugar — meta/factor continuam os mesmos de sempre (só
+    // informativos aqui, nenhuma tela soma/usa esse "meta" pra decidir "el"). Só se aplica a mês
+    // único (não a trimestre/semestre/ano explícito, que continuam como estavam — não reportado
+    // como problema, não mexido por segurança).
+    if (selectedMonths.length === 1 && d.elByMonth && d.elByMonth[selectedMonths[0]] !== undefined){
+      el = d.elByMonth[selectedMonths[0]];
+    }
     return { periodTotal, meta, el, rk, factor };
   }
 
@@ -4024,6 +4039,13 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           d.meta3tri = calc.meta;
           d.el = calc.el;
           d.rk = calc.rk;
+          // Mantém o retrato histórico (d.elByMonth, ver updateEligibilidadeData/
+          // computePeriodElegRank) em dia junto com o mês sendo corrigido agora — assim, se
+          // Setembro virar o mês vigente antes de Agosto de fato fechar, o filtro "Mensal →
+          // Agosto" ainda mostra a classificação oficial mais recente conhecida pra Agosto,
+          // em vez de cair de volta pra uma conta inventada.
+          if (!d.elByMonth) d.elByMonth = {};
+          d.elByMonth[lastIdx] = calc.el;
         }
         atualizadas++;
       }
@@ -4069,7 +4091,34 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     return found;
   };
   window.updateEligibilidadeData = function(newRecords){
-    DATA = newRecords;
+    // Funde com o DATA já existente em vez de substituir tudo — achado real 2026-09-09,
+    // thread "Agosto não bate": (1) uma planilha mestre mais ANTIGA/mais curta (ex.: reimportar
+    // o arquivo só-Agosto depois de já ter o com Setembro) nunca deve encolher m[]/mc[] de quem
+    // já tem mais meses — só serve pra corrigir o retrato histórico daquele mês específico (ver
+    // elByMonth abaixo), mesma ideia da "correção de mês passado" que o Desempenho Comercial já
+    // tinha. (2) d.elByMonth[idx] guarda a classificação OFICIAL (d.el da época) de cada mês, no
+    // instante em que ele ainda era o vigente — sem isso, o mês anterior "esquece" seu valor
+    // real assim que um mês novo assume, e computePeriodElegRank precisava inventar uma conta
+    // própria (mês isolado vs anterior × fator) pra mês passado — nunca batia com o arquivo
+    // mestre real da Hapvida (92 elegíveis reais vs 106 inventados, no caso de Agosto).
+    const oldByCode = {};
+    DATA.forEach(d => { oldByCode[window.normalizeCodigo(d.c)] = d; });
+    DATA = newRecords.map(rec => {
+      const old = oldByCode[window.normalizeCodigo(rec.c)];
+      const fileLastIdx = rec.m.length - 1;
+      if (old && old.m && old.m.length > rec.m.length){
+        // Arquivo mais curto que o que já tínhamos — só atualiza o retrato histórico do mês
+        // que ele cobre, mantém m/mc/el/rk/tot atuais (mais completos) intocados.
+        const elByMonth = Object.assign({}, old.elByMonth);
+        elByMonth[fileLastIdx] = rec.el;
+        return Object.assign({}, old, { elByMonth });
+      }
+      // Arquivo do tamanho normal (igual ou mais recente) — vira a base nova, carregando o
+      // retrato histórico anterior + grava o retrato deste mês também.
+      const elByMonth = Object.assign({}, old && old.elByMonth);
+      elByMonth[fileLastIdx] = rec.el;
+      return Object.assign({}, rec, { elByMonth });
+    });
     refreshMonthDerivedState();
     EL_GESTORES.length = 0;
     [...new Set(DATA.map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
