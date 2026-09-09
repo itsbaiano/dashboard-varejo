@@ -37,7 +37,7 @@
   :root{
     --primary-dark:#101E63; --primary-mid:#1D33A8; --primary-light:#2E52D4;
     --accent-gold:#FFB81C; --accent-coral:#F26B21; --accent-mint:#16B87A; --accent-red:#F5364A;
-    --bg-main:#F3F6FE; --bg-card:#FFFFFF; --border-light:#E3E9F8;
+    --bg-main:#EEF2FE; --bg-card:#FFFFFF; --border-light:#E3E9F8;
     --text-primary:#131C4F; --text-secondary:#56608F; --text-muted:#8B93B8;
 
     /* paleta do novo cabeçalho (.dash-header) — trazida pro :root pra dar pra usar
@@ -233,7 +233,14 @@
   .view-tab-btn:not(.active):hover{background:#f1f5f9; color:var(--navy);}
 
   .view-panel{display:none;}
-  .view-panel.active{display:block;}
+  /* Suaviza a troca de aba (pedido do Victor, 2026-09-09) — só a entrada, de propósito: um
+     fade nos dois sentidos (sair E entrar) precisaria atrasar a troca de display:none pra
+     block, o que atrapalharia o "pular pro time do sênior" (jumpToMetaJunho rola a tela até
+     mjKpiRow 30ms depois de chamar showView — se a troca real ficasse pra depois desse tempo,
+     o scrollIntoView rodaria num painel ainda invisível e não faria nada). Só a entrada evita
+     esse risco e já resolve o "corte seco" que o Victor notou. */
+  @keyframes viewPanelIn{ from{opacity:0;} to{opacity:1;} }
+  .view-panel.active{display:block; animation:viewPanelIn .18s ease-out;}
 
   /* ===== KPI ===== */
   .kpi-row{display:grid; gap:16px; margin-bottom:20px;}
@@ -371,11 +378,26 @@
     box-shadow:0 0 0 3px rgba(46,82,212,.14);
   }
   .f-group input[type=text]{min-width:220px;}
+  /* Destaque de filtro ativo (pedido do Victor, 2026-09-09) — mesmo critério de "fatia
+     estreita" que isAnyFilterActive() em app.js já usa pra decidir se troca os gráficos por
+     lista, aqui aplicado campo a campo pelo updateActiveFilterHighlights() (chamado de dentro
+     de applyFilters(), então já roda em toda troca de filtro e no carregamento inicial). */
+  .f-group.is-filtered select, .f-group.is-filtered input[type=text]{
+    border-color:var(--primary-light); background-color:rgba(46,82,212,.07);
+    box-shadow:0 0 0 1px rgba(46,82,212,.12);
+  }
+  .f-group.is-filtered label{color:var(--primary-mid);}
+  .f-group.is-filtered label::after{content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--primary-light); margin-left:5px; vertical-align:middle;}
+  .f-toggle.is-filtered label{color:var(--primary-mid); font-weight:700;}
   .f-toggle{display:flex; align-items:center; gap:8px; padding:8px 0;}
   .f-toggle input{width:16px; height:16px; accent-color:var(--accent-coral);}
   .f-toggle label{font-size:13px; font-weight:600; color:var(--text); cursor:pointer;}
   .btn-reset{padding:9px 17px; border-radius:10px; border:1.5px solid var(--line); background:#fff; color:var(--muted); font-size:12px; font-weight:700; cursor:pointer; transition:all .15s ease;}
   .btn-reset:hover{background:var(--primary-dark); border-color:var(--primary-dark); color:#fff;}
+  /* Botão "Conquista Premiada" realocado pra fora da barra de filtros (pedido do Victor,
+     2026-09-09) — fica numa fileira própria, alinhado à direita, acima dos modos
+     Corretoras/Assessorias da Elegibilidade. */
+  .conquista-cta{display:flex; justify-content:flex-end; margin-bottom:16px;}
   .result-count{font-size:12px; color:var(--muted); margin-left:auto; align-self:center; font-weight:600;}
 
   /* ===== REACTIVATION BANNER ===== */
@@ -528,7 +550,7 @@
   .ic-dot{color:#16B87A;}
 
   /* ===== v8: REDESIGN VISUAL — identidade Hapvida ===== */
-  body{background:linear-gradient(180deg,#F3F6FE 0%,#ECF1FC 100%); background-attachment:fixed;}
+  body{background:linear-gradient(180deg,#EEF2FE 0%,#E4EBFC 100%); background-attachment:fixed;}
   .logo-chip{background:#fff; border-radius:13px; padding:10px 13px; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(0,0,0,.22);}
   .logo-chip img{width:100%; max-width:158px; height:auto; display:block;}
   .sidebar{background:radial-gradient(420px 360px at 50% -10%, rgba(61,126,245,.22), transparent 60%), linear-gradient(180deg, var(--dh-navy-950) 0%, var(--dh-navy-900) 55%, var(--dh-navy-800) 100%);}
@@ -909,6 +931,10 @@
     background-color:var(--card) !important; color:var(--text) !important; border-color:var(--line) !important;
   }
   [data-theme="dark"] .f-group select:focus, [data-theme="dark"] .f-group input[type=text]:focus{ background-color:var(--card) !important; }
+  [data-theme="dark"] .f-group.is-filtered select, [data-theme="dark"] .f-group.is-filtered input[type=text]{
+    background-color:rgba(46,82,212,.18) !important; border-color:var(--primary-light) !important;
+  }
+  [data-theme="dark"] .f-group.is-filtered label, [data-theme="dark"] .f-toggle.is-filtered label{ color:#8FA6F5 !important; }
   [data-theme="dark"] .btn-reset{ background:var(--card); color:var(--text); border-color:var(--line); }
   [data-theme="dark"] .pagination button{ background:var(--card) !important; color:var(--text); border-color:var(--line); }
   [data-theme="dark"] #importModal, [data-theme="dark"] #pendModal, [data-theme="dark"] #resumoModal,
@@ -1389,13 +1415,15 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
 
   // Mesma lista de seções que buildDataJson() monta pra publicar (mais abaixo no arquivo,
   // antes da separação em app.js) — se um campo novo entrar lá, precisa entrar aqui também.
-  // Nota: sem 'CARTEIRA_MAP' aqui — diferente do V2, o buildDataJson() do V1 (mais abaixo,
-  // antes da separação em app.js) nunca publicou esse campo. Mantendo o comportamento atual
-  // do V1 como está; reconciliar isso com o V2 é assunto separado desta migração.
+  // 'CARTEIRA_MAP' adicionado 2026-09-09 — porta pro V1 o fix que já estava em produção no
+  // V2 desde 2026-08-27 (Victor: "quando eu importo apenas a planilha do BI, ele está
+  // pedindo a planilha do banco de dados"): antes o código→gestor só vivia na memória da
+  // aba, então resetava a cada F5/nova sessão. Agora persiste junto com o resto — só precisa
+  // subir a Carteira de novo quando ela mudar de verdade.
   const FS_SECTIONS = ['MJ_TEAMS_BY_MONTH','currentMonth','PENDENCIAS_PME','PENDENCIAS_PF',
     'PENDENCIAS_ASSINATURA','MJ_CORRETORAS_BY_MONTH','MJ_NAO_ATRIBUIDO_BY_MONTH','MJ_BENCHMARK',
     'DATA','RANKDATA','PROPOSTAS','SLA_HISTORICO','DAILY_SNAPSHOTS','CONV_ONTEM_HOJE',
-    'RANK_CUR_LABEL','RANK_PREV_LABEL','publishedAt'];
+    'RANK_CUR_LABEL','RANK_PREV_LABEL','CARTEIRA_MAP','publishedAt'];
 
   // Chamada pelo auth <script> (lá em cima) assim que o login confirma que a pessoa está na
   // allowlist_v1 — busca todas as seções em paralelo, monta window.__DASH_DATA__ do mesmo
@@ -1976,8 +2004,16 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
         <button class="vs-btn" data-mode="assessorias">Assessorias</button>
       </div>
       <button class="btn-reset" id="btnReset">Limpar filtros</button>
-      <button class="btn-reset" id="btnOpenConquista" style="background:linear-gradient(135deg, var(--accent-coral), var(--accent-gold)); color:#fff; border:none; font-weight:700;"><i class=ic-trophy></i> Conquista Premiada</button>
       <div class="result-count" id="resultCount"></div>
+    </div>
+
+    <!-- "Conquista Premiada" saiu da barra de filtros (pedido do Victor, 2026-09-09) — é uma
+         chamada pra um recurso/campanha, não um controle de filtro, então ficava misturado com
+         fGestor/fEleg/etc. na mesma fileira. Fica fora dos dois modos (Corretoras/Assessorias)
+         de propósito, pra continuar visível nos dois — o botão mantém o mesmo id, então o
+         show/hide por período em app.js (linha ~3103) não precisa mudar. -->
+    <div class="conquista-cta">
+      <button class="btn-reset" id="btnOpenConquista" style="background:linear-gradient(135deg, var(--accent-coral), var(--accent-gold)); color:#fff; border:none; font-weight:700;"><i class=ic-trophy></i> Conquista Premiada</button>
     </div>
 
     <!-- ===== MODO CORRETORAS ===== -->

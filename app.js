@@ -1408,6 +1408,14 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
 
   let DATA = window.__DASH_DATA__.DATA;
   let RANKDATA = window.__DASH_DATA__.RANKDATA;
+  // Carteira (código→gestor) publicada junto com o resto — antes só existia na memória da
+  // aba onde foi importada, então tinha que ser subida de novo toda vez que alguém abria o
+  // dashboard pra atualizar o dia (Victor, 2026-09-09: "quando eu importo apenas a planilha
+  // do BI, ele está pedindo a planilha do banco de dados"). Mesmo fix já validado e em
+  // produção no V2 desde 2026-08-27 — só faltava portar pro V1, ver comentário no FS_SECTIONS
+  // em index.html. Agora subir ela uma vez (ou quando ela mudar de verdade) já basta: fica
+  // disponível pra todo mundo a partir da próxima publicação.
+  window.CARTEIRA_MAP = window.__DASH_DATA__.CARTEIRA_MAP || null;
   let PROPOSTAS = window.__DASH_DATA__.PROPOSTAS;
   let RANK_CUR_LABEL = window.__DASH_DATA__.RANK_CUR_LABEL;
   let RANK_PREV_LABEL = window.__DASH_DATA__.RANK_PREV_LABEL;
@@ -1494,7 +1502,29 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   let activeKpiFilter = null; // null | 'eleg' | 'quase' | 'risco' | 'distantes'
   function isReactivation(d){ return d.u3 === 0 && d.tot >= 20; }
 
+  // Destaca visualmente (classe .is-filtered, ver CSS) os campos de filtro da Elegibilidade
+  // que estão com valor diferente do padrão — mesmo critério de "fatia estreita" que
+  // isAnyFilterActive() já usa, só que por campo em vez de agregado (pedido do Victor,
+  // 2026-09-09). Chamada de dentro de applyFilters() pra rodar em toda troca de filtro e
+  // também no carregamento inicial da aba, sem precisar de listeners próprios.
+  function updateActiveFilterHighlights(){
+    const fields = [
+      [selGestor, selGestor.value !== ''],
+      [document.getElementById('fEleg'), document.getElementById('fEleg').value !== ''],
+      [selRank, selRank.value !== ''],
+      [document.getElementById('fSearch'), document.getElementById('fSearch').value.trim() !== '']
+    ];
+    fields.forEach(function(pair){
+      var grp = pair[0].closest('.f-group');
+      if (grp) grp.classList.toggle('is-filtered', pair[1]);
+    });
+    var reactBox = document.getElementById('fReact');
+    var reactGroup = reactBox.closest('.f-toggle');
+    if (reactGroup) reactGroup.classList.toggle('is-filtered', reactBox.checked);
+  }
+
   function applyFilters(){
+    updateActiveFilterHighlights();
     const g = selGestor.value, el = document.getElementById('fEleg').value, rk = selRank.value;
     const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
     // No modo assessorias, a busca filtra assessorias (aplicada em aggregateAssessorias), não corretoras
@@ -6076,6 +6106,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       CONV_ONTEM_HOJE: window.getConvOntemHoje ? window.getConvOntemHoje() : {},
       RANK_CUR_LABEL: window.getRankLabels ? window.getRankLabels().cur : 'Mês atual',
       RANK_PREV_LABEL: window.getRankLabels ? window.getRankLabels().prev : 'Mês anterior',
+      CARTEIRA_MAP: window.CARTEIRA_MAP || null,
       // Grava o momento da publicação DENTRO do dado — antes esse "Última atualização"
       // vinha de um texto fixo no index.html (PUBLISHED_AT), que só mudava quando alguém
       // editava o código; agora acompanha de verdade cada publicação de dados.
