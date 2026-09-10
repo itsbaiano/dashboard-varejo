@@ -3867,6 +3867,27 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       RANK_CUR_LABEL = mesLabel(detectedMonth);
       RANK_PREV_LABEL = mesLabel(shiftMonth(detectedMonth, -1));
     }
+    // GESTOR_EQUIPE é indexado pelo nome CRU completo em maiúsculas (ex.: "PABLO SERGIO
+    // RIBEIRO AMORA") — mas "g" (abaixo) às vezes chega no nome BONITO, que pra alguns
+    // gestores é abreviado (ex.: "Pablo Amora", sem o nome do meio — ver
+    // FULL_19_GESTOR_RAW_MAP/window.getGestorFriendlyName). Um simples .toUpperCase() só
+    // resolve os gestores cujo nome bonito é o nome completo (ex.: "Camila Alves
+    // Pertinhez") — continua falhando pra quem tem abreviação de verdade. Achado real
+    // 2026-09-10, mesma thread do "Ranking de vendas instável ao filtrar": Jonathan Leal e
+    // Pablo Amora (Cauda Longa) tinham venda real no RANKDATA mas ficavam com e:'—',
+    // porque "JONATHAN LEAL"/"PABLO AMORA" (maiúsculo do nome bonito) não batem com as
+    // chaves completas de GESTOR_EQUIPE. Resolvido traduzindo cada chave de GESTOR_EQUIPE
+    // pro nome bonito equivalente (mesma função que já resolve o sentido contrário em
+    // outras telas) e montando o mapa reverso uma vez por import — cobre os dois formatos
+    // que "g" pode assumir, sem precisar adivinhar qual caminho gerou a linha.
+    const EQUIPE_BY_FRIENDLY = {};
+    if (window.getGestorFriendlyName){
+      Object.keys(GESTOR_EQUIPE).forEach(raw => { EQUIPE_BY_FRIENDLY[window.getGestorFriendlyName(raw)] = GESTOR_EQUIPE[raw]; });
+    }
+    function resolveEquipe(g){
+      const gStr = String(g||'');
+      return EQUIPE_BY_FRIENDLY[gStr] || GESTOR_EQUIPE[gStr.toUpperCase()] || '—';
+    }
     // Mantém o que já existe se um dos lados não vier
     const curMap = {}, prevMap = {};
     if (curList) curList.forEach(r => curMap[r.c] = r);
@@ -3958,18 +3979,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         const pIdx = detectedIdx - 1;
         if (pIdx >= 0 && (m[pIdx] === undefined || m[pIdx] === null)) m[pIdx] = prevVal;
       }
-      // GESTOR_EQUIPE é indexado pelo nome CRU em maiúsculas (ex.: "CAMILA ALVES
-      // PERTINHEZ") — mas "g" nem sempre chega assim: quando a linha veio do extrato
-      // isolado do BI (corretorasRawToRankList, upload só do "Corretoras", sem o "NDI SP
-      // - Por Gestor" completo), g é o nome JÁ BONITO ("Camila Alves Pertinhez",
-      // maiúscula só na inicial) — achado real 2026-09-10 (Victor: "Ranking de vendas
-      // está instável ao filtrar" — toda corretora com venda vinda só desse caminho
-      // ficava sem equipe (e:'—'), então sumia de QUALQUER filtro de Equipe específico,
-      // mesmo aparecendo normalmente em "Todas as equipes" que não olha esse campo).
-      // .toUpperCase() cobre os dois formatos: já vem maiúsculo (não muda nada) ou vem
-      // no formato bonito (vira a mesma chave que GESTOR_EQUIPE usa).
       merged.push({
-        c, n: base.n || '', g, e: GESTOR_EQUIPE[String(g||'').toUpperCase()] || '—', ass, acod,
+        c, n: base.n || '', g, e: resolveEquipe(g), ass, acod,
         cur: curVal, prev: prevVal,
         ind: cu ? cu.ind : 0, pim: cu ? cu.pim : 0, mid: cu ? cu.mid : 0, adm: cu ? cu.adm : 0,
         m, mc,
