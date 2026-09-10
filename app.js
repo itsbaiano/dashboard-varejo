@@ -3958,8 +3958,18 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         const pIdx = detectedIdx - 1;
         if (pIdx >= 0 && (m[pIdx] === undefined || m[pIdx] === null)) m[pIdx] = prevVal;
       }
+      // GESTOR_EQUIPE é indexado pelo nome CRU em maiúsculas (ex.: "CAMILA ALVES
+      // PERTINHEZ") — mas "g" nem sempre chega assim: quando a linha veio do extrato
+      // isolado do BI (corretorasRawToRankList, upload só do "Corretoras", sem o "NDI SP
+      // - Por Gestor" completo), g é o nome JÁ BONITO ("Camila Alves Pertinhez",
+      // maiúscula só na inicial) — achado real 2026-09-10 (Victor: "Ranking de vendas
+      // está instável ao filtrar" — toda corretora com venda vinda só desse caminho
+      // ficava sem equipe (e:'—'), então sumia de QUALQUER filtro de Equipe específico,
+      // mesmo aparecendo normalmente em "Todas as equipes" que não olha esse campo).
+      // .toUpperCase() cobre os dois formatos: já vem maiúsculo (não muda nada) ou vem
+      // no formato bonito (vira a mesma chave que GESTOR_EQUIPE usa).
       merged.push({
-        c, n: base.n || '', g, e: GESTOR_EQUIPE[g] || '—', ass, acod,
+        c, n: base.n || '', g, e: GESTOR_EQUIPE[String(g||'').toUpperCase()] || '—', ass, acod,
         cur: curVal, prev: prevVal,
         ind: cu ? cu.ind : 0, pim: cu ? cu.pim : 0, mid: cu ? cu.mid : 0, adm: cu ? cu.adm : 0,
         m, mc,
