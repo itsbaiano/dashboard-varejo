@@ -1142,7 +1142,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
 
   // Administrador: publica pra todo mundo. Executivo: só prévia na própria tela.
   // Pra dar acesso a mais alguém, basta adicionar o e-mail na lista certa.
-  const ADMIN_EMAILS = ['victor.oliveirae@hapvida.com.br', 'estevao.cardoso@hapvida.com.br', 'amanda.ksilva@hapvida.com.br', 'brenda.romano@hapvida.com.br', 'emanueloliveira005@outlook.com', 'marcelo.alima@hapvida.com.br', 't_alexandre.calixto@hapvida.com.br'];
+  const ADMIN_EMAILS = ['victor.oliveirae@hapvida.com.br', 'estevao.cardoso@hapvida.com.br', 'amanda.ksilva@hapvida.com.br', 'brenda.romano@hapvida.com.br', 'emanueloliveira005@outlook.com', 'marcelo.alima@hapvida.com.br', 't_alexandre.calixto@hapvida.com.br', 'emily.franca@hapvida.com.br'];
   const EXECUTIVO_EMAILS = ['jonathan.lsilva@hapvida.com.br', 'agatha.sakamoto@hapvida.com.br', 'patricia.monks@hapvida.com.br', 'pablo.amora@hapvida.com.br', 'psergiora@hotmail.com', 'daniel.vsoares@hapvida.com.br', 'helo.alvesmesquita@gmail.com', 'camila.pertinhez@hapvida.com.br'];
   const norm = e => String(e || '').trim().toLowerCase();
   const ADMIN_SET = new Set(ADMIN_EMAILS.map(norm));
@@ -1153,7 +1153,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   // window.__noEleg__ no login (ver onAuthStateChanged abaixo) — checado em showView('el') e
   // usado pra esconder o botão da barra lateral. É uma trava só de tela (mesma ressalva do
   // gate inteiro: data.json continua carregado por baixo pra quem está logado).
-  const NO_ELEG_EMAILS = new Set(['t_alexandre.calixto@hapvida.com.br', 'camila.pertinhez@hapvida.com.br'].map(norm));
+  const NO_ELEG_EMAILS = new Set(['t_alexandre.calixto@hapvida.com.br', 'camila.pertinhez@hapvida.com.br', 'emily.franca@hapvida.com.br'].map(norm));
 
   window.__userRole__ = null;
   window.__noEleg__ = false;
@@ -1200,6 +1200,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     'pablo.amora@hapvida.com.br': 'Pablo', 'psergiora@hotmail.com': 'Pablo', 'daniel.vsoares@hapvida.com.br': 'Daniel',
     'helo.alvesmesquita@gmail.com': 'Helo', 'marcelo.alima@hapvida.com.br': 'Marcelo',
     't_alexandre.calixto@hapvida.com.br': 'Alexandre', 'camila.pertinhez@hapvida.com.br': 'Camila',
+    'emily.franca@hapvida.com.br': 'Emily',
   };
   // Pedido do Victor, 2026-08-31: em vez de só sumir com fade, dar um momento de "bem-vindo"
   // — o cartão do formulário vira um check animado + saudação com o primeiro nome, segura um
