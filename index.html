@@ -208,10 +208,28 @@
   .dh-team-member:hover{background:rgba(255,255,255,.1);}
   .dh-team-member .dh-avatar{width:26px; height:26px; font-size:11px;}
   .dh-team-member span{font-size:12.5px; color:var(--dh-ice-100); font-weight:500;}
-  .dh-footer{display:flex; align-items:center; gap:7px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,.08);}
-  .dh-live-dot{width:7px; height:7px; border-radius:50%; background:#5ee6a8; box-shadow:0 0 0 0 rgba(94,230,168,.6); animation:dhPulse 2.2s infinite;}
+  .dh-footer{display:flex; align-items:center; gap:7px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,.08); cursor:pointer; user-select:none;}
+  .dh-live-dot{width:7px; height:7px; border-radius:50%; background:#5ee6a8; box-shadow:0 0 0 0 rgba(94,230,168,.6); animation:dhPulse 2.2s infinite; flex-shrink:0;}
+  .dh-live-dot.warn{background:var(--dh-warm-500); animation:dhPulseWarn 2.2s infinite;}
   @keyframes dhPulse{0%{box-shadow:0 0 0 0 rgba(94,230,168,.5);} 70%{box-shadow:0 0 0 7px rgba(94,230,168,0);} 100%{box-shadow:0 0 0 0 rgba(94,230,168,0);}}
-  #dhUpdatedText{font-size:12px; color:var(--dh-blue-300);}
+  @keyframes dhPulseWarn{0%{box-shadow:0 0 0 0 rgba(255,138,61,.5);} 70%{box-shadow:0 0 0 7px rgba(255,138,61,0);} 100%{box-shadow:0 0 0 0 rgba(255,138,61,0);}}
+  #dhUpdatedText{font-size:12px; color:var(--dh-blue-300); font-weight:500;}
+  .dh-chevron-sm{transition:transform .2s ease; opacity:.7; flex-shrink:0;}
+  .dh-footer[aria-expanded="true"] .dh-chevron-sm{transform:rotate(180deg);}
+  /* Painel de status por fonte — mesma mecânica max-height do .dh-team-list, ver comentário no HTML */
+  .dh-status-panel{overflow:hidden; max-height:0; transition:max-height .28s ease;}
+  .dh-status-panel.open{max-height:360px;}
+  .dh-status-grid{display:grid; grid-template-columns:1fr 1fr; gap:5px 24px; padding-top:14px; margin-top:2px;}
+  @media (max-width:640px){ .dh-status-grid{grid-template-columns:1fr;} }
+  .dh-status-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0;}
+  .dh-status-name{font-size:12.5px; font-weight:500; color:var(--dh-ice-100); line-height:1.5;}
+  .dh-status-name b{font-weight:600; color:#fff; display:block;}
+  .dh-status-name small{font-size:10.5px; color:rgba(217,231,251,.55); font-weight:400;}
+  .dh-status-tag{display:inline-flex; align-items:center; font-size:11px; font-weight:700; padding:3px 9px; border-radius:7px; white-space:nowrap; flex-shrink:0;}
+  .dh-status-tag.ok{background:rgba(94,230,168,.16); color:#5ee6a8;}
+  .dh-status-tag.warn{background:rgba(255,193,153,.16); color:var(--dh-warm-300);}
+  .dh-status-tag.stale{background:rgba(255,138,61,.18); color:var(--dh-warm-500);}
+  .dh-status-tag.unknown{background:rgba(255,255,255,.08); color:var(--dh-blue-300);}
   .dh-signature{height:3px; background:linear-gradient(90deg,var(--dh-warm-500),var(--dh-blue-500) 60%); margin:20px -32px -20px;}
   @media (max-width:640px){ .dh-inner{flex-direction:column; align-items:flex-start;} .dh-stats{width:100%; justify-content:space-between;} .dh-divider{display:none;} }
   @media (prefers-reduced-motion:reduce){ .dash-header *{animation:none !important; transition:none !important;} }
@@ -1077,7 +1095,7 @@
    ========================================================= */
 window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
 (function(){
-  var EMPTY = {MJ_TEAMS_BY_MONTH:{}, currentMonth:"", PENDENCIAS_PME:{}, PENDENCIAS_PF:{}, PENDENCIAS_ASSINATURA:{}, MJ_CORRETORAS_BY_MONTH:{}, MJ_NAO_ATRIBUIDO_BY_MONTH:{}, MJ_BENCHMARK:[], DATA:[], RANKDATA:[], PROPOSTAS:[], SLA_HISTORICO:[], DAILY_SNAPSHOTS:{}, CONV_ONTEM_HOJE:{}, RANK_CUR_LABEL:"", RANK_PREV_LABEL:"", CARTEIRA_MAP:null, publishedAt:""};
+  var EMPTY = {MJ_TEAMS_BY_MONTH:{}, currentMonth:"", PENDENCIAS_PME:{}, PENDENCIAS_PF:{}, PENDENCIAS_ASSINATURA:{}, MJ_CORRETORAS_BY_MONTH:{}, MJ_NAO_ATRIBUIDO_BY_MONTH:{}, MJ_BENCHMARK:[], DATA:[], RANKDATA:[], PROPOSTAS:[], SLA_HISTORICO:[], DAILY_SNAPSHOTS:{}, CONV_ONTEM_HOJE:{}, RANK_CUR_LABEL:"", RANK_PREV_LABEL:"", CARTEIRA_MAP:null, LAST_UPDATED_BY_SOURCE:{}, publishedAt:""};
   window.__EMPTY_DASH_DATA__ = EMPTY;
   function showFatalError(msg){
     document.addEventListener('DOMContentLoaded', function(){
@@ -1421,10 +1439,15 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   // pedindo a planilha do banco de dados"): antes o código→gestor só vivia na memória da
   // aba, então resetava a cada F5/nova sessão. Agora persiste junto com o resto — só precisa
   // subir a Carteira de novo quando ela mudar de verdade.
+  // 'LAST_UPDATED_BY_SOURCE' adicionado 2026-09-14 (pedido do Victor: "algo que informe o que
+  // exatamente foi atualizado... BI atualizado, funil não") — guarda, por tipo de arquivo, a
+  // hora real da última vez que foi importado de verdade. Igual ao CARTEIRA_MAP, mora no
+  // Firestore junto com o resto do dado — uma correção de código/republicação no GitHub NUNCA
+  // toca aqui, só um "Confirmar Atualização" de verdade (ver btnConfirmImport em app.js).
   const FS_SECTIONS = ['MJ_TEAMS_BY_MONTH','currentMonth','PENDENCIAS_PME','PENDENCIAS_PF',
     'PENDENCIAS_ASSINATURA','MJ_CORRETORAS_BY_MONTH','MJ_NAO_ATRIBUIDO_BY_MONTH','MJ_BENCHMARK',
     'DATA','RANKDATA','PROPOSTAS','SLA_HISTORICO','DAILY_SNAPSHOTS','CONV_ONTEM_HOJE',
-    'RANK_CUR_LABEL','RANK_PREV_LABEL','CARTEIRA_MAP','publishedAt'];
+    'RANK_CUR_LABEL','RANK_PREV_LABEL','CARTEIRA_MAP','LAST_UPDATED_BY_SOURCE','publishedAt'];
 
   // Chamada pelo auth <script> (lá em cima) assim que o login confirma que a pessoa está na
   // allowlist_v1 — busca todas as seções em paralelo, monta window.__DASH_DATA__ do mesmo
@@ -1530,9 +1553,20 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       </div>
     </div>
 
-    <div class="dh-footer">
-      <span class="dh-live-dot"></span>
+    <!-- Resumo por fonte de dado (pedido do Victor, 2026-09-14: "algo que informe o que
+         exatamente foi atualizado... BI atualizado, funil não") — substitui o antigo
+         "Atualizado há Xs" (que contava a partir do carregamento da página, então uma simples
+         correção de código + reload fazia parecer que o dado tinha acabado de mudar, mesmo sem
+         nada novo importado). Mesma mecânica de abrir/fechar que o "Sêniores" já usa (aria-expanded
+         + max-height) — só que agora nessa linha em vez de num botão à direita. Conteúdo real
+         montado por renderSourceStatus() em app.js, a partir de LAST_UPDATED_BY_SOURCE. -->
+    <div class="dh-footer" id="dhFooter" role="button" tabindex="0" aria-expanded="false" aria-controls="dhStatusPanel">
+      <span class="dh-live-dot" id="dhLiveDot"></span>
       <span id="dhUpdatedText">—</span>
+      <svg class="dh-chevron-sm" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="dh-status-panel" id="dhStatusPanel">
+      <div class="dh-status-grid" id="dhStatusGrid"></div>
     </div>
     <div class="dh-signature"></div>
   </header>

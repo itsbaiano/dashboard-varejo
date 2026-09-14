@@ -16,6 +16,65 @@
   });
 })();
 
+// ===== Status por fonte de dado (pedido do Victor, 2026-09-14: "algo que informe o que
+// exatamente foi atualizado... BI atualizado, funil não") =====
+// Guarda, por tipo de arquivo, a hora real da última vez que foi importado de verdade — mora
+// no Firestore (LAST_UPDATED_BY_SOURCE, ver FS_SECTIONS/buildDataPayload em index.html/mais
+// abaixo), igual ao CARTEIRA_MAP: uma correção de código/republicação no GitHub NUNCA toca
+// aqui, só um "Confirmar Atualização" de verdade. window.markSourceUpdated é chamado pelo
+// btnConfirmImport (IIFE de import, mais abaixo) pra cada arquivo confirmado na rodada.
+// Precisa estar definida ANTES do bloco de baixo (dhFooter), que já chama
+// window.renderSourceStatus() na primeira renderização.
+let LAST_UPDATED_BY_SOURCE = window.__DASH_DATA__.LAST_UPDATED_BY_SOURCE || {};
+window.getLastUpdatedBySource = function(){ return LAST_UPDATED_BY_SOURCE; };
+window.markSourceUpdated = function(key){ LAST_UPDATED_BY_SOURCE[key] = new Date().toISOString(); };
+
+const SOURCE_LABELS = [
+  {key:'corretoras', name:'Extrato do BI', sub:'Corretoras · Ranking · Elegibilidade'},
+  {key:'crescimentoGeral', name:'Crescimento Geral', sub:'Conversão — ontem × hoje'},
+  {key:'funilPme', name:'Funil PME', sub:'Pendências · SLA'},
+  {key:'funilPf', name:'Funil PF', sub:'Pendências · SLA'},
+  {key:'elegibilidade', name:'Elegibilidade completa', sub:'Arquivo mestre Hapvida'},
+  {key:'assinatura', name:'Aguardando Assinatura', sub:'Notificadas'},
+  {key:'carteira', name:'Carteira / Gestores', sub:'Banco de Dados — Comercial'},
+];
+
+function sourceStatusFor(iso){
+  if (!iso) return { tier:'unknown', label:'nunca importado' };
+  const then = new Date(iso);
+  if (isNaN(then.getTime())) return { tier:'unknown', label:'nunca importado' };
+  const now = new Date();
+  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(then)) / 86400000);
+  const hhmm = then.toLocaleString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+  if (diffDays <= 0) return { tier:'ok', label:'hoje, ' + hhmm };
+  if (diffDays === 1) return { tier:'warn', label:'ontem, ' + hhmm };
+  if (diffDays === 2) return { tier:'warn', label:'há 2 dias' };
+  return { tier:'stale', label:'há ' + diffDays + ' dias' };
+}
+
+window.renderSourceStatus = function(){
+  const grid = document.getElementById('dhStatusGrid');
+  const dot = document.getElementById('dhLiveDot');
+  const text = document.getElementById('dhUpdatedText');
+  if (!grid || !dot || !text) return;
+  const rank = {ok:0, warn:1, stale:2};
+  let worst = 'ok', lateCount = 0;
+  grid.innerHTML = SOURCE_LABELS.map(function(s){
+    const st = sourceStatusFor(LAST_UPDATED_BY_SOURCE[s.key]);
+    // "unknown" (nunca importado nessa sessão de dados) não conta como atraso no resumo —
+    // é esperado logo depois desta feature entrar no ar, ainda sem histórico registrado.
+    if (st.tier !== 'unknown' && rank[st.tier] > rank[worst]) worst = st.tier;
+    if (st.tier === 'warn' || st.tier === 'stale') lateCount++;
+    return '<div class="dh-status-row">'
+      + '<span class="dh-status-name"><b>' + s.name + '</b><small>' + s.sub + '</small></span>'
+      + '<span class="dh-status-tag ' + st.tier + '">' + st.label + '</span>'
+      + '</div>';
+  }).join('');
+  dot.classList.toggle('warn', worst !== 'ok');
+  text.textContent = lateCount === 0 ? 'Tudo em dia' : (lateCount + ' fonte' + (lateCount>1?'s':'') + ' atrasada' + (lateCount>1?'s':''));
+};
+
 // ===== extraído de index.html linhas 1520-1541 =====
     (function(){
       // Achado 2026-09-08 testando ao vivo: esse bloco roda mais de uma vez no fluxo de
@@ -34,20 +93,21 @@
         list.classList.toggle('open', !open);
       };
 
-      // "Atualizado há Xs" — igual ao original que você mandou: conta a partir do momento
-      // que a página abriu (não do publishedAt real), pra ficar idêntico ao que foi pedido.
-      // Mesmo cuidado aqui: se esse bloco rodar mais de uma vez, cada setInterval novo teria
-      // seu próprio contador começando do zero — inofensivo (ambos escrevem o mesmo texto no
-      // mesmo ritmo), mas guardamos o id só do último pra não deixar intervalos acumulando à toa.
-      if (window.__dhUpdatedTextInterval__) clearInterval(window.__dhUpdatedTextInterval__);
-      var updatedText = document.getElementById('dhUpdatedText');
-      var seconds = 0;
-      updatedText.textContent = 'Atualizado agora';
-      window.__dhUpdatedTextInterval__ = setInterval(function(){
-        seconds += 1;
-        if (seconds < 60) updatedText.textContent = 'Atualizado há ' + seconds + 's';
-        else updatedText.textContent = 'Atualizado há ' + Math.floor(seconds/60) + ' min';
-      }, 1000);
+      // Resumo por fonte de dado (substitui o antigo "Atualizado há Xs", que contava a partir
+      // do carregamento da página — pedido do Victor, 2026-09-14: "algo que informe o que
+      // exatamente foi atualizado... BI atualizado, funil não", porque uma correção de código
+      // + reload fazia parecer que os dados tinham acabado de mudar, mesmo sem nada novo
+      // importado). Mesmo `.onclick =` (não addEventListener) pelo mesmo motivo do toggle
+      // acima — este bloco também pode rodar mais de uma vez no fluxo real de login.
+      var footer = document.getElementById('dhFooter');
+      var panel = document.getElementById('dhStatusPanel');
+      footer.onclick = function(){
+        var open = footer.getAttribute('aria-expanded') === 'true';
+        footer.setAttribute('aria-expanded', String(!open));
+        panel.classList.toggle('open', !open);
+      };
+      footer.onkeydown = function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); footer.click(); } };
+      if (window.renderSourceStatus) window.renderSourceStatus();
     })();
 
 // ===== extraído de index.html linhas 2584-2646 =====
@@ -6128,6 +6188,20 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   });
 
   document.getElementById('btnConfirmImport').addEventListener('click', () => {
+    // Grava o carimbo real de "última importação" por fonte — pedido do Victor, 2026-09-14
+    // (ver LAST_UPDATED_BY_SOURCE lá no topo do arquivo). Um por card do modal "Atualizar
+    // Dados"; pendingMeta/pendingCorretorasRaw são os dois jeitos de a mesma "Extrato do BI"
+    // chegar (arquivo completo ou só o extrato bruto), então contam como a mesma fonte.
+    if (window.markSourceUpdated){
+      if (pendingMeta || pendingCorretorasRaw) window.markSourceUpdated('corretoras');
+      if (pendingCarteira) window.markSourceUpdated('carteira');
+      if (pendingPendPme) window.markSourceUpdated('funilPme');
+      if (pendingPendPf) window.markSourceUpdated('funilPf');
+      if (pendingAssinatura) window.markSourceUpdated('assinatura');
+      if (pendingCrescimentoGeral) window.markSourceUpdated('crescimentoGeral');
+      if (pendingElig) window.markSourceUpdated('elegibilidade');
+      if (window.renderSourceStatus) window.renderSourceStatus();
+    }
     if (pendingMeta) window.updateMetaJunhoData(pendingMeta);
     if (pendingCorretorasRaw) {
       window.updateIntegradoFromRaw(pendingCorretorasRaw.byGestor, pendingCorretorasRaw.semGestorCat);
@@ -6215,6 +6289,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       RANK_CUR_LABEL: window.getRankLabels ? window.getRankLabels().cur : 'Mês atual',
       RANK_PREV_LABEL: window.getRankLabels ? window.getRankLabels().prev : 'Mês anterior',
       CARTEIRA_MAP: window.CARTEIRA_MAP || null,
+      LAST_UPDATED_BY_SOURCE: window.getLastUpdatedBySource ? window.getLastUpdatedBySource() : {},
       // Grava o momento da publicação DENTRO do dado — antes esse "Última atualização"
       // vinha de um texto fixo no index.html (PUBLISHED_AT), que só mudava quando alguém
       // editava o código; agora acompanha de verdade cada publicação de dados.
