@@ -4068,7 +4068,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     render();
   };
   window.getEligibilidadeData = function(){ return DATA; };
-  window.applyCorretorasToEligibilidade = function(byGestor){
+  window.applyCorretorasToEligibilidade = function(byGestor, detectedMonth){
     // Compara código normalizado dos dois lados (célula numérica do Excel perde zero à
     // esquerda, extrato do BI sempre vem com zero) — sem isso, toda corretora cujo código na
     // Elegibilidade é número puro nunca batia com o extrato, ficando com o mês corrente
@@ -4083,30 +4083,41 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // computePeriodElegRank já usa pro período corrente. Resolvido uma vez fora do loop.
     const curTri = (typeof PERIOD_DEFS !== 'undefined' && PERIOD_DEFS.trimestre && PERIOD_DEFS.trimestre.length)
       ? PERIOD_DEFS.trimestre[PERIOD_DEFS.trimestre.length - 1] : null;
-    // Índice do mês que o extrato do BI de HOJE deve corrigir — achado real 2026-09-09
-    // (Victor: "eu ainda preciso atualizar agosto, porém... a elegibilidade não bate por
-    // justamente as regras já estar focando em setembro"). A grade de comissão só fecha de
-    // verdade no dia 10 do mês seguinte (regra dada pelo Victor); antes disso, escrever
-    // sempre no ÚLTIMO índice (como este código sempre fez) é seguro enquanto o último mês
-    // ainda É o mês em fechamento — mas quebra assim que a Hapvida abre a coluna do mês novo
-    // na planilha mestre "Elegibilidade completa" (aconteceu hoje, virou Setembro): a partir
-    // daí, qualquer correção tardia de Agosto vinda do extrato diário passaria a cair, por
-    // engano, na coluna de Setembro. Do dia 1 ao 10, mira no mês ANTERIOR ao calendário atual;
-    // do dia 11 em diante, mira no mês corrente — igual ao critério que o próprio Victor usa
-    // pra saber se "ainda está terminando" o mês passado. Cai pro último índice existente
-    // quando o mês-alvo ainda nem tem coluna (ex.: dia 15, mas o mês corrente ainda não foi
-    // aberto na planilha mestre) — não tem onde escrever, mantém o comportamento de sempre.
-    const graceNow = new Date();
-    let graceTargetY = graceNow.getFullYear(), graceTargetM = graceNow.getMonth() + 1; // 1-12
-    if (graceNow.getDate() <= 10){
-      graceTargetM -= 1;
-      if (graceTargetM < 1){ graceTargetM = 12; graceTargetY -= 1; }
+    // Índice do mês que este import deve corrigir — corrigido 2026-09-14 (Victor: "o código
+    // está ajustado para reconhecer o extrato de qual mês é? Por que no extrato do BI ele
+    // informa de qual mês é, e com isso dá pra fazer a distribuição correta"). O fix de
+    // 2026-09-09 (dia-10) SÓ chutava pelo calendário porque, naquele momento, não tínhamos
+    // acesso ao mês real do arquivo — mas o arquivo "NDI SP - Por Gestor" completo já informa
+    // isso de verdade (detectMetaMonth, lê o nome da aba "NDI SP - <MÊS>") e esse valor já
+    // chegava até btnConfirmImport (pendingMeta.detectedMonth), só nunca tinha sido repassado
+    // pra cá. Agora, quando quem chamou sabe o mês real (detectedMonth, "AAAA-MM"), usa ele
+    // direto — sem chute nenhum, nem de calendário. Só cai pro chute do dia-10 quando
+    // ninguém sabe o mês de verdade (upload só do extrato bruto de Corretoras, que não carrega
+    // essa informação em lugar nenhum do próprio arquivo).
+    let targetIdx;
+    if (detectedMonth){
+      const parts = String(detectedMonth).split('-');
+      const y = Number(parts[0]), m = Number(parts[1]);
+      targetIdx = (y && m) ? (y - 2025) * 12 + (m - 1) : -1;
     }
-    const graceIdx = (graceTargetY - 2025) * 12 + (graceTargetM - 1); // mesmo índice que MONTH_LABELS (0 = Jan/2025)
+    if (targetIdx === undefined || targetIdx < 0){
+      // Sem mês real disponível — cai pro mesmo chute de calendário de antes (dia 1-10 mira
+      // no mês anterior, dia 11+ no mês corrente), única saída possível nesse caso.
+      const graceNow = new Date();
+      let graceTargetY = graceNow.getFullYear(), graceTargetM = graceNow.getMonth() + 1; // 1-12
+      if (graceNow.getDate() <= 10){
+        graceTargetM -= 1;
+        if (graceTargetM < 1){ graceTargetM = 12; graceTargetY -= 1; }
+      }
+      targetIdx = (graceTargetY - 2025) * 12 + (graceTargetM - 1); // mesmo índice que MONTH_LABELS (0 = Jan/2025)
+    }
     DATA.forEach(d => {
       const c = allCorretoras[window.normalizeCodigo(d.c)];
       if (c){
-        const lastIdx = (graceIdx >= 0 && graceIdx < d.m.length) ? graceIdx : d.m.length - 1;
+        // Cai pro último índice existente quando o mês-alvo ainda nem tem coluna (ex.:
+        // arquivo de um mês que a planilha mestre ainda não abriu) — não tem onde escrever,
+        // mantém o comportamento de sempre.
+        const lastIdx = (targetIdx >= 0 && targetIdx < d.m.length) ? targetIdx : d.m.length - 1;
         d.m[lastIdx] = c.total;
         if (d.mc){ d.mc.pf[lastIdx] = c.ind; d.mc.ss[lastIdx] = c.ss; d.mc.pme[lastIdx] = c.pme; }
         d.tot = d.m.reduce((s,v)=>s+v, 0);
@@ -5486,6 +5497,17 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
     const carteira = carteiraOverride || window.CARTEIRA_MAP || null;
     const agg = {};
+    // Mês real do extrato — achado 2026-09-14 (Victor: "o próprio extrato já mostra qual é o
+    // mês... se você reparar no final, ele informa"). O bloco "Filtros aplicados:" que o BI
+    // sempre deixa na última linha da aba EXPORT (junto com a linha "Total" de rodapé) já era
+    // descartado aqui, tratado só como lixo — mas ele traz "Date é DD/MM/AAAA" (o dia da
+    // grade/competência usada pra gerar o relatório), a mesma informação que o "NDI SP - Por
+    // Gestor" completo só tem via nome de aba. Sem isso, upload só do extrato bruto (sem o
+    // "NDI SP - Por Gestor" inteiro) nunca sabia de verdade qual mês estava corrigindo — só
+    // dava pra chutar pelo calendário (ver applyCorretorasToEligibilidade), o que Victor
+    // apontou como o motivo de precisar reanexar a planilha completa toda vez pra Elegibilidade
+    // bater 100% durante a janela de fechamento da grade (até o dia 10).
+    let detectedMonth = null;
     for (let i = 2; i < rows.length; i++){
       const row = rows[i] || [];
       const canal = row[iCanal];
@@ -5495,7 +5517,13 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       // sempre deixa embaixo da última corretora — sem essa checagem, os dois viravam
       // "corretoras" fantasmas sem gestor, inflando muito o total de vidas não atribuídas
       // (a linha "Total" sozinha somava as vidas de TODAS as corretoras de novo).
-      if (/^total$/i.test(canalTxt) || canalTxt.length > 100) continue;
+      if (/^total$/i.test(canalTxt) || canalTxt.length > 100){
+        if (!detectedMonth){
+          const m = canalTxt.match(/Date\s*é\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+          if (m) detectedMonth = m[3] + '-' + m[2]; // "AAAA-MM", mesmo formato de detectMetaMonth
+        }
+        continue;
+      }
       const parts = canalTxt.split('-').map(s=>s.trim());
       const codigo = parts[0];
       if (!codigo) continue;
@@ -5560,7 +5588,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     });
     Object.values(byGestor).forEach(g => g.corretoras.sort((a,b)=>b.total-a.total));
 
-    return { byGestor, semGestorCount, semGestorVidas, semGestorCat, hasCarteira: !!carteira };
+    return { byGestor, semGestorCount, semGestorVidas, semGestorCat, hasCarteira: !!carteira, detectedMonth };
   }
 
   // Achata o resultado de parseCorretorasRawWorkbook pro formato que updateRankingData
@@ -5587,7 +5615,25 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       Object.values(parsed.byGestor).forEach(g => (g.corretoras||[]).forEach(c => codigosArquivo.add(normalizeCodigo(c.c))));
       const eligData = window.getEligibilidadeData();
       const matchCount = eligData.filter(d => codigosArquivo.has(normalizeCodigo(d.c))).length;
-      html += `<div>Elegibilidade — histórico de Julho será gravado em <b>${matchCount}</b> das ${eligData.length} corretoras (Cauda Longa).</div>`;
+      // Mostra de antemão QUAL mês vai receber a correção — achado 2026-09-14 (Victor pediu
+      // mais clareza sobre a distribuição por mês, depois corrigiu que o extrato SIM informa
+      // o mês real — ver "Date é DD/MM/AAAA" no rodapé, lido agora em parseCorretorasRawWorkbook
+      // e devolvido em parsed.detectedMonth). Antes dizia "Julho" fixo, sempre, não importa o
+      // mês real. Usa o mês real quando o rodapé trouxe um; só cai no mesmo chute de calendário
+      // que applyCorretorasToEligibilidade usa (dia 1-10 mira no mês anterior, dia 11+ no
+      // corrente) se por algum motivo esse mês não veio no arquivo.
+      let mesIdxPreview;
+      if (parsed.detectedMonth){
+        const parts = parsed.detectedMonth.split('-');
+        mesIdxPreview = (Number(parts[0]) - 2025) * 12 + (Number(parts[1]) - 1);
+      } else {
+        const gNow = new Date();
+        let gY = gNow.getFullYear(), gM = gNow.getMonth() + 1;
+        if (gNow.getDate() <= 10){ gM -= 1; if (gM < 1){ gM = 12; gY -= 1; } }
+        mesIdxPreview = (gY - 2025) * 12 + (gM - 1);
+      }
+      const mesLabelPreview = (window.MONTH_LABELS && window.MONTH_LABELS[mesIdxPreview]) || 'mês corrente';
+      html += `<div>Elegibilidade — histórico de <b>${mesLabelPreview}</b> será gravado em <b>${matchCount}</b> das ${eligData.length} corretoras (Cauda Longa).</div>`;
     }
     if (!parsed.hasCarteira){
       html += `<div style="color:var(--red);"><i class=ic-warn></i> Carteira não carregada nesta sessão — nenhuma corretora pôde ser vinculada a gestor. Carregue o arquivo da Carteira junto para resolver.</div>`;
@@ -6209,13 +6255,23 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (pendingCorretorasRaw) {
       window.updateIntegradoFromRaw(pendingCorretorasRaw.byGestor, pendingCorretorasRaw.semGestorCat);
       if (window.applyCorretorasToEligibilidade){
-        const n = window.applyCorretorasToEligibilidade(pendingCorretorasRaw.byGestor);
-        console.log(`Elegibilidade: ${n} corretoras atualizadas com dado de Julho.`);
+        // Correção 2026-09-14 (Victor: "o próprio extrato já mostra qual é o mês... se você
+        // reparar no final, ele informa") — o extrato bruto de Corretoras SIM tem o mês real,
+        // só que escondido no bloco "Filtros aplicados: ... Date é DD/MM/AAAA" no rodapé da
+        // aba EXPORT, que antes era só descartado como lixo (ver parseCorretorasRawWorkbook).
+        // Passa esse mês real agora — só cai no chute de calendário (dentro da função) no caso
+        // raríssimo de um extrato sem esse rodapé (formato antigo, por exemplo).
+        const n = window.applyCorretorasToEligibilidade(pendingCorretorasRaw.byGestor, pendingCorretorasRaw.detectedMonth);
+        console.log(`Elegibilidade: ${n} corretoras atualizadas com o extrato bruto de Corretoras (mês: ${pendingCorretorasRaw.detectedMonth || 'não detectado, usou chute de calendário'}).`);
       }
     }
     if (pendingEligBridge && window.applyCorretorasToEligibilidade){
-      const n2 = window.applyCorretorasToEligibilidade(pendingEligBridge);
-      console.log(`Elegibilidade: ${n2} corretoras atualizadas via planilha manual.`);
+      // Esse caminho SEMPRE tem o mês real (pendingMeta já foi setado logo acima, mesmo
+      // bloco "if (metaWb)" que gera o pendingEligBridge) — passa ele direto, sem chute.
+      // Achado 2026-09-14 (Victor: "no extrato do BI ele informa de qual mês é, e com isso
+      // dá pra fazer a distribuição correta").
+      const n2 = window.applyCorretorasToEligibilidade(pendingEligBridge, pendingMeta && pendingMeta.detectedMonth);
+      console.log(`Elegibilidade: ${n2} corretoras atualizadas via planilha "NDI SP - Por Gestor" (mês: ${pendingMeta && pendingMeta.detectedMonth || 'não detectado'}).`);
     }
     if (pendingElig) window.updateEligibilidadeData(pendingElig);
     if (pendingCarteira) applyCarteira(pendingCarteira);
@@ -6228,7 +6284,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     // obrigando a subir o arquivo inteiro todo dia só pra manter o Ranking em dia.
     else if (pendingCorretorasRaw){
       const rankCurFromRaw = corretorasRawToRankList(pendingCorretorasRaw.byGestor);
-      window.updateRankingData(rankCurFromRaw, null, window.getCurrentMonth ? window.getCurrentMonth() : null);
+      // Mesma correção 2026-09-14 do Elegibilidade acima: usa o mês real lido do rodapé do
+      // extrato (pendingCorretorasRaw.detectedMonth) em vez de window.getCurrentMonth() —
+      // esse "mês corrente" oficial (do Desempenho Comercial) não é o mesmo "mês que este
+      // extrato específico representa" durante a janela de fechamento da grade (até dia 10),
+      // que é exatamente o caso que estava quebrando.
+      window.updateRankingData(rankCurFromRaw, null, pendingCorretorasRaw.detectedMonth || (window.getCurrentMonth ? window.getCurrentMonth() : null));
     }
     if (pendingPendPme || pendingPendPf) {
       window.updatePendenciasData({
