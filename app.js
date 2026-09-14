@@ -29,14 +29,17 @@ let LAST_UPDATED_BY_SOURCE = window.__DASH_DATA__.LAST_UPDATED_BY_SOURCE || {};
 window.getLastUpdatedBySource = function(){ return LAST_UPDATED_BY_SOURCE; };
 window.markSourceUpdated = function(key){ LAST_UPDATED_BY_SOURCE[key] = new Date().toISOString(); };
 
+// Lista enxuta a pedido do Victor, 2026-09-14 (depois de ver o resultado ao vivo): só os 5
+// pilares do dia a dia — tirou "Aguardando Assinatura" e "Carteira/Gestores" da exibição
+// (mudam raramente, poluíam a lista). O rastreamento das duas continua intacto em
+// LAST_UPDATED_BY_SOURCE/btnConfirmImport — só não aparecem aqui; reativar é só devolver a
+// entrada nesta lista, sem precisar mexer em mais nada.
 const SOURCE_LABELS = [
-  {key:'corretoras', name:'Extrato do BI', sub:'Corretoras · Ranking · Elegibilidade'},
+  {key:'corretoras', name:'Desempenho Comercial', sub:'Extrato do BI · Corretoras'},
   {key:'crescimentoGeral', name:'Crescimento Geral', sub:'Conversão — ontem × hoje'},
-  {key:'funilPme', name:'Funil PME', sub:'Pendências · SLA'},
+  {key:'elegibilidade', name:'Elegibilidade', sub:'Arquivo mestre Hapvida'},
   {key:'funilPf', name:'Funil PF', sub:'Pendências · SLA'},
-  {key:'elegibilidade', name:'Elegibilidade completa', sub:'Arquivo mestre Hapvida'},
-  {key:'assinatura', name:'Aguardando Assinatura', sub:'Notificadas'},
-  {key:'carteira', name:'Carteira / Gestores', sub:'Banco de Dados — Comercial'},
+  {key:'funilPme', name:'Funil PME', sub:'Pendências · SLA'},
 ];
 
 function sourceStatusFor(iso){
