@@ -218,7 +218,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     return MJ_NAO_ATRIBUIDO_BY_MONTH[currentMonth] || {ind:0, ss:0, pme:0, adm:0};
   }
   let MJ_BENCHMARK = window.__DASH_DATA__.MJ_BENCHMARK;
-  let currentTeam = "Estevão Cardoso (Cauda Longa)";
+  let currentTeam = "ALL_TEAMS";
 
   const fmt0 = n => Math.round(n).toLocaleString('pt-BR');
   const pctf = n => (n*100).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '%';
@@ -341,7 +341,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('mjTeamBannerName').textContent = selectedMember ? `${selectedMember.nome} — ${teamLabel}` : teamLabel;
     const resetBtn = document.getElementById('mjResetTeam');
     if (selectedMember){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Ver o time todo'; }
-    else if (currentTeam.indexOf('Cauda Longa') < 0){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Voltar para Cauda Longa'; }
+    else if (currentTeam !== 'ALL_TEAMS'){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Voltar para Todos os Times'; }
     else { resetBtn.style.display = 'none'; }
 
     const isAllTeamsAggregate = currentTeam === 'ALL_TEAMS' && !selectedMember;
@@ -509,8 +509,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     if (mjSelectedGestor){
       mjSelectedGestor = null;
     } else {
-      currentTeam = "Estevão Cardoso (Cauda Longa)";
-      if (!MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
+      currentTeam = "ALL_TEAMS";
     }
     renderMetaJunho();
   });
@@ -568,7 +567,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       MJ_BENCHMARK = newData.benchmark;
     }
     if (targetMonth === currentMonth) MJ_TEAMS = MJ_TEAMS_BY_MONTH[currentMonth];
-    if (!MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
+    if (currentTeam !== 'ALL_TEAMS' && !MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
     populateMonthSelect();
     renderMetaJunho();
   };
@@ -590,7 +589,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     currentMonth = month;
     MJ_TEAMS = MJ_TEAMS_BY_MONTH[currentMonth];
     mjSelectedGestor = null;
-    if (!MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
+    if (currentTeam !== 'ALL_TEAMS' && !MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
     renderMetaJunho();
     // Comparativo → Assessorias também lê o mês de referência (via getCurrentMonth), então
     // precisa re-renderizar quando o usuário troca o mês no dropdown, senão fica mostrando
