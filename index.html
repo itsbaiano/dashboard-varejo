@@ -480,6 +480,36 @@
   .mjb-sugestao-text{font-size:13px; font-weight:700; line-height:1.35;}
   .mjb-sugestao-text b{color:#FFD87A;}
 
+  /* Card "Meta Diária" clicável (hint no canto) + modal de Forecast — pedido do sênior de
+     Victor 2026-09-15: projeção de fim de mês no ritmo atual, em relação à meta. */
+  .kpi-expand-hint{position:absolute; bottom:14px; right:16px; width:22px; height:22px; border-radius:50%; background:rgba(46,82,212,.09); color:var(--primary-mid); display:flex; align-items:center; justify-content:center;}
+  .kpi-expand-hint svg{width:12px; height:12px;}
+
+  .mjf-hero{display:flex; align-items:center; gap:20px; flex-wrap:wrap; padding-bottom:18px; border-bottom:1px solid var(--line); margin-bottom:18px;}
+  .mjf-hero-num{flex:1; min-width:160px;}
+  .mjf-label{font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);}
+  .mjf-hero-value{font-size:32px; font-weight:800; color:var(--navy); letter-spacing:-.02em; margin-top:4px;}
+  .mjf-hero-sub{font-size:12px; color:var(--muted); margin-top:4px;}
+  .mjf-tag{display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:700; padding:7px 13px; border-radius:20px;}
+  .mjf-tag.ok{background:rgba(22,184,122,.14); color:#0E8A5C;}
+  .mjf-tag.warn{background:rgba(245,54,74,.10); color:#C22A3B;}
+
+  .mjf-gauge{margin:0 0 22px; position:relative;}
+  .mjf-gauge-track{position:relative; height:14px; border-radius:8px; background:#EEF1F8; margin-top:22px;}
+  .mjf-gauge-fill{position:absolute; left:0; top:0; bottom:0; border-radius:8px 0 0 8px; background:var(--primary-light);}
+  .mjf-gauge-proj{position:absolute; top:0; bottom:0; background:repeating-linear-gradient(135deg, #16B87A 0 6px, rgba(22,184,122,.35) 6px 12px);}
+  .mjf-gauge-meta-line{position:absolute; top:-4px; bottom:-4px; width:2px; background:var(--navy);}
+  .mjf-gauge-zone-label{position:absolute; top:0; font-size:10px; font-weight:700; color:var(--muted); text-align:center; border-bottom:1.5px solid var(--line); padding-bottom:5px;}
+  .mjf-gauge-labels{display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); margin-top:6px; font-weight:600;}
+
+  .mjf-stat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  @media (max-width:560px){ .mjf-stat-grid{grid-template-columns:1fr;} }
+  .mjf-stat-card{background:#F8FAFF; border-radius:12px; padding:13px 15px;}
+  .mjf-stat-value{font-size:18px; font-weight:800; color:var(--navy); margin-top:5px;}
+  .mjf-stat-sub{font-size:11px; color:var(--muted); margin-top:3px;}
+
+  .mjf-formula-note{margin-top:18px; padding:12px 14px; border-radius:10px; background:rgba(46,82,212,.06); font-size:11.5px; color:var(--muted); line-height:1.6;}
+
   /* Resultado da busca (Elegibilidade) — quando poucas corretoras casam com a busca, os
      gráficos de % viram cards com o dado direto de cada uma. */
   .search-result-card{background:#f8faff; border-left:3px solid var(--primary-light); border-radius:11px; padding:14px 16px; cursor:pointer; transition:box-shadow .15s ease;}
@@ -1792,6 +1822,67 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       </div>
       <div id="resumoPfView" style="display:none; margin-top:16px;">
         <div class="table-wrap"><table id="resumoPfTable"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Meta Diária · Forecast — pedido do sênior de Victor 2026-09-15: projeção de fim de mês no
+       ritmo atual, e o quanto isso cobre da meta. Aberto ao clicar no card "Meta Diária" do Meta
+       Junho (ver window.__openMjForecast em app.js). -->
+  <div id="mjForecastModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100; align-items:center; justify-content:center; padding:20px;">
+    <div style="background:#fff; border-radius:18px; max-width:620px; width:100%; max-height:85vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 20px 50px rgba(16,30,99,.25);">
+      <div style="background:linear-gradient(120deg, var(--navy) 0%, var(--navy-light) 100%); color:#fff; padding:18px 24px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+        <div>
+          <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:rgba(255,255,255,.6);">Meta Diária · Forecast</div>
+          <h2 style="font-size:17px; font-weight:800; margin:2px 0 0;" id="mjForecastTitle">—</h2>
+        </div>
+        <button id="btnCloseMjForecast" class="btn-reset" style="background:rgba(255,255,255,.14); color:#fff; border-color:rgba(255,255,255,.3); flex-shrink:0;">Fechar ✕</button>
+      </div>
+      <div style="padding:22px 24px; overflow-y:auto;">
+        <div class="mjf-hero">
+          <div class="mjf-hero-num">
+            <div class="mjf-label">Forecast (Previsão)</div>
+            <div class="mjf-hero-value" id="mjForecastProjecaoValue">—</div>
+            <div class="mjf-hero-sub" id="mjForecastProjecaoSub"></div>
+          </div>
+          <span class="mjf-tag" id="mjForecastTag">—</span>
+        </div>
+
+        <div class="mjf-gauge">
+          <div class="mjf-gauge-track">
+            <div class="mjf-gauge-fill" id="mjForecastGaugeFill"></div>
+            <div class="mjf-gauge-proj" id="mjForecastGaugeProj"></div>
+            <div class="mjf-gauge-meta-line" id="mjForecastGaugeMetaLine"></div>
+          </div>
+          <div class="mjf-gauge-zone-label" id="mjForecastGaugeZoneLabel"></div>
+          <div class="mjf-gauge-labels">
+            <span id="mjForecastLabelRealizado"></span>
+            <span id="mjForecastLabelMeta"></span>
+            <span id="mjForecastLabelProjecao"></span>
+          </div>
+        </div>
+
+        <div class="mjf-stat-grid">
+          <div class="mjf-stat-card">
+            <div class="mjf-label">Meta diária necessária</div>
+            <div class="mjf-stat-value" id="mjForecastNecessariaValue">—</div>
+            <div class="mjf-stat-sub" id="mjForecastNecessariaSub"></div>
+          </div>
+          <div class="mjf-stat-card">
+            <div class="mjf-label">Ritmo atual</div>
+            <div class="mjf-stat-value" id="mjForecastRitmoValue">—</div>
+            <div class="mjf-stat-sub" id="mjForecastRitmoSub"></div>
+          </div>
+          <div class="mjf-stat-card">
+            <div class="mjf-label">Cobertura da meta projetada</div>
+            <div class="mjf-stat-value" id="mjForecastCoberturaValue">—</div>
+            <div class="mjf-stat-sub" id="mjForecastCoberturaSub"></div>
+          </div>
+        </div>
+
+        <div class="mjf-formula-note">
+          <b style="color:var(--text);">Como calcula:</b> Forecast = Realizado até agora + (Ritmo atual × Dias úteis restantes) — e a cobertura projetada é Forecast ÷ Meta. O "ritmo atual" é a mesma média que já decide o "Enquadrado/Fora do ritmo" no card, só que aqui aplicada pra frente e comparada com a meta inteira.
+        </div>
       </div>
     </div>
   </div>

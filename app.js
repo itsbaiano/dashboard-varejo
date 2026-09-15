@@ -249,6 +249,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let mjCharts = {};
   let mjCorretorasGestor = null;
   let mjSelectedGestor = null;
+  let mjForecastData = null; // último cálculo de forecast do card "Meta Diária" — ver renderMetaJunho
   let mjExpandedTeams = new Set(); // times abertos (mostrando gestores) na visão "Todos os Times"
   function destroyMJChart(key){ if(mjCharts[key]){ mjCharts[key].destroy(); delete mjCharts[key]; } }
 
@@ -382,6 +383,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const [gapY, gapM] = currentMonth.split('-').map(Number);
     const isLiveMonth = todayReal.getFullYear() === gapY && (todayReal.getMonth() + 1) === gapM;
     let metaDiariaKpi;
+    // Guarda os números completos do forecast (ritmo/gap/projeção) só quando dá pra calcular de
+    // verdade — mês vigente, com gap positivo e pelo menos 1 dia útil já passado. Consumido pelo
+    // modal aberto ao clicar no card (window.__openMjForecast) — pedido do sênior de Victor
+    // 2026-09-15: "vamos ver se é possível colocar a projeção com base no ritmo atual".
+    mjForecastData = null;
     if (!isLiveMonth){
       metaDiariaKpi = {icon:"<i class=ic-clock></i>", label:"Meta Diária (dias úteis)", value:"—", sub:"Mês não é o vigente", subClass:""};
     } else if (gap <= 0){
@@ -396,7 +402,20 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       } else {
         const ritmo = displayInt / diasUteisPassados;
         const enquadrado = ritmo >= necessaria;
-        metaDiariaKpi = {icon:"<i class=ic-clock></i>", label:"Meta Diária (dias úteis)", value: fmt0(necessaria) + " vidas/dia", sub: (enquadrado ? "Enquadrado" : "Fora do ritmo") + ` — ritmo atual ${fmt0(ritmo)}/dia`, subClass: enquadrado ? "pos" : "neg"};
+        metaDiariaKpi = {icon:"<i class=ic-clock></i>", label:"Meta Diária (dias úteis)", value: fmt0(necessaria) + " vidas/dia", sub: (enquadrado ? "Enquadrado" : "Fora do ritmo") + ` — ritmo atual ${fmt0(ritmo)}/dia`, subClass: enquadrado ? "pos" : "neg", onclick:"window.__openMjForecast()"};
+        const projecaoAdicional = ritmo * diasUteisRestantes;
+        const projecao = displayInt + projecaoAdicional;
+        mjForecastData = {
+          titulo: selectedMember ? `${selectedMember.nome} — ${teamLabel}` : teamLabel,
+          meta: total.meta, realizado: displayInt, gap, necessaria, ritmo, enquadrado,
+          diasUteisPassados, diasUteisRestantes,
+          projecao, projecaoAdicional,
+          // Cobertura em relação à META (não ao gap) — pedido do sênior de Victor 2026-09-15,
+          // depois de ver a primeira versão baseada no gap: "a cobertura na realidade tem que
+          // ser baseada pela meta mesmo". Equivalente matemático de `enquadrado`
+          // (projecao>=meta ⟺ ritmo>=necessaria), só que expresso como %.
+          coberturaPct: total.meta > 0 ? projecao / total.meta : null,
+        };
       }
     }
 
@@ -407,8 +426,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       {icon:"<i class=ic-warn></i>", label:"Gap p/ Meta", value: (gap>0?fmt0(gap):"0") + " vidas", sub:`Categoria crítica: ${catLabels[critKey]} (${pctf(critPct)})`, subClass:"neg"},
       metaDiariaKpi,
     ];
+    const kpiExpandHintSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
     document.getElementById('mjKpiRow').innerHTML = kpis.map(k => `
-      <div class="kpi"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.subClass}">${k.sub}</div></div>
+      <div class="kpi"${k.onclick ? ` onclick="${k.onclick}" style="cursor:pointer" role="button" tabindex="0"` : ''}><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.subClass}">${k.sub}</div>${k.onclick ? `<div class="kpi-expand-hint" title="Ver projeção completa">${kpiExpandHintSvg}</div>` : ''}</div>
     `).join('');
 
     // Banner do sênior: mesmos números de Total pra Atuar / Meta Diária já calculados acima,
@@ -611,6 +631,59 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     renderMetaJunho();
   });
   document.getElementById('mjBackToOverview').addEventListener('click', () => showView('overview'));
+
+  // Modal "Meta Diária · Forecast" — pedido do sênior de Victor 2026-09-15 via WhatsApp: além do
+  // enquadramento, mostrar o forecast de fim de mês no ritmo atual. Ajustado no mesmo dia, depois
+  // de ver funcionando ao vivo: (1) a cobertura mostrada precisa ser em relação à META, não ao
+  // gap ("a cobertura na realidade tem que ser baseada pela meta mesmo") — mesmo boolean de
+  // enquadrado (projecao>=meta ⟺ ritmo>=necessaria), só troca o número mostrado; (2) o nome vira
+  // "Forecast (Previsão)" em vez de "Projeção pro fim do mês". Aberto pelo onclick embutido no
+  // card (ver kpis.map em renderMetaJunho); os números vêm de mjForecastData, calculado ali mesmo
+  // a cada render.
+  window.__openMjForecast = function(){
+    const d = mjForecastData;
+    if (!d) return;
+    document.getElementById('mjForecastTitle').textContent = d.titulo;
+    document.getElementById('mjForecastProjecaoValue').textContent = fmt0(d.projecao) + ' vidas';
+    document.getElementById('mjForecastProjecaoSub').textContent = `Mantendo o ritmo atual de ${fmt0(d.ritmo)} vidas/dia útil`;
+
+    const coberturaTxt = d.coberturaPct !== null ? pctf(d.coberturaPct) : '—';
+    const tagEl = document.getElementById('mjForecastTag');
+    tagEl.textContent = (d.enquadrado ? '✓ ' : '⚠ ') + coberturaTxt + ' da meta';
+    tagEl.className = 'forecast-tag ' + (d.enquadrado ? 'ok' : 'warn');
+
+    const scaleMax = Math.max(d.projecao, d.meta, 1);
+    const fillPct = Math.min(100, (d.realizado / scaleMax) * 100);
+    const metaPct = Math.min(100, (d.meta / scaleMax) * 100);
+    const projPct = Math.min(100, (d.projecao / scaleMax) * 100);
+    document.getElementById('mjForecastGaugeFill').style.width = fillPct + '%';
+    const projLeft = Math.min(fillPct, projPct), projWidth = Math.abs(projPct - fillPct);
+    const gaugeProjEl = document.getElementById('mjForecastGaugeProj');
+    gaugeProjEl.style.left = projLeft + '%'; gaugeProjEl.style.width = projWidth + '%';
+    document.getElementById('mjForecastGaugeMetaLine').style.left = metaPct + '%';
+    const zoneLeft = Math.min(fillPct, metaPct), zoneWidth = Math.abs(metaPct - fillPct);
+    const zoneLabelEl = document.getElementById('mjForecastGaugeZoneLabel');
+    zoneLabelEl.style.left = zoneLeft + '%'; zoneLabelEl.style.width = zoneWidth + '%';
+    zoneLabelEl.textContent = 'Gap · ' + fmt0(d.gap);
+    document.getElementById('mjForecastLabelRealizado').textContent = 'Realizado · ' + fmt0(d.realizado);
+    document.getElementById('mjForecastLabelMeta').textContent = 'Meta · ' + fmt0(d.meta);
+    document.getElementById('mjForecastLabelProjecao').textContent = 'Forecast · ' + fmt0(d.projecao);
+
+    document.getElementById('mjForecastNecessariaValue').textContent = fmt0(d.necessaria) + '/dia';
+    document.getElementById('mjForecastNecessariaSub').textContent = `Gap de ${fmt0(d.gap)} ÷ ${d.diasUteisRestantes} dias úteis restantes`;
+    document.getElementById('mjForecastRitmoValue').textContent = fmt0(d.ritmo) + '/dia';
+    document.getElementById('mjForecastRitmoSub').textContent = `${fmt0(d.realizado)} vidas ÷ ${d.diasUteisPassados} dias úteis já passados`;
+    const sobra = d.projecao - d.meta;
+    const coberturaValEl = document.getElementById('mjForecastCoberturaValue');
+    coberturaValEl.textContent = `${fmt0(d.projecao)} de ${fmt0(d.meta)}`;
+    coberturaValEl.style.color = d.enquadrado ? 'var(--green)' : 'var(--red)';
+    document.getElementById('mjForecastCoberturaSub').textContent = coberturaTxt + ' da meta' +
+      (sobra >= 0 ? ` — sobra de ${fmt0(sobra)} vidas acima da meta` : ` — faltariam ${fmt0(-sobra)} vidas pra bater a meta nesse ritmo`);
+
+    document.getElementById('mjForecastModalOverlay').style.display = 'flex';
+  };
+  document.getElementById('btnCloseMjForecast').addEventListener('click', () => { document.getElementById('mjForecastModalOverlay').style.display = 'none'; });
+  document.getElementById('mjForecastModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'mjForecastModalOverlay') e.currentTarget.style.display = 'none'; });
 
   const MJ_MONTH_LABELS_PT = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro'};
   function monthLabelPt(yearMonth){
