@@ -1807,9 +1807,78 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   const EL_GESTORES = [...new Set(DATA.map(d=>d.g))].sort();
   const RANKS_PRESENT = RANK_ORDER.filter(r => DATA.some(d=>d.rk===r));
 
-  const selGestor = document.getElementById('fGestor');
-  EL_GESTORES.forEach(g => { const o=document.createElement('option'); o.value=g; o.textContent=g; selGestor.appendChild(o); });
-  function syncGestorLocalOptions(){ /* filtro local removido - unificado no filtro principal */ }
+  // Filtro de Gestor virou multi-seleção (checkboxes num painel, não mais um <select> —
+  // ver CSS .fgb-* em index.html) pra quem enxerga vários gestores poder comparar 2+ ao
+  // mesmo tempo em vez de só "Todos" ou um por vez (pedido do Victor, 2026-09-17).
+  // selectedGestores vazio = "Todos", mesmo significado de sempre — todo o resto do código
+  // (applyFilters, gráficos "por gestor" que já agrupam dinamicamente os `rows`/`filtered`
+  // restantes por d.g) segue funcionando certo com 2+ gestores sem precisar de mudança,
+  // porque nunca dependia de ter exatamente 1 selecionado.
+  let selectedGestores = new Set();
+  const fGestorBtn = document.getElementById('fGestorBtn');
+  const fGestorPanel = document.getElementById('fGestorPanel');
+  const fGestorOptions = document.getElementById('fGestorOptions');
+  const fGestorAllCb = document.getElementById('fGestorAllCb');
+  function gestorLabelText(){
+    if (selectedGestores.size === 0) return 'Todos';
+    if (selectedGestores.size === 1) return [...selectedGestores][0];
+    return selectedGestores.size + ' gestores selecionados';
+  }
+  function syncGestorUI(){
+    fGestorBtn.textContent = gestorLabelText();
+    fGestorBtn.title = selectedGestores.size > 1 ? [...selectedGestores].join(', ') : '';
+    fGestorAllCb.checked = selectedGestores.size === 0;
+    const grp = fGestorBtn.closest('.f-group'); if (grp) grp.classList.toggle('is-filtered', selectedGestores.size > 0);
+  }
+  function syncGestorCheckboxes(){
+    fGestorOptions.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = selectedGestores.has(EL_GESTORES[Number(cb.dataset.gi)]); });
+    syncGestorUI();
+  }
+  // Chamada no clique numa barra "por gestor" (drill-down pra 1 gestor só) e no
+  // jumpToElegibilidade (vindo de outra aba) — substitui a seleção inteira.
+  function setSelectedGestores(list){
+    selectedGestores = new Set(list);
+    syncGestorCheckboxes();
+  }
+  // Reconstrói a lista de checkboxes a partir de EL_GESTORES — chamada no carregamento
+  // inicial e de novo a cada import (EL_GESTORES pode ganhar um gestor novo). Descarta da
+  // seleção qualquer gestor que não exista mais na base (nome mudou/equipe removida).
+  function renderGestorOptions(){
+    selectedGestores = new Set([...selectedGestores].filter(g => EL_GESTORES.includes(g)));
+    fGestorOptions.innerHTML = EL_GESTORES.map((g,i) => `<label class="fgb-option"><input type="checkbox" data-gi="${i}"> ${g}</label>`).join('');
+    fGestorOptions.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      const g = EL_GESTORES[Number(cb.dataset.gi)];
+      cb.checked = selectedGestores.has(g);
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedGestores.add(g); else selectedGestores.delete(g);
+        syncGestorUI();
+        page = 1; renderActive();
+      });
+    });
+    syncGestorUI();
+  }
+  renderGestorOptions();
+  fGestorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = fGestorPanel.style.display === 'none';
+    fGestorPanel.style.display = willOpen ? 'block' : 'none';
+    fGestorBtn.setAttribute('aria-expanded', String(willOpen));
+  });
+  fGestorPanel.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', () => {
+    fGestorPanel.style.display = 'none';
+    fGestorBtn.setAttribute('aria-expanded', 'false');
+  });
+  fGestorAllCb.addEventListener('change', () => {
+    if (fGestorAllCb.checked){ setSelectedGestores([]); page = 1; renderActive(); }
+    else if (selectedGestores.size === 0){
+      // Não deixa desmarcar "Todos" sem nada pra colocar no lugar (viraria "nenhum gestor").
+      fGestorAllCb.checked = true;
+    }
+  });
+  // Nome mantido só por causa dos 2 pontos (import de arquivo novo) que ainda chamam essa
+  // função pelo nome antigo — reaproveita renderGestorOptions() por trás.
+  function syncGestorLocalOptions(){ renderGestorOptions(); }
   const selRank = document.getElementById('fRank');
   RANKS_PRESENT.forEach(r => { const o=document.createElement('option'); o.value=r; o.textContent=r; selRank.appendChild(o); });
 
@@ -1827,7 +1896,6 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   // também no carregamento inicial da aba, sem precisar de listeners próprios.
   function updateActiveFilterHighlights(){
     const fields = [
-      [selGestor, selGestor.value !== ''],
       [document.getElementById('fEleg'), document.getElementById('fEleg').value !== ''],
       [selRank, selRank.value !== ''],
       [document.getElementById('fSearch'), document.getElementById('fSearch').value.trim() !== '']
@@ -1843,14 +1911,14 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
 
   function applyFilters(){
     updateActiveFilterHighlights();
-    const g = selGestor.value, el = document.getElementById('fEleg').value, rk = selRank.value;
+    const el = document.getElementById('fEleg').value, rk = selRank.value;
     const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
     // No modo assessorias, a busca filtra assessorias (aplicada em aggregateAssessorias), não corretoras
     const q = (typeof elMode !== 'undefined' && elMode === 'assessorias') ? '' : norm(document.getElementById('fSearch').value);
     const onlyReact = document.getElementById('fReact').checked;
     const periodMonthsFilter = getPeriodMonths();
     return DATA.filter(d => {
-      if (g && d.g !== g) return false;
+      if (selectedGestores.size && !selectedGestores.has(d.g)) return false;
       const calc = periodMonthsFilter ? computePeriodElegRank(d, periodMonthsFilter) : null;
       if (el !== '' && String(calc ? calc.el : d.el) !== el) return false;
       if (rk && (calc ? calc.rk : d.rk) !== rk) return false;
@@ -1876,7 +1944,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   }
 
   function isAnyFilterActive(){
-    return !!(selGestor.value || document.getElementById('fEleg').value || selRank.value ||
+    return !!(selectedGestores.size || document.getElementById('fEleg').value || selRank.value ||
       document.getElementById('fSearch').value.trim() || document.getElementById('fReact').checked || activeKpiFilter);
   }
 
@@ -2418,7 +2486,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         data:{ labels: reactGestorNames.map(shortGestor), datasets:[{ data: reactGestorNames.map(g=>reactByGestor[g].length),
           backgroundColor: reactGestorNames.map(g=>GESTOR_COLORS[g]||'#94a3b8'), borderRadius:7, maxBarThickness:34 }] },
         options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
-          onClick:(evt,els)=>{ if(!els||!els.length) return; selGestor.value = reactGestorNames[els[0].index]; render(); },
+          onClick:(evt,els)=>{ if(!els||!els.length) return; setSelectedGestores([reactGestorNames[els[0].index]]); render(); },
           onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?'pointer':'default'; },
           plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
             const g = reactGestorNames[c.dataIndex]; const l = reactByGestor[g];
@@ -2700,7 +2768,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       data:{ labels: gestorNames.map(shortGestor), datasets:[{ data: gestorPcts,
         backgroundColor: gestorNames.map(g=>GESTOR_COLORS[g]||'#94a3b8'), borderRadius:7, maxBarThickness:34 }] },
       options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
-        onClick:(evt,els)=>{ if(!els||!els.length) return; selGestor.value = gestorNames[els[0].index]; render(); },
+        onClick:(evt,els)=>{ if(!els||!els.length) return; setSelectedGestores([gestorNames[els[0].index]]); render(); },
         onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?'pointer':'default'; },
         plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
           const g = gestorNames[c.dataIndex]; const l = byGestor[g];
@@ -2893,7 +2961,9 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       const periodTotalReact = periodMonths.reduce((s,i)=>s+(d.m[i]||0),0);
       return hadHistoryBefore && periodTotalReact === 0;
     });
-    const gestorLabel = selGestor.value || 'todos os gestores';
+    const gestorLabel = selectedGestores.size === 0 ? 'todos os gestores'
+      : selectedGestores.size === 1 ? [...selectedGestores][0]
+      : [...selectedGestores].map(shortGestor).join(', ');
     document.getElementById('segmentacaoSub').textContent = `Quem vende agora, quem já vendeu e parou, e quem nunca vendeu — gestor: ${gestorLabel} · clique numa fatia`;
     document.getElementById('inatividadeSub').textContent = `Há quanto tempo cada corretora parou de vender — gestor: ${gestorLabel} · clique numa barra`;
     const inPeriod = d => (periodMonths || Array.from({length:18},(_,i)=>i)).some(i => d.m[i] > 0);
@@ -3167,7 +3237,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const kpiFilterLabels = { eleg:'Elegíveis', quase:'Quase Elegíveis (76–99%)', risco:'Em Risco', distantes:'Não Elegíveis' };
     const titleParts = [];
     if (activeKpiFilter) titleParts.push(kpiFilterLabels[activeKpiFilter] || activeKpiFilter);
-    if (selGestor.value) titleParts.push(shortGestor(selGestor.value));
+    if (selectedGestores.size === 1) titleParts.push(shortGestor([...selectedGestores][0]));
+    else if (selectedGestores.size > 1) titleParts.push(selectedGestores.size + ' gestores');
     const searchQTable = document.getElementById('fSearch').value.trim();
     document.getElementById('baseCorretorasTitle').textContent = titleParts.length ? `Corretoras ${titleParts.join(' · ')}` : 'Base de Corretoras';
     document.getElementById('baseCorretorasSub').textContent = searchQTable
@@ -3433,11 +3504,11 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     });
   });
 
-  ['fGestor','fEleg','fRank'].forEach(id=>document.getElementById(id).addEventListener('change', ()=>{ page=1; renderActive(); }));
+  ['fEleg','fRank'].forEach(id=>document.getElementById(id).addEventListener('change', ()=>{ page=1; renderActive(); }));
   document.getElementById('fSearch').addEventListener('input', window.debounce(()=>{ page=1; renderActive(); }, 250));
   document.getElementById('fReact').addEventListener('change', ()=>{ page=1; renderActive(); });
   document.getElementById('btnReset').addEventListener('click', ()=>{
-    selGestor.value=''; document.getElementById('fEleg').value=''; selRank.value='';
+    setSelectedGestores([]); document.getElementById('fEleg').value=''; selRank.value='';
     document.getElementById('fSearch').value=''; document.getElementById('fReact').checked=false;
     activeKpiFilter = null;
     page=1; renderActive();
@@ -4314,7 +4385,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     opts = opts || {};
     showView('el');
     if (!elInitialized){ elInitialized = true; }
-    selGestor.value = opts.gestor || '';
+    setSelectedGestores(opts.gestor ? [opts.gestor] : []);
     document.getElementById('fReact').checked = !!opts.reactivationOnly;
     page = 1;
     render();
@@ -4447,8 +4518,6 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       found.forEach(rec => DATA.push(rec));
       EL_GESTORES.length = 0;
       [...new Set(DATA.map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
-      selGestor.innerHTML = '<option value="">Todos</option>';
-      EL_GESTORES.forEach(g => { const o=document.createElement('option'); o.value=g; o.textContent=g; selGestor.appendChild(o); });
       syncGestorLocalOptions();
       RANKS_PRESENT.length = 0;
       RANK_ORDER.filter(r => DATA.some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
@@ -4509,8 +4578,6 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     refreshMonthDerivedState();
     EL_GESTORES.length = 0;
     [...new Set(DATA.map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
-    selGestor.innerHTML = '<option value="">Todos</option>';
-    EL_GESTORES.forEach(g => { const o=document.createElement('option'); o.value=g; o.textContent=g; selGestor.appendChild(o); });
     syncGestorLocalOptions();
     RANKS_PRESENT.length = 0;
     RANK_ORDER.filter(r => DATA.some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));

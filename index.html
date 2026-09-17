@@ -407,6 +407,35 @@
   .f-group.is-filtered label{color:var(--primary-mid);}
   .f-group.is-filtered label::after{content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--primary-light); margin-left:5px; vertical-align:middle;}
   .f-toggle.is-filtered label{color:var(--primary-mid); font-weight:700;}
+  /* Filtro de Gestor da Elegibilidade virou multi-seleção (checkboxes num painel próprio,
+     pedido do Victor 2026-09-17: poder escolher 2+ gestores ao mesmo tempo pra quem enxerga
+     vários) — não dá pra fazer isso com <select> nativo sem virar uma lista feia (size>1)
+     fora do padrão visual dos outros filtros, então é um botão que abre um painel. Reaproveita
+     a MESMA aparência do <select> (borda, ícone à esquerda, seta, is-filtered) trocando só a
+     tag, pra não destoar dos filtros ao lado. */
+  .fgb-wrap{position:relative;}
+  .fgb-trigger{
+    padding:10px 36px 10px 38px; border:1.5px solid var(--line); border-radius:12px; font-size:13px; font-weight:600;
+    background-color:#fff; color:var(--text); box-shadow:0 1px 2px rgba(16,30,99,.05);
+    transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
+    cursor:pointer; text-align:left; width:100%; font-family:inherit;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    background-repeat:no-repeat, no-repeat; background-position:left 12px center, right 12px center; background-size:16px, 16px;
+    background-image:var(--ic-f-user), var(--ic-f-chevron);
+  }
+  .fgb-trigger:hover{border-color:var(--primary-light);}
+  .fgb-trigger:focus{outline:none; border-color:var(--primary-light); background-color:#fff; box-shadow:0 0 0 3px rgba(46,82,212,.14);}
+  .f-group.is-filtered .fgb-trigger{border-color:var(--primary-light); background-color:rgba(46,82,212,.07); box-shadow:0 0 0 1px rgba(46,82,212,.12);}
+  .fgb-panel{
+    position:absolute; top:calc(100% + 6px); left:0; z-index:60; min-width:260px; max-width:320px;
+    background:var(--card); border:1.5px solid var(--line); border-radius:12px; box-shadow:0 12px 32px rgba(16,30,99,.2);
+    padding:6px; max-height:280px; overflow:auto;
+  }
+  .fgb-sep{height:1px; background:var(--line); margin:4px 2px 6px;}
+  .fgb-option{display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; cursor:pointer; font-size:12.5px; font-weight:600; color:var(--text);}
+  .fgb-option:hover{background:rgba(46,82,212,.07);}
+  .fgb-option input[type=checkbox]{width:15px; height:15px; accent-color:var(--primary-light); cursor:pointer; flex-shrink:0;}
+  .fgb-option-all{font-size:12.5px;}
   .f-toggle{display:flex; align-items:center; gap:8px; padding:8px 0;}
   .f-toggle input{width:16px; height:16px; accent-color:var(--accent-coral);}
   .f-toggle label{font-size:13px; font-weight:600; color:var(--text); cursor:pointer;}
@@ -1007,6 +1036,10 @@
     background-color:rgba(46,82,212,.18) !important; border-color:var(--primary-light) !important;
   }
   [data-theme="dark"] .f-group.is-filtered label, [data-theme="dark"] .f-toggle.is-filtered label{ color:#8FA6F5 !important; }
+  [data-theme="dark"] .fgb-trigger{ background-color:var(--card) !important; color:var(--text) !important; border-color:var(--line) !important; }
+  [data-theme="dark"] .fgb-trigger:focus{ background-color:var(--card) !important; }
+  [data-theme="dark"] .f-group.is-filtered .fgb-trigger{ background-color:rgba(46,82,212,.18) !important; border-color:var(--primary-light) !important; }
+  [data-theme="dark"] .fgb-option:hover{ background:rgba(46,82,212,.18); }
   [data-theme="dark"] .btn-reset{ background:var(--card); color:var(--text); border-color:var(--line); }
   [data-theme="dark"] .pagination button{ background:var(--card) !important; color:var(--text); border-color:var(--line); }
   [data-theme="dark"] #importModal, [data-theme="dark"] #pendModal, [data-theme="dark"] #resumoModal,
@@ -2235,7 +2268,15 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   <div class="view-panel" id="viewEl">
 
     <div class="filter-bar">
-      <div class="f-group"><label>Gestor</label><select id="fGestor" class="ic-left ic-user"><option value="">Todos</option></select></div>
+      <div class="f-group fgb-wrap" id="fGestorWrap">
+        <label>Gestor</label>
+        <button type="button" id="fGestorBtn" class="fgb-trigger" aria-haspopup="true" aria-expanded="false">Todos</button>
+        <div id="fGestorPanel" class="fgb-panel" style="display:none;">
+          <label class="fgb-option fgb-option-all"><input type="checkbox" id="fGestorAllCb" checked> <b>Todos</b></label>
+          <div class="fgb-sep"></div>
+          <div id="fGestorOptions"></div>
+        </div>
+      </div>
       <div class="f-group"><label>Elegibilidade</label><select id="fEleg" class="ic-left ic-check"><option value="">Todas</option><option value="1">Elegível</option><option value="0">Não elegível</option></select></div>
       <div class="f-group"><label>Ranking</label><select id="fRank" class="ic-left ic-trophy"><option value="">Todos</option></select></div>
       <div class="f-group"><label id="fSearchLabel">Buscar corretora</label><input type="text" id="fSearch" placeholder="Nome ou código..."></div>
