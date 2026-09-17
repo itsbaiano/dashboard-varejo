@@ -1340,6 +1340,13 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   const MONTH_LABELS = buildMonthLabels((eligSampleRow && eligSampleRow.m) ? eligSampleRow.m.length : 19);
   window.MONTH_LABELS = MONTH_LABELS;
   let totalMonths = MONTH_LABELS.length;
+  // Índice global (mesma base 0=Jan/25 de MONTH_LABELS) a partir do qual a equipe ESCOPADA
+  // (window.__eligTeamScope__) realmente tem dado real — as 3 equipes novas (Digital,
+  // Plataforma SP, Plataforma ABC/Alto Tietê/BX) só entraram na base em Jan/26, então os
+  // meses de 2025 nos arrays delas são zero-padding (ver padFront em parseEligibilidadeWorkbook),
+  // não meses "sem elegíveis" de verdade. Setado mais abaixo, depois que o escopo é conhecido;
+  // 0 = sem restrição (Cauda Longa e visão sem escopo continuam vendo desde Jan/25).
+  let eligDataStartIdx = 0;
   function buildYearBuckets(){
     const y26months = Array.from({length: totalMonths-12}, (_,i)=>12+i);
     const complete26 = totalMonths >= 24;
@@ -1409,6 +1416,22 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     PERIOD_DEFS.semestre = buildSemestreBuckets();
     PERIOD_DEFS.trimestre = buildTrimestreBuckets();
     PERIOD_DEFS.mensal = MONTH_LABELS.map((label,i) => ({label, months:[i]}));
+    applyEligDataStartTrim();
+  }
+  // Remove dos seletores de período (Ano/Semestre/Trimestre/Mensal) os meses anteriores a
+  // eligDataStartIdx — pra uma equipe escopada cujo histórico real só começa depois de Jan/25
+  // (zero-padding, ver comentário acima), evita oferecer um "2025" ou "1º Trimestre/25" que na
+  // prática não tem nenhum dado real por trás. Chamada de novo dentro de refreshMonthDerivedState
+  // porque essa reconstrói PERIOD_DEFS do zero a cada import.
+  function applyEligDataStartTrim(){
+    if (!eligDataStartIdx) return;
+    const trim = list => list
+      .map(b => Object.assign({}, b, { months: b.months.filter(m => m >= eligDataStartIdx) }))
+      .filter(b => b.months.length);
+    PERIOD_DEFS.ano = trim(PERIOD_DEFS.ano);
+    PERIOD_DEFS.semestre = trim(PERIOD_DEFS.semestre);
+    PERIOD_DEFS.trimestre = trim(PERIOD_DEFS.trimestre);
+    PERIOD_DEFS.mensal = trim(PERIOD_DEFS.mensal);
   }
   // Intervalo personalizado (De/Até) — monta uma entrada sintética PERIOD_DEFS.custom[0] com
   // os meses do intervalo escolhido, pra reaproveitar 100% do código que já existe (rótulos,
@@ -1689,6 +1712,19 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   if (window.__eligTeamScope__){
     DATA = DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === window.__eligTeamScope__);
   }
+  // Mês global (0=Jan/25) em que cada equipe realmente passou a ter histórico na base —
+  // Cauda Longa está desde o início (Jan/25); as 3 equipes novas entraram só em Jan/26
+  // (índice 12), confirmado nos arquivos reais delas (9 meses, Jan-Set/26). Usado só pra
+  // limpar os seletores de período de meses "fantasmas" (zero-padding) — não afeta os
+  // números em si, que já vêm certos.
+  const ELIG_TEAM_DATA_START = {
+    'CAUDA LONGA': 0,
+    'PLATAFORMA SP': 12,
+    'DIGITAL': 12,
+    'PLATAFORMA ABC/ALTO TIETÊ/BX': 12,
+  };
+  eligDataStartIdx = window.__eligTeamScope__ ? (ELIG_TEAM_DATA_START[window.__eligTeamScope__] || 0) : 0;
+  applyEligDataStartTrim();
   let RANKDATA = window.__DASH_DATA__.RANKDATA;
   // Carteira (código→gestor) publicada junto com o resto — antes só existia na memória da
   // aba onde foi importada, então tinha que ser subida de novo toda vez que alguém abria o
@@ -3416,11 +3452,16 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   }
   // Selects "De"/"Até" do intervalo personalizado — populados uma vez com todos os meses
   // conhecidos. Padrão: últimos 12 meses (ajustável), só pra começar com algo razoável.
+  // Pra uma equipe escopada com histórico mais curto (eligDataStartIdx > 0), nem oferece os
+  // meses anteriores — são zero-padding, não meses reais dela (ver comentário em eligDataStartIdx).
   (function initCustomRangeSelects(){
-    const opts = MONTH_LABELS.map((label,i) => `<option value="${i}">${label}</option>`).join('');
+    const opts = MONTH_LABELS
+      .map((label,i) => ({i, label}))
+      .filter(x => x.i >= eligDataStartIdx)
+      .map(x => `<option value="${x.i}">${x.label}</option>`).join('');
     document.getElementById('fCustomFrom').innerHTML = opts;
     document.getElementById('fCustomTo').innerHTML = opts;
-    document.getElementById('fCustomFrom').value = String(Math.max(0, MONTH_LABELS.length - 12));
+    document.getElementById('fCustomFrom').value = String(Math.max(eligDataStartIdx, MONTH_LABELS.length - 12));
     document.getElementById('fCustomTo').value = String(MONTH_LABELS.length - 1);
   })();
   populatePeriodValue(true);
