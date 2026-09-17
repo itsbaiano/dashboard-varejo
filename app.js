@@ -5537,16 +5537,25 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
   function diffEligibilidade(newRecords){
     const old = window.getEligibilidadeData();
-    const oldCodes = new Set(old.map(d=>d.c));
+    // Compara só contra o retrato anterior DOS MESMOS GESTORES que aparecem neste arquivo — não
+    // contra a base inteira (todas as equipes). Achado real 2026-09-17: com a Elegibilidade
+    // cobrindo 4 equipes em arquivos separados, comparar contra tudo fazia qualquer import de
+    // UMA equipe parecer que ia "remover" as outras 3 inteiras (ex.: subir só a ABC mostrava
+    // "9202 removidas" — as outras 9202 corretoras de Cauda Longa/Digital/Plataforma, que na
+    // real não são tocadas, já que updateEligibilidadeData preserva quem não está no arquivo).
+    // Victor cancelou um import correto por causa desse texto assustador antes de eu achar isso.
+    const newGestores = new Set(newRecords.map(d => d.g));
+    const oldScoped = old.filter(d => newGestores.has(d.g));
+    const oldCodes = new Set(oldScoped.map(d=>d.c));
     const newCodes = new Set(newRecords.map(d=>d.c));
     const added = newRecords.filter(d => !oldCodes.has(d.c));
-    const removed = old.filter(d => !newCodes.has(d.c));
-    const oldTotSum = old.reduce((s,d)=>s+d.tot,0);
+    const removed = oldScoped.filter(d => !newCodes.has(d.c));
+    const oldTotSum = oldScoped.reduce((s,d)=>s+d.tot,0);
     const newTotSum = newRecords.reduce((s,d)=>s+d.tot,0);
 
     let html = '<h3 style="font-size:14px;color:var(--navy);margin:14px 0 8px;"><i class=ic-target></i> Elegibilidade — Resumo das mudanças</h3>';
     html += '<div style="font-size:12.5px;line-height:1.8;">';
-    html += `<div>Corretoras: <b>${old.length}</b> → <b>${newRecords.length}</b> (${added.length} novas, ${removed.length} removidas)</div>`;
+    html += `<div>Corretoras destes gestores: <b>${oldScoped.length}</b> → <b>${newRecords.length}</b> (${added.length} novas, ${removed.length} removidas)</div>`;
     html += `<div>Total 17 meses (vidas): <b>${fmtN(oldTotSum)}</b> → <b>${fmtN(newTotSum)}</b></div>`;
     html += '</div>';
     if (added.length){

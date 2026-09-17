@@ -1233,11 +1233,13 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   const NO_ELEG_EMAILS = new Set(['t_alexandre.calixto@hapvida.com.br', 'emily.franca@hapvida.com.br'].map(norm));
   // Restringe a Elegibilidade à própria equipe pra Executivo/Sênior (email → nome da equipe,
   // mesmas strings usadas em RESUMO_GESTOR_EQUIPE no app.js) — decisão de Victor 2026-09-17:
-  // "cada equipe vai ver a elegibilidade conforme sua equipe". Admin fica de fora por
-  // enquanto (continua vendo tudo, sem restrição) — Victor: "os admins também vão ver de
-  // acordo com suas equipes, mas isso podemos implementar depois". Quem não está aqui (ex.:
-  // daniel.vsoares, helo.alvesmesquita — equipe deles ainda não confirmada) continua sem
-  // restrição, mesmo comportamento de sempre, até alguém confirmar a equipe certa.
+  // "cada equipe vai ver a elegibilidade conforme sua equipe". Admin TAMBÉM respeita isso
+  // agora (mesmo dia, decisão revista: "os admins também vão ver de acordo com suas equipes" —
+  // ver afterAuthLoadData em app.js/index.html pra onde isso é aplicado de fato) — continua
+  // admin pra tudo o mais, só a Elegibilidade fica restrita quando tiver equipe definida (aqui
+  // ou no campo eligTeam do Firestore). Quem não está aqui (ex.: daniel.vsoares,
+  // helo.alvesmesquita — equipe deles ainda não confirmada) continua sem restrição, mesmo
+  // comportamento de sempre, até alguém confirmar a equipe certa.
   const ELEG_TEAM_SCOPE = {
     'jonathan.lsilva@hapvida.com.br': 'CAUDA LONGA', 'agatha.sakamoto@hapvida.com.br': 'CAUDA LONGA',
     'patricia.monks@hapvida.com.br': 'CAUDA LONGA', 'pablo.amora@hapvida.com.br': 'CAUDA LONGA', 'psergiora@hotmail.com': 'CAUDA LONGA',
@@ -1588,7 +1590,14 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       const legacy = window.__legacyAccessFallback__ ? window.__legacyAccessFallback__(emailNorm) : { role:'executivo', noEleg:false, eligTeam:null };
       window.__userRole__ = myAllow.role || legacy.role;
       window.__noEleg__ = (typeof myAllow.noEleg === 'boolean') ? myAllow.noEleg : legacy.noEleg;
-      window.__eligTeamScope__ = (window.__userRole__ === 'admin') ? null : (myAllow.eligTeam || legacy.eligTeam);
+      // Admin TAMBÉM respeita eligTeam quando o campo existe (decisão de Victor 2026-09-17,
+      // implementada no mesmo dia — tinha ficado "pra depois" de manhã, mas ele quis já: "os
+      // admins também vão ver de acordo com suas equipes"). Continua admin pra tudo o mais
+      // (publicar dados, ver seções bloqueadas por noEleg, etc.) — só a Elegibilidade fica
+      // restrita à equipe QUANDO o documento tiver esse campo preenchido. Sem o campo (a
+      // maioria dos admins hoje — Victor, Estevão, Amanda, Brenda, Emanuel, Marcelo, Emily —
+      // nenhum é de uma equipe específica), continua sem restrição nenhuma, igual sempre foi.
+      window.__eligTeamScope__ = myAllow.eligTeam || legacy.eligTeam;
       document.dispatchEvent(new CustomEvent('authReady', { detail: { role: window.__userRole__, email: window.__userEmail__, noEleg: window.__noEleg__, eligTeamScope: window.__eligTeamScope__ } }));
       const values = await Promise.all(FS_SECTIONS.map(s => fsReadSection(s).catch(e => {
         // seção DATA bloqueada por noEleg cai aqui como permission-denied — trata como
