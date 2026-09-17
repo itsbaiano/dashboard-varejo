@@ -1674,6 +1674,21 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   }
 
   let DATA = window.__DASH_DATA__.DATA;
+  // Restringe Elegibilidade por equipe pra Executivo/Sênior escopado (window.__eligTeamScope__,
+  // setado no login — ver index.html) — Admin continua vendo tudo (decisão de Victor
+  // 2026-09-17: escopar Admin também fica pra depois). Corretora "Sem Gestor Atribuído" ou de
+  // um gestor fora do mapa abaixo não tem equipe pra comparar — fica de fora de QUALQUER
+  // escopo restrito (mais seguro que aparecer pra todo mundo por padrão). Filtra uma vez aqui,
+  // na carga inicial — cobre o uso real (gestor/sênior só navega, nunca importa arquivo).
+  const ELIG_GESTOR_TEAM = {
+    'Agatha Sakamoto':'CAUDA LONGA', 'Patricia Monks':'CAUDA LONGA', 'Jonathan Leal':'CAUDA LONGA', 'Pablo Amora':'CAUDA LONGA',
+    'Erika de Sousa Silva':'PLATAFORMA SP', 'Camila Alves Pertinhez':'PLATAFORMA SP', 'Lais dos Santos Martins':'PLATAFORMA SP', 'Wilder Coca Patzi':'PLATAFORMA SP',
+    'Karollainny Rangel de Sousa Lopes':'DIGITAL', 'Daniela Novais dos Santos':'DIGITAL', 'Amanda dos Santos Sobral':'DIGITAL', 'Maxuel Pimentel Nobrega':'DIGITAL',
+    'Vivian de Cassia Ambrosio':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Guilherme de Lima Musachi':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Izabele de Oliveira da Silva':'PLATAFORMA ABC/ALTO TIETÊ/BX',
+  };
+  if (window.__eligTeamScope__){
+    DATA = DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === window.__eligTeamScope__);
+  }
   let RANKDATA = window.__DASH_DATA__.RANKDATA;
   // Carteira (código→gestor) publicada junto com o resto — antes só existia na memória da
   // aba onde foi importada, então tinha que ser subida de novo toda vez que alguém abria o
@@ -4274,11 +4289,6 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       (g.corretoras||[]).forEach(c => { allCorretoras[window.normalizeCodigo(c.c)] = c; });
     });
     let atualizadas = 0;
-    // Trimestre vigente (o último balde de PERIOD_DEFS.trimestre — sempre o trimestre em
-    // andamento, mesmo parcial) — usado abaixo pra recalcular Elegível/Ranking igual
-    // computePeriodElegRank já usa pro período corrente. Resolvido uma vez fora do loop.
-    const curTri = (typeof PERIOD_DEFS !== 'undefined' && PERIOD_DEFS.trimestre && PERIOD_DEFS.trimestre.length)
-      ? PERIOD_DEFS.trimestre[PERIOD_DEFS.trimestre.length - 1] : null;
     // Índice do mês que este import deve corrigir — corrigido 2026-09-14 (Victor: "o código
     // está ajustado para reconhecer o extrato de qual mês é? Por que no extrato do BI ele
     // informa de qual mês é, e com isso dá pra fazer a distribuição correta"). O fix de
@@ -4307,6 +4317,29 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       }
       targetIdx = (graceTargetY - 2025) * 12 + (graceTargetM - 1); // mesmo índice que MONTH_LABELS (0 = Jan/2025)
     }
+    // Abre a coluna do mês sozinho quando o extrato traz um mês que a planilha ainda não tem —
+    // achado 2026-09-17, pedido do Victor: reabrir manualmente a planilha mestre "Elegibilidade
+    // completa" com uma coluna a mais, TODA equipe, TODO mês, "vai ser algo muito massivo".
+    // Estende m[]/mc.*[] com zero pra todas as corretoras (nunca inventa número — mesmo
+    // princípio já usado pro histórico ausente das equipes novas) e refaz MONTH_LABELS/
+    // PERIOD_DEFS (refreshMonthDerivedState, já existia pra esse mesmo propósito quando a
+    // planilha mestre trazia mais meses — só nunca tinha sido chamado por este caminho).
+    if (targetIdx >= 0 && DATA.length && DATA[0].m && targetIdx >= DATA[0].m.length){
+      const faltam = targetIdx - DATA[0].m.length + 1;
+      DATA.forEach(d => {
+        for (let i = 0; i < faltam; i++){
+          d.m.push(0);
+          if (d.mc){ d.mc.pf.push(0); d.mc.ss.push(0); d.mc.pme.push(0); }
+        }
+      });
+      if (typeof refreshMonthDerivedState === 'function') refreshMonthDerivedState();
+    }
+    // Trimestre vigente (o último balde de PERIOD_DEFS.trimestre — sempre o trimestre em
+    // andamento, mesmo parcial) — usado abaixo pra recalcular Elegível/Ranking igual
+    // computePeriodElegRank já usa pro período corrente. Resolvido depois da possível abertura
+    // de coluna acima, pra já refletir o mês novo se for o caso.
+    const curTri = (typeof PERIOD_DEFS !== 'undefined' && PERIOD_DEFS.trimestre && PERIOD_DEFS.trimestre.length)
+      ? PERIOD_DEFS.trimestre[PERIOD_DEFS.trimestre.length - 1] : null;
     DATA.forEach(d => {
       const c = allCorretoras[window.normalizeCodigo(d.c)];
       if (c){
@@ -4394,8 +4427,11 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // mestre real da Hapvida (92 elegíveis reais vs 106 inventados, no caso de Agosto).
     const oldByCode = {};
     DATA.forEach(d => { oldByCode[window.normalizeCodigo(d.c)] = d; });
-    DATA = newRecords.map(rec => {
-      const old = oldByCode[window.normalizeCodigo(rec.c)];
+    const touchedCodes = {};
+    const updated = newRecords.map(rec => {
+      const key = window.normalizeCodigo(rec.c);
+      touchedCodes[key] = true;
+      const old = oldByCode[key];
       const fileLastIdx = rec.m.length - 1;
       if (old && old.m && old.m.length > rec.m.length){
         // Arquivo mais curto que o que já tínhamos — só atualiza o retrato histórico do mês
@@ -4409,6 +4445,25 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       const elByMonth = Object.assign({}, old && old.elByMonth);
       elByMonth[fileLastIdx] = rec.el;
       return Object.assign({}, rec, { elByMonth });
+    });
+    // Preserva registros de OUTRAS equipes que este import não tocou — antes, `DATA =
+    // newRecords.map(...)` descartava silenciosamente qualquer código que não estivesse no
+    // arquivo importado. Isso nunca deu problema enquanto só existia a Cauda Longa (o arquivo
+    // "mestre" sempre trazia TODAS as corretoras de uma vez), mas quebraria na hora de subir
+    // as 4 equipes em arquivos separados: subir o da Digital apagaria Cauda Longa/ABC/
+    // Plataforma inteiras. Achado 2026-09-17, planejando a expansão pra 4 equipes.
+    const untouched = DATA.filter(d => !touchedCodes[window.normalizeCodigo(d.c)]);
+    DATA = updated.concat(untouched);
+    // Alinha m[]/mc[] de todo mundo no mesmo tamanho — uma equipe pode ter seu próprio import
+    // "atrasado" (ainda não chegou no mês mais recente que outra equipe/a Cauda Longa já tem)
+    // sem que isso apareça na comparação por código acima (só compara contra o histórico DA
+    // MESMA corretora, nunca contra outra equipe). Sempre completa por TRÁS com zero (meses
+    // que aquele import ainda não cobre) — nunca por decisão de negócio, só união de tamanho.
+    const maxLen = DATA.reduce((mx,d) => Math.max(mx, d.m ? d.m.length : 0), 0);
+    DATA.forEach(d => {
+      if (!d.m) return;
+      while (d.m.length < maxLen) d.m.push(0);
+      if (d.mc){ ['pf','ss','pme'].forEach(k => { if (d.mc[k]) while (d.mc[k].length < maxLen) d.mc[k].push(0); }); }
     });
     refreshMonthDerivedState();
     EL_GESTORES.length = 0;
@@ -5316,6 +5371,21 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (MONTH_HEADER_RE.test(normHdr(eligHeader1[i])) && normHdr(eligHeader2[i+3]) === 'TOTAL') monthCols.push(i+3);
     }
     if (!monthCols.length) throw new Error('Não consegui identificar as colunas de meses na aba ELEGIBILIDADE — o layout da planilha pode ter mudado.');
+    // Equipes novas (Plataforma SP/ABC/Digital) só têm dado a partir de Jan/2026 — o arquivo
+    // delas literalmente só tem 9 colunas de mês, contra as ~21 da Cauda Longa (que começa em
+    // Jan/2025). Pra entrar no mesmo DATA[] compartilhado (todo registro precisa ter m[] do
+    // mesmo tamanho — MONTH_LABELS/PERIOD_DEFS são derivados de DATA[0].m.length), completa
+    // com zero por trás os meses de 2025 que essas equipes não têm — nunca inventa número
+    // (mesmo princípio já usado em applyCorretorasToEligibilidade). Pra Cauda Longa (primeiro
+    // mês = Jan/25) isso dá padCount=0, comportamento idêntico a antes.
+    const MONTH_NAME_TO_NUM = {JANEIRO:1,FEVEREIRO:2,MARCO:3,ABRIL:4,MAIO:5,JUNHO:6,JULHO:7,AGOSTO:8,SETEMBRO:9,OUTUBRO:10,NOVEMBRO:11,DEZEMBRO:12};
+    const monthHeaderToGlobalIdx = headerText => {
+      const m = normHdr(headerText).match(/^([A-Z]+) ?(\d{2})$/);
+      if (!m || !MONTH_NAME_TO_NUM[m[1]]) return 0;
+      return (2000 + Number(m[2]) - 2025) * 12 + (MONTH_NAME_TO_NUM[m[1]] - 1);
+    };
+    const padCount = Math.max(0, monthHeaderToGlobalIdx(eligHeader1[monthCols[0] - 3]));
+    const padFront = arr => padCount > 0 ? [...Array(padCount).fill(0), ...arr] : arr;
     // Colunas de total por trimestre (ex.: "1TRI26 TOTAL", "2TRI26 TOTAL", "3TRI26 TOTAL"...)
     // achadas por PADRÃO de texto, não por nome de trimestre fixo — antes eram hardcoded
     // '1TRI26 TOTAL'/'2TRI26 TOTAL' (os dois únicos trimestres fechados quando esse código
@@ -5334,11 +5404,31 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (triTotalCols.length < 2) throw new Error('Não consegui identificar ao menos dois trimestres fechados (colunas tipo "2TRI26 TOTAL") na aba ELEGIBILIDADE — preciso de dois pra calcular a régua vigente. O layout da planilha pode ter mudado.');
     const idxT1 = triTotalCols[triTotalCols.length - 2];
     const idxT2 = triTotalCols[triTotalCols.length - 1];
-    const idxTot17 = findEligHeaderCol('17 MESES TOTAIS');
+    // "<N> MESES TOTAIS" — antes hardcoded "17 MESES TOTAIS" (só a Cauda Longa tinha 17 meses
+    // quando esse código foi escrito); as equipes novas têm 9 ("9 MESES TOTAIS", Jan-Set/26).
+    // Padrão genérico por qualquer quantidade de meses, mesma ideia de monthCols/triTotalCols
+    // acima — cresce sozinho, sem precisar reconhecer um número específico.
+    const MESES_TOTAIS_RE = /^\d+\s*MESES TOTAIS$/;
+    let idxTot17 = -1;
+    for (let i = 0; i < eligHeader1.length; i++){ if (MESES_TOTAIS_RE.test(normHdr(eligHeader1[i]))){ idxTot17 = i; break; } }
     const idxEleg = findEligHeaderCol('ELEGIBILIDADE');
     const idxRank = findEligHeaderCol('RANKING');
     if (idxTot17 < 0 || idxEleg < 0 || idxRank < 0){
-      throw new Error('Não consegui identificar as colunas de resumo (17 meses/Elegibilidade/Ranking) na aba ELEGIBILIDADE — o layout da planilha pode ter mudado.');
+      throw new Error('Não consegui identificar as colunas de resumo (N meses totais/Elegibilidade/Ranking) na aba ELEGIBILIDADE — o layout da planilha pode ter mudado.');
+    }
+    // Colunas de metadado (código/nome/grade/assessoria/gestor) — antes eram posição fixa
+    // (row[0..4]), o que só funcionava pra Cauda Longa. As equipes novas têm 4 colunas (sem
+    // grade) em ordem diferente (CÓDIGO, RAZAO SOCIAL, ASSESSORIA, GESTOR/GERENTE) — agora
+    // acha cada uma pelo texto do cabeçalho, então funciona com qualquer ordem/presença.
+    // Grade fica opcional (Victor confirmou: "a coluna grade não é necessário para as outras
+    // carteiras") — só a Cauda Longa tem, e já era só exibida com fallback "—" no detalhe.
+    const idxCodigo = findEligHeaderCol('CODIGO');
+    const idxNome = findEligHeaderCol('NOME CORRETOR', 'RAZAO SOCIAL', 'NOME');
+    const idxGrade = findEligHeaderCol('GRADE DE COMISSAO', 'GRADE');
+    const idxAssessoria = findEligHeaderCol('ASSESSORIA', 'ASSESORIA');
+    const idxGestorRaw = findEligHeaderCol('GESTOR', 'GERENTE');
+    if (idxCodigo < 0 || idxNome < 0){
+      throw new Error('Não consegui identificar as colunas de código/nome da corretora na aba ELEGIBILIDADE — o layout da planilha pode ter mudado.');
     }
 
     const enrich = {};
@@ -5369,22 +5459,27 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const records = [];
     for (let i = 2; i < rows.length; i++){
       const row = rows[i] || [];
-      const codigo = row[0];
+      const codigo = row[idxCodigo];
       if (codigo === null || codigo === undefined || codigo === '') continue;
-      const nome = (row[1] === null || row[1] === undefined || row[1] === '') ? '(Sem nome cadastrado)' : String(row[1]).trim();
-      const grade = row[2] != null ? String(row[2]) : '';
-      const assessoriaRaw = (row[3] === null || row[3] === undefined || row[3] === '' || String(row[3]).trim() === '0') ? '' : String(row[3]).trim();
-      const gestorRaw = row[4];
+      const nome = (row[idxNome] === null || row[idxNome] === undefined || row[idxNome] === '') ? '(Sem nome cadastrado)' : String(row[idxNome]).trim();
+      const grade = (idxGrade >= 0 && row[idxGrade] != null) ? String(row[idxGrade]) : '';
+      const assessoriaRaw = (idxAssessoria < 0 || row[idxAssessoria] === null || row[idxAssessoria] === undefined || row[idxAssessoria] === '' || String(row[idxAssessoria]).trim() === '0') ? '' : String(row[idxAssessoria]).trim();
+      const gestorRaw = idxGestorRaw >= 0 ? row[idxGestorRaw] : '';
+      // getGestorFriendlyName cobre os ~19 gestores da diretoria inteira (não só os 4 de
+      // Cauda Longa que CL_GESTORES_RAW conhecia) — resolve Camila/Lais/Wilder/Erika
+      // (Plataforma SP), Vivian/Guilherme/Izabele (ABC), Karollainny/Amanda/Daniela/Maxuel
+      // (Digital) do mesmo jeito que já resolvia os 4 daqui. Sem mapeamento conhecido, devolve
+      // o nome cru (ainda melhor que "Sem Gestor Atribuído" de cara).
       let gestorLabel;
-      if (gestorRaw && CL_GESTORES_RAW[gestorRaw]) gestorLabel = CL_GESTORES_RAW[gestorRaw];
+      if (gestorRaw) gestorLabel = window.getGestorFriendlyName ? window.getGestorFriendlyName(gestorRaw) : gestorRaw;
       else if (enrich[codigo]) gestorLabel = enrich[codigo];
       else gestorLabel = 'Sem Gestor Atribuído';
 
-      const monthly = monthCols.map(c => num(row[c]));
+      const monthly = padFront(monthCols.map(c => num(row[c])));
       const mc = {
-        pf: monthCols.map(c => num(row[c-3])),
-        ss: monthCols.map(c => num(row[c-2])),
-        pme: monthCols.map(c => num(row[c-1])),
+        pf: padFront(monthCols.map(c => num(row[c-3]))),
+        ss: padFront(monthCols.map(c => num(row[c-2]))),
+        pme: padFront(monthCols.map(c => num(row[c-1]))),
       };
       const t1 = num(row[idxT1]), t2 = num(row[idxT2]);
       const meta = t1 * 1.10;              // meta do 2TRI26 — régua da época (×1,10)
@@ -5828,7 +5923,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         if (gNow.getDate() <= 10){ gM -= 1; if (gM < 1){ gM = 12; gY -= 1; } }
         mesIdxPreview = (gY - 2025) * 12 + (gM - 1);
       }
-      const mesLabelPreview = (window.MONTH_LABELS && window.MONTH_LABELS[mesIdxPreview]) || 'mês corrente';
+      // Calcula o rótulo direto (não só olha MONTH_LABELS) — o mês pode ainda não ter coluna
+      // na planilha nesse momento da prévia; applyCorretorasToEligibilidade abre a coluna
+      // sozinho na hora de confirmar (ver comentário lá, 2026-09-17), então a prévia precisa
+      // mostrar o nome certo mesmo antes disso acontecer, em vez do genérico "mês corrente".
+      const mesLabelPreview = (mesIdxPreview >= 0 && typeof buildMonthLabels === 'function')
+        ? buildMonthLabels(mesIdxPreview + 1)[mesIdxPreview] : 'mês corrente';
       html += `<div>Elegibilidade — histórico de <b>${mesLabelPreview}</b> será gravado em <b>${matchCount}</b> das ${eligData.length} corretoras (Cauda Longa).</div>`;
     }
     if (!parsed.hasCarteira){
