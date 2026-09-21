@@ -1959,7 +1959,16 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     return '13+ meses';
   }
   const DORMANCY_ORDER = ['3 meses','4–6 meses','7–12 meses','13+ meses'];
-  const GESTOR_COLORS = {'Agatha Sakamoto':'#2E52D4','Patricia Monks':'#F26B21','Jonathan Leal':'#101E63','Pablo Amora':'#16B87A','Sem Gestor Atribuído':'#94a3b8'};
+  const GESTOR_COLORS = {'Agatha Sakamoto':'#2E52D4','Patricia Monks':'#F26B21','Jonathan Leal':'#101E63','Pablo Amora':'#16B87A','Sem Gestor Atribuído':'#94a3b8',
+    'Erika de Sousa Silva':'#0EA5E9','Camila Alves Pertinhez':'#8B5CF6','Lais dos Santos Martins':'#EC4899','Wilder Coca Patzi':'#14B8A6',
+    'Karollainny Rangel de Sousa Lopes':'#F59E0B','Daniela Novais dos Santos':'#EF4444','Amanda dos Santos Sobral':'#6366F1','Maxuel Pimentel Nobrega':'#84CC16',
+    'Vivian de Cassia Ambrosio':'#06B6D4','Guilherme de Lima Musachi':'#A855F7','Izabele de Oliveira da Silva':'#F97316'};
+  // Gráfico horizontal "por gestor": com 15 gestores a altura fixa (280px) fazia o Chart.js
+  // pular rótulos (barra sem nome) — cresce a caixa conforme o número de gestores.
+  function fitGestorChartHeight(n){
+    const box = document.getElementById('chartElGestor').parentElement;
+    box.style.height = Math.max(280, n * 28 + 60) + 'px';
+  }
 
   function showChartDrilldown(title, list){
     // Precisa mostrar o overlay ANTES de criar o gráfico: com o container ainda
@@ -2481,6 +2490,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       const reactGestorNames = Object.keys(reactByGestor).sort((a,b)=>reactByGestor[b].length-reactByGestor[a].length);
       document.getElementById('elGestorTitle').textContent = 'Oportunidades de Reativação por Gestor';
       document.getElementById('elGestorSub').textContent = `${fmt0(n)} corretoras no total — clique numa barra para filtrar por gestor`;
+      fitGestorChartHeight(reactGestorNames.length);
       charts.elGestor = new Chart(document.getElementById('chartElGestor'), {
         type:'bar',
         data:{ labels: reactGestorNames.map(shortGestor), datasets:[{ data: reactGestorNames.map(g=>reactByGestor[g].length),
@@ -2493,7 +2503,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
             const potg = l.reduce((s,d)=>s+d.tot,0);
             return [`${l.length} oportunidade(s)`, `${fmt0(potg)} vidas em potencial`, 'Clique para filtrar'];
           }}}},
-          scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{font:{size:11, weight:'600'}}} } }
+          scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{autoSkip:false, font:{size:11, weight:'600'}}} } }
       });
 
       const sortedReact = [...filtered].sort((a,b)=>b.tot-a.tot);
@@ -2763,6 +2773,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       c.beginPath(); c.moveTo(x, top); c.lineTo(x, bottom); c.stroke(); c.restore();
     }};
     destroyChart('elGestor');
+    fitGestorChartHeight(gestorNames.length);
     charts.elGestor = new Chart(document.getElementById('chartElGestor'), {
       type:'bar',
       data:{ labels: gestorNames.map(shortGestor), datasets:[{ data: gestorPcts,
@@ -2774,7 +2785,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           const g = gestorNames[c.dataIndex]; const l = byGestor[g];
           return [`${c.parsed.x.toFixed(1)}% elegíveis`, `${l.filter(r=>r.ctx.el===1).length} de ${l.length} corretoras`, 'Clique para filtrar'];
         }}}},
-        scales:{ x:{beginAtZero:true, max:Math.max(10, Math.ceil(Math.max.apply(null, gestorPcts.concat([pctEl]))/5)*5+5), grid:{color:'#eef1f6'}, ticks:{callback:v=>v+'%'}}, y:{grid:{display:false}, ticks:{font:{size:11, weight:'600'}}} } },
+        scales:{ x:{beginAtZero:true, max:Math.max(10, Math.ceil(Math.max.apply(null, gestorPcts.concat([pctEl]))/5)*5+5), grid:{color:'#eef1f6'}, ticks:{callback:v=>v+'%'}}, y:{grid:{display:false}, ticks:{autoSkip:false, font:{size:11, weight:'600'}}} } },
       plugins:[avgLinePlugin]
     });
 
