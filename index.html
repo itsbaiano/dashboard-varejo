@@ -1537,40 +1537,97 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       .catch(function(){ return false; });
   };
 
-  async function fsWriteSection(section, value){
+  // "sectionRef" opcional (3º parâmetro) — quando não vem, escreve/lê a seção viva
+  // (dashboard_data_v1/{section}, comportamento de sempre). O backup automático (mais abaixo,
+  // window.__backupCurrentData__) reaproveita as duas passando uma referência dentro de
+  // dashboard_backups_v1/{id}/sections/{section} — mesma técnica de fatiamento, outro endereço.
+  async function fsWriteSection(section, value, sectionRef){
     const jsonStr = JSON.stringify(value);
     const chunks = [];
     for (let i = 0; i < jsonStr.length; i += FS_CHUNK_SIZE){
       chunks.push(jsonStr.slice(i, i + FS_CHUNK_SIZE));
     }
     if (chunks.length === 0) chunks.push('');
-    const sectionRef = db.collection(DATA_COLLECTION).doc(section);
+    const ref = sectionRef || db.collection(DATA_COLLECTION).doc(section);
     const batch = db.batch();
-    batch.set(sectionRef, {
+    batch.set(ref, {
       chunkCount: chunks.length,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     chunks.forEach((s, i) => {
-      batch.set(sectionRef.collection('chunks').doc(String(i)), { s });
+      batch.set(ref.collection('chunks').doc(String(i)), { s });
     });
     await batch.commit();
     return { chunkCount: chunks.length, bytes: jsonStr.length };
   }
 
-  async function fsReadSection(section){
-    const sectionRef = db.collection(DATA_COLLECTION).doc(section);
-    const manifest = await sectionRef.get();
+  async function fsReadSection(section, sectionRef){
+    const ref = sectionRef || db.collection(DATA_COLLECTION).doc(section);
+    const manifest = await ref.get();
     if (!manifest.exists) return undefined;
     const count = manifest.data().chunkCount || 0;
     const reads = [];
     for (let i = 0; i < count; i++){
-      reads.push(sectionRef.collection('chunks').doc(String(i)).get());
+      reads.push(ref.collection('chunks').doc(String(i)).get());
     }
     const docs = await Promise.all(reads);
     let jsonStr = '';
     docs.forEach(d => { jsonStr += (d.exists ? (d.data().s || '') : ''); });
     if (!jsonStr) return (count === 0 ? undefined : null);
     return JSON.parse(jsonStr);
+  }
+
+  // ===== BACKUP AUTOMÁTICO ANTES DE PUBLICAR (pedido do Victor, 2026-09-28) =====
+  // Guarda uma cópia de tudo que está publicado AGORA, ANTES de sobrescrever — rede de
+  // segurança contra um bug de mesclagem (já aconteceu nesta mesma sessão, com a
+  // Elegibilidade) que sobrescreva a produção com dado errado. Chamado por
+  // publishToFirestore() (app.js) sempre ANTES de escrever os dados novos — se o backup falhar,
+  // a publicação para ali, sem sobrescrever nada sem rede de segurança.
+  // Guarda em dashboard_backups_v1/{timestampISO}/sections/{secao}/chunks/{i} — mesma árvore de
+  // fsWriteSection, só aninhada mais um nível (um backup inteiro por publicação). O nome do
+  // documento já é o timestamp em ISO 8601 (só troca ":"/"." por "-", que são inválidos em nome
+  // de documento do Firestore) — ordena certo por ordem alfabética igual ordenaria por data,
+  // sem precisar de índice nem de consulta especial.
+  const BACKUPS_COLLECTION = 'dashboard_backups_v1';
+  const BACKUP_RETENTION = 20; // últimos 20 — o resto é apagado sozinho, pra não crescer sem limite
+
+  window.__backupCurrentData__ = async function(){
+    const backupId = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupDoc = db.collection(BACKUPS_COLLECTION).doc(backupId);
+    const sectionsBase = backupDoc.collection('sections');
+    const results = await Promise.all(FS_SECTIONS.map(async section => {
+      const liveRef = db.collection(DATA_COLLECTION).doc(section);
+      const value = await fsReadSection(section, liveRef);
+      if (value === undefined) return false; // seção nunca publicada — nada pra guardar
+      await fsWriteSection(section, value, sectionsBase.doc(section));
+      return true;
+    }));
+    await backupDoc.set({
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      sectionsCount: results.filter(Boolean).length,
+    });
+    await pruneOldBackups();
+    return backupId;
+  };
+
+  async function pruneOldBackups(){
+    const snap = await db.collection(BACKUPS_COLLECTION).orderBy(firebase.firestore.FieldPath.documentId()).get();
+    const ids = snap.docs.map(d => d.id);
+    if (ids.length <= BACKUP_RETENTION) return;
+    const toDelete = ids.slice(0, ids.length - BACKUP_RETENTION);
+    for (const id of toDelete){ await deleteBackup(id); }
+  }
+  async function deleteBackup(id){
+    const backupDoc = db.collection(BACKUPS_COLLECTION).doc(id);
+    const sectionsSnap = await backupDoc.collection('sections').get();
+    for (const sectionDoc of sectionsSnap.docs){
+      const chunksSnap = await sectionDoc.ref.collection('chunks').get();
+      const batch = db.batch();
+      chunksSnap.docs.forEach(c => batch.delete(c.ref));
+      batch.delete(sectionDoc.ref);
+      await batch.commit();
+    }
+    await backupDoc.delete();
   }
 
   async function fsGetMyAllow(){

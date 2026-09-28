@@ -6792,8 +6792,13 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const status = document.getElementById('publishStatus');
     const btn = document.getElementById('btnPublishGithub');
     btn.disabled = true; btn.style.opacity = '.65';
-    status.innerHTML = '<span class="spinner" style="border-color:rgba(16,30,99,.25); border-top-color:var(--navy);"></span> Publicando...';
+    status.innerHTML = '<span class="spinner" style="border-color:rgba(16,30,99,.25); border-top-color:var(--navy);"></span> Fazendo backup dos dados atuais...';
     try {
+      // Backup SEMPRE antes de sobrescrever — se falhar, para aqui e não publica nada (pedido
+      // do Victor, 2026-09-28: rede de segurança pra reverter se uma publicação sair errada).
+      // Guarda os últimos 20 automaticamente (ver window.__backupCurrentData__ em index.html).
+      if (window.__backupCurrentData__) await window.__backupCurrentData__();
+      status.innerHTML = '<span class="spinner" style="border-color:rgba(16,30,99,.25); border-top-color:var(--navy);"></span> Publicando...';
       const payload = buildDataPayload();
       const keys = Object.keys(payload);
       // Publica todas as seções em paralelo — mais rápido, e cada uma é independente
