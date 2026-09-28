@@ -1615,18 +1615,24 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     const ids = snap.docs.map(d => d.id);
     if (ids.length <= BACKUP_RETENTION) return;
     const toDelete = ids.slice(0, ids.length - BACKUP_RETENTION);
-    for (const id of toDelete){ await deleteBackup(id); }
+    // Todos os backups excedentes ao mesmo tempo, não um de cada vez — achado 2026-09-28
+    // (Victor: "o processo... ficou bem lento"): apagar em série (um esperando o outro) somava
+    // vários segundos de ida-e-volta ao Firestore em toda publicação, uma vez que a lista de
+    // backups já passa de 20 e essa limpeza roda quase sempre. Mesmo resultado, só mais rápido.
+    await Promise.all(toDelete.map(id => deleteBackup(id)));
   }
   async function deleteBackup(id){
     const backupDoc = db.collection(BACKUPS_COLLECTION).doc(id);
     const sectionsSnap = await backupDoc.collection('sections').get();
-    for (const sectionDoc of sectionsSnap.docs){
+    // As ~18 seções de UM backup também em paralelo, mesmo motivo acima — antes eram uma
+    // esperando a outra terminar (leitura dos chunks + gravação do batch), agora todas juntas.
+    await Promise.all(sectionsSnap.docs.map(async sectionDoc => {
       const chunksSnap = await sectionDoc.ref.collection('chunks').get();
       const batch = db.batch();
       chunksSnap.docs.forEach(c => batch.delete(c.ref));
       batch.delete(sectionDoc.ref);
       await batch.commit();
-    }
+    }));
     await backupDoc.delete();
   }
 
