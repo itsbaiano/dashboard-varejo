@@ -31,13 +31,13 @@ window.markSourceUpdated = function(key){ LAST_UPDATED_BY_SOURCE[key] = new Date
 
 // Lista enxuta a pedido do Victor, 2026-09-14 (depois de ver o resultado ao vivo): só os 5
 // pilares do dia a dia — tirou "Aguardando Assinatura" e "Carteira/Gestores" da exibição
-// (mudam raramente, poluíam a lista). O rastreamento das duas continua intacto em
-// LAST_UPDATED_BY_SOURCE/btnConfirmImport — só não aparecem aqui; reativar é só devolver a
-// entrada nesta lista, sem precisar mexer em mais nada.
+// (mudam raramente, poluíam a lista). "Elegibilidade" também removida a pedido do Victor,
+// 2026-09-28 (mudança rara/histórica, virou ruído na lista). O rastreamento das três continua
+// intacto em LAST_UPDATED_BY_SOURCE/btnConfirmImport — só não aparecem aqui; reativar é só
+// devolver a entrada nesta lista, sem precisar mexer em mais nada.
 const SOURCE_LABELS = [
   {key:'corretoras', name:'Desempenho Comercial', sub:'Extrato do BI · Corretoras'},
   {key:'crescimentoGeral', name:'Crescimento Geral', sub:'Conversão — ontem × hoje'},
-  {key:'elegibilidade', name:'Elegibilidade', sub:'Arquivo mestre Hapvida'},
   {key:'funilPf', name:'Funil PF', sub:'Pendências · SLA'},
   {key:'funilPme', name:'Funil PME', sub:'Pendências · SLA'},
 ];
