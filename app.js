@@ -1698,19 +1698,30 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
 
   let DATA = window.__DASH_DATA__.DATA;
   // Restringe Elegibilidade por equipe pra Executivo/Sênior escopado (window.__eligTeamScope__,
-  // setado no login — ver index.html) — Admin continua vendo tudo (decisão de Victor
-  // 2026-09-17: escopar Admin também fica pra depois). Corretora "Sem Gestor Atribuído" ou de
-  // um gestor fora do mapa abaixo não tem equipe pra comparar — fica de fora de QUALQUER
-  // escopo restrito (mais seguro que aparecer pra todo mundo por padrão). Filtra uma vez aqui,
-  // na carga inicial — cobre o uso real (gestor/sênior só navega, nunca importa arquivo).
+  // setado no login — ver index.html). Corretora "Sem Gestor Atribuído" ou de um gestor fora do
+  // mapa abaixo não tem equipe pra comparar — fica de fora de QUALQUER escopo restrito (mais
+  // seguro que aparecer pra todo mundo por padrão).
+  // IMPORTANTE (achado real 2026-09-28): isto usada a filtrar a variável DATA em si, direto na
+  // carga — só que window.getEligibilidadeData() (usada pelo "Publicar" E por outras abas —
+  // Visão Geral, Ranking, reconciliação de Propostas) lê essa MESMA variável. Resultado: uma
+  // sessão escopada (ex.: Alexandre, restrito à Plataforma SP) que clicasse em Publicar por
+  // QUALQUER motivo sobrescrevia a Elegibilidade inteira só com a fatia da equipe dela — foi
+  // exatamente isso que apagou Digital/Plataforma SP/ABC da produção. Correção: DATA nunca mais
+  // é filtrada — fica sempre completa (é a única base usada pra mesclar import, publicar, e
+  // por qualquer outra aba). A restrição por equipe agora só entra na hora de MOSTRAR a
+  // Elegibilidade na tela, via scopedData() (função abaixo), usada em applyFilters/EL_GESTORES/
+  // RANKS_PRESENT/Conquista Premiada — os únicos lugares que renderizam esta aba pra o usuário.
   const ELIG_GESTOR_TEAM = {
     'Agatha Sakamoto':'CAUDA LONGA', 'Patricia Monks':'CAUDA LONGA', 'Jonathan Leal':'CAUDA LONGA', 'Pablo Amora':'CAUDA LONGA',
     'Erika de Sousa Silva':'PLATAFORMA SP', 'Camila Alves Pertinhez':'PLATAFORMA SP', 'Lais dos Santos Martins':'PLATAFORMA SP', 'Wilder Coca Patzi':'PLATAFORMA SP',
     'Karollainny Rangel de Sousa Lopes':'DIGITAL', 'Daniela Novais dos Santos':'DIGITAL', 'Amanda dos Santos Sobral':'DIGITAL', 'Maxuel Pimentel Nobrega':'DIGITAL',
     'Vivian de Cassia Ambrosio':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Guilherme de Lima Musachi':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Izabele de Oliveira da Silva':'PLATAFORMA ABC/ALTO TIETÊ/BX',
   };
-  if (window.__eligTeamScope__){
-    DATA = DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === window.__eligTeamScope__);
+  // Só pra EXIBIÇÃO — nunca usar isto como base de merge/publicação, só DATA (completa) pode
+  // ser usada pra isso. Recalcula toda vez que é chamada, então sempre reflete DATA atual
+  // (inclusive depois de um import no meio da sessão).
+  function scopedData(){
+    return window.__eligTeamScope__ ? DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === window.__eligTeamScope__) : DATA;
   }
   // Mês global (0=Jan/25) em que cada equipe realmente passou a ter histórico na base —
   // Cauda Longa está desde o início (Jan/25); as 3 equipes novas entraram só em Jan/26
@@ -1804,8 +1815,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
 
   const fmt0 = n => Math.round(n).toLocaleString('pt-BR');
   const RANK_ORDER = ["Bronze 1","Bronze 2","Bronze 3","Bronze 4","Bronze 5","Bronze 6","Não Classificado"];
-  const EL_GESTORES = [...new Set(DATA.map(d=>d.g))].sort();
-  const RANKS_PRESENT = RANK_ORDER.filter(r => DATA.some(d=>d.rk===r));
+  const EL_GESTORES = [...new Set(scopedData().map(d=>d.g))].sort();
+  const RANKS_PRESENT = RANK_ORDER.filter(r => scopedData().some(d=>d.rk===r));
 
   // Filtro de Gestor virou multi-seleção (checkboxes num painel, não mais um <select> —
   // ver CSS .fgb-* em index.html) pra quem enxerga vários gestores poder comparar 2+ ao
@@ -1917,7 +1928,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const q = (typeof elMode !== 'undefined' && elMode === 'assessorias') ? '' : norm(document.getElementById('fSearch').value);
     const onlyReact = document.getElementById('fReact').checked;
     const periodMonthsFilter = getPeriodMonths();
-    return DATA.filter(d => {
+    return scopedData().filter(d => {
       if (selectedGestores.size && !selectedGestores.has(d.g)) return false;
       const calc = periodMonthsFilter ? computePeriodElegRank(d, periodMonthsFilter) : null;
       if (el !== '' && String(calc ? calc.el : d.el) !== el) return false;
@@ -2257,7 +2268,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   const CQG_PP = 15;
 
   function conquistaRowsAll(){
-    return DATA.map(d => { const cq = computeConquistaFull(d); return cq ? Object.assign({d}, cq) : null; }).filter(Boolean);
+    return scopedData().map(d => { const cq = computeConquistaFull(d); return cq ? Object.assign({d}, cq) : null; }).filter(Boolean);
   }
 
   function applyConquistaFilters(rows){
@@ -2346,7 +2357,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
 
     const gestorGrid = document.getElementById('cqgGestorGrid');
     // "Sem Gestor Atribuído" fica de fora dos cards (mas continua nos KPIs gerais acima).
-    const gestorNames = [...new Set(DATA.map(d=>d.g))].filter(g => g !== 'Sem Gestor Atribuído').sort();
+    const gestorNames = [...new Set(scopedData().map(d=>d.g))].filter(g => g !== 'Sem Gestor Atribuído').sort();
     gestorGrid.innerHTML = gestorNames.map(g => {
       const gRows = rows.filter(r => r.d.g === g);
       const gEleg = gRows.filter(r => r.isEligible);
@@ -3332,7 +3343,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
 
   function showDetail(codigo, opts){
     opts = opts || {scroll:true};
-    const d = DATA.find(x=>x.c===codigo);
+    const d = scopedData().find(x=>x.c===codigo);
     if(!d) return;
     // O painel de detalhe é um único elemento reaproveitado por todo mundo que chama
     // showDetail (tabela, assessoria, ranking...). Por padrão ele mora no lugar de sempre
@@ -3353,7 +3364,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // "esta corretora" com "o agregado da assessoria" existe nos dois casos.
     const noteEl = document.getElementById('detailAssessoriaNote');
     const nomeUp = String(d.n).trim().toUpperCase();
-    const membrosAssessoria = DATA.filter(x => x.ass && String(x.ass).trim().toUpperCase() === nomeUp);
+    const membrosAssessoria = scopedData().filter(x => x.ass && String(x.ass).trim().toUpperCase() === nomeUp);
     if (membrosAssessoria.length){
       const totalMembros = membrosAssessoria.reduce((s,x)=>s+(x.tot||0),0);
       noteEl.style.display = '';
@@ -4528,10 +4539,10 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     if (!dryRun && found.length){
       found.forEach(rec => DATA.push(rec));
       EL_GESTORES.length = 0;
-      [...new Set(DATA.map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
+      [...new Set(scopedData().map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
       syncGestorLocalOptions();
       RANKS_PRESENT.length = 0;
-      RANK_ORDER.filter(r => DATA.some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
+      RANK_ORDER.filter(r => scopedData().some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
     }
     return found;
   };
@@ -4588,10 +4599,10 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     });
     refreshMonthDerivedState();
     EL_GESTORES.length = 0;
-    [...new Set(DATA.map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
+    [...new Set(scopedData().map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
     syncGestorLocalOptions();
     RANKS_PRESENT.length = 0;
-    RANK_ORDER.filter(r => DATA.some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
+    RANK_ORDER.filter(r => scopedData().some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
     selRank.innerHTML = '<option value="">Todos</option>';
     RANKS_PRESENT.forEach(r => { const o=document.createElement('option'); o.value=r; o.textContent=r; selRank.appendChild(o); });
     document.getElementById('hdrTotalCount') && (document.getElementById('hdrTotalCount').textContent = DATA.length.toLocaleString('pt-BR'));
