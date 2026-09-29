@@ -869,6 +869,18 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let pendCurrentGestor = null;
   let pendActiveTab = 'pme';
   let pendSelectedStatuses = new Set();
+  // Nome de exibição de cada "esteira" (campo de status.{campo}) — usado nos chips de filtro
+  // de Pendências PME, ver renderPendencias().
+  const PEND_STATUS_FIELD_LABELS = {planium:'Planium', cadastro:'Cadastro', ditec:'Ditec', bitix:'Bitix'};
+  // Reconstrói o rótulo legível ("Pendente · Ditec") a partir da chave guardada em
+  // pendSelectedStatuses ("ditec::PENDENTE") — usado no relatório em PDF, que lê
+  // pendSelectedStatuses fora do escopo de renderPendencias().
+  function pendStatusKeyToLabel(k){
+    const sep = k.indexOf('::');
+    if (sep < 0) return k;
+    const field = k.slice(0, sep), value = k.slice(sep+2);
+    return `${value} · ${PEND_STATUS_FIELD_LABELS[field]||field}`;
+  }
   // Guarda o resultado filtrado do último render — "Baixar relatório" usa exatamente o que
   // está na tela (gestor + mês + corretora + status já aplicados), sem recalcular nada.
   let pendLastPmeFiltered = [], pendLastPfFiltered = [];
@@ -925,19 +937,34 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     corSel.value = corretoras.includes(prevCor) ? prevCor : '';
     const activeCorretora = corSel.value;
 
+    // Pedido do Victor, 2026-09-29: "PENDENTE" (Ditec) e "pendencia" (Planium) pareciam
+    // duplicados nos chips de filtro, mas são status de esteiras DIFERENTES dentro da mesma
+    // proposta — cada campo de status.{planium,cadastro,ditec,bitix} é uma etapa separada do
+    // fluxo. Antes só mostrava o valor cru ("PENDENTE"/"pendencia" soltos), sem deixar claro
+    // de qual esteira cada um vinha. Agora cada chip carrega o par {campo, valor} e mostra os
+    // dois ("Pendente · Ditec"), tanto pra exibir quanto pra filtrar — dois status com o mesmo
+    // texto mas de campos diferentes viram chips distintos, nunca fundidos num só sem querer.
     const statusesOf = p => {
-      if (Array.isArray(p.status)) return p.status;
-      if (p.status && typeof p.status === 'object') return Object.values(p.status).filter(v=>v && v !== '0');
-      return p.status ? [p.status] : [];
+      if (Array.isArray(p.status)) return p.status.filter(v=>v && v!=='0').map(v => ({field:null, value:v}));
+      if (p.status && typeof p.status === 'object'){
+        return Object.entries(p.status).filter(([k,v])=>v && v!=='0').map(([field,value]) => ({field, value}));
+      }
+      return (p.status && p.status !== '0') ? [{field:null, value:p.status}] : [];
     };
-    const statuses = [...new Set(list.flatMap(statusesOf))].sort();
-    pendSelectedStatuses.forEach(s => { if (!statuses.includes(s)) pendSelectedStatuses.delete(s); });
+    const statusKey = o => (o.field ? o.field+'::' : '') + o.value;
+    const statusLabel = o => pendStatusKeyToLabel(statusKey(o));
+
+    const seenKeys = new Set();
+    const statuses = [];
+    list.flatMap(statusesOf).forEach(o => { const k = statusKey(o); if (!seenKeys.has(k)){ seenKeys.add(k); statuses.push(o); } });
+    statuses.sort((a,b) => statusLabel(a).localeCompare(statusLabel(b)));
+    pendSelectedStatuses.forEach(k => { if (!seenKeys.has(k)) pendSelectedStatuses.delete(k); });
     const chipsWrap = document.getElementById('pendStatusChips');
-    chipsWrap.innerHTML = statuses.map(s => `<span class="status-chip${pendSelectedStatuses.has(s)?' active':''}" data-status="${s}">${s}</span>`).join('');
+    chipsWrap.innerHTML = statuses.map(o => { const k = statusKey(o); return `<span class="status-chip${pendSelectedStatuses.has(k)?' active':''}" data-status="${k}">${statusLabel(o)}</span>`; }).join('');
     chipsWrap.querySelectorAll('.status-chip').forEach(chip => {
       chip.addEventListener('click', () => {
-        const s = chip.dataset.status;
-        if (pendSelectedStatuses.has(s)) pendSelectedStatuses.delete(s); else pendSelectedStatuses.add(s);
+        const k = chip.dataset.status;
+        if (pendSelectedStatuses.has(k)) pendSelectedStatuses.delete(k); else pendSelectedStatuses.add(k);
         renderPendencias();
       });
     });
@@ -948,9 +975,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // pros dois: cada aba já sabe qual número procurar (dataVigencia/dataStatus segue o mesmo padrão).
     const searchRaw = document.getElementById('pendPropostaSearch').value.trim().toLowerCase();
 
-    const pmeFiltered = pme.filter(p => (!activeMonth || pendMonthOf(p.dataVigencia) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pme' || pendSelectedStatuses.size === 0 || statusesOf(p).some(s=>pendSelectedStatuses.has(s))) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
+    const pmeFiltered = pme.filter(p => (!activeMonth || pendMonthOf(p.dataVigencia) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pme' || pendSelectedStatuses.size === 0 || statusesOf(p).some(o=>pendSelectedStatuses.has(statusKey(o)))) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.beneficiarios||0) - (b.beneficiarios||0)));
-    const pfFiltered = pf.filter(p => (!activeMonth || pendMonthOf(p.dataStatus) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || statusesOf(p).some(s=>pendSelectedStatuses.has(s))) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
+    const pfFiltered = pf.filter(p => (!activeMonth || pendMonthOf(p.dataStatus) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || statusesOf(p).some(o=>pendSelectedStatuses.has(statusKey(o)))) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.vidas||0) - (b.vidas||0)));
     pendLastPmeFiltered = pmeFiltered;
     pendLastPfFiltered = pfFiltered;
@@ -1027,7 +1054,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const total = rows.reduce((s,p)=>s+(isPme?(p.beneficiarios||0):(p.vidas||0)), 0);
     const mesFiltroTxt = document.getElementById('pendMonthFilter').value || 'Todos os meses';
     const corFiltroTxt = document.getElementById('pendCorretoraFilter').value || 'Todas as corretoras';
-    const stsFiltroTxt = pendSelectedStatuses.size ? [...pendSelectedStatuses].join(', ') : 'Todos os status';
+    const stsFiltroTxt = pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'Todos os status';
 
     const linhas = isPme ? rows.map(p => `<tr>
       <td>${esc(p.proposta)}</td>
