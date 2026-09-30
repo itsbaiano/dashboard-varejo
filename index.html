@@ -1606,11 +1606,20 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       await fsWriteSection(section, value, sectionsBase.doc(section));
       return true;
     }));
-    await backupDoc.set({
+    // A partir daqui o backup em si já está garantido — todas as seções foram gravadas de
+    // verdade acima. O que falta (gravar o metadado do backup + apagar os excedentes de 20)
+    // é só bookkeeping, não faz parte da rede de segurança em si — achado 2026-09-30 (Victor:
+    // "toda vez que eu publico ainda demora bastante"): antes esses dois passos eram
+    // `await`ados AQUI DENTRO, então quem publica ficava esperando a limpeza dos backups
+    // antigos terminar antes mesmo de começar a gravar o dado novo — dois passos que não têm
+    // nenhuma relação com "é seguro sobrescrever agora?". Rodando em paralelo (sem bloquear
+    // quem chamou esta função), publishToFirestore() já pode seguir pra gravação dos dados
+    // novos assim que o backup de verdade termina, sem esperar a faxina. Erro na limpeza (ex.:
+    // Firestore fora do ar num instante) não trava mais a publicação inteira por causa disso.
+    backupDoc.set({
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       sectionsCount: results.filter(Boolean).length,
-    });
-    await pruneOldBackups();
+    }).then(() => pruneOldBackups()).catch(err => console.error('Falha ao finalizar metadado/limpeza do backup (não afeta a publicação):', err));
     return backupId;
   };
 
