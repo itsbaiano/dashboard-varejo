@@ -250,6 +250,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let mjCorretorasGestor = null;
   let mjSelectedGestor = null;
   let mjForecastData = null; // último cálculo de forecast do card "Meta Diária" — ver renderMetaJunho
+  let mjMetaCatData = null; // último detalhe por categoria do card "Meta do Gestor" — ver renderMetaJunho
   let mjExpandedTeams = new Set(); // times abertos (mostrando gestores) na visão "Todos os Times"
   function destroyMJChart(key){ if(mjCharts[key]){ mjCharts[key].destroy(); delete mjCharts[key]; } }
 
@@ -271,7 +272,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // abre modal com as corretoras que venderam naquela categoria, no escopo atual (time/gestor selecionado).
   // ADM fica de fora: a base não tem detalhamento por corretora pra essa categoria, só por gestor.
   const mjCatFieldByKey = {IND:'ind', SS:'ss', PME:'pme'};
-  const mjCatIconByKey = {IND:'ic-user', SS:'ic-users', PME:'ic-building'};
+  const mjCatIconByKey = {IND:'ic-user', SS:'ic-users', PME:'ic-building', ADM:'ic-clip'};
   let mjCatAllRows = [], mjCatShowGestor = false, mjCatGestorFilterVal = '';
 
   function getMjCatRows(key){
@@ -419,8 +420,22 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       }
     }
 
+    // Detalhe por categoria do card "Meta do Gestor" (pedido do Victor, 2026-09-30: "é
+    // interessante aparecer as metas de cada categoria também") — os números já existiam em
+    // total.cat[k], só não apareciam na tela. Guardado aqui (mesmo padrão do mjForecastData
+    // acima) pro modal aberto via window.__openMjMetaCat() usar exatamente o que está no card
+    // no momento do clique, sem recalcular nada.
+    mjMetaCatData = {
+      titulo: selectedMember ? selectedMember.nome : teamLabel,
+      mesLabel: monthLabelPt(currentMonth),
+      rows: catKeys.map(k => {
+        const meta = total.cat[k].meta, int = total.cat[k].int;
+        return { key:k, label:catLabels[k], icon:mjCatIconByKey[k], meta, int, pct: meta ? int/meta : 0 };
+      }),
+    };
+
     const kpis = [
-      {icon:"<i class=ic-target></i>", label: selectedMember ? "Meta do Gestor" : (isAllTeamsAggregate ? "Meta Total — NDI SP" : "Meta Total do Time"), value: fmt0(total.meta) + " vidas", sub: monthLabelPt(currentMonth), subClass:""},
+      {icon:"<i class=ic-target></i>", label: selectedMember ? "Meta do Gestor" : (isAllTeamsAggregate ? "Meta Total — NDI SP" : "Meta Total do Time"), value: fmt0(total.meta) + " vidas", sub: monthLabelPt(currentMonth), subClass:"", onclick:"window.__openMjMetaCat()", hintTitle:"Ver por categoria"},
       {icon:"<i class=ic-check></i>", label:"Integrado (Realizado)", value: fmt0(displayInt) + " vidas", sub: naoAtribuidoTotal > 0 ? `Inclui ${fmt0(naoAtribuidoTotal)} vidas sem gestor/código não localizado` : (displayInt >= total.meta ? "Meta batida" : "Abaixo da meta"), subClass: displayInt >= total.meta ? "pos" : "warn"},
       {icon:"<i class=ic-chart></i>", label:"% Atingimento", value: pctf(pctTotalAdj), sub: pctTotalAdj >= 1 ? "Acima de 100%" : "Faltam " + pctf(1-pctTotalAdj) + " p/ meta", subClass: pctTotalAdj >= 1 ? "pos" : "neg"},
       {icon:"<i class=ic-warn></i>", label:"Gap p/ Meta", value: (gap>0?fmt0(gap):"0") + " vidas", sub:`Categoria crítica: ${catLabels[critKey]} (${pctf(critPct)})`, subClass:"neg"},
@@ -428,7 +443,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     ];
     const kpiExpandHintSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
     document.getElementById('mjKpiRow').innerHTML = kpis.map(k => `
-      <div class="kpi"${k.onclick ? ` onclick="${k.onclick}" style="cursor:pointer" role="button" tabindex="0"` : ''}><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.subClass}">${k.sub}</div>${k.onclick ? `<div class="kpi-expand-hint" title="Ver projeção completa">${kpiExpandHintSvg}</div>` : ''}</div>
+      <div class="kpi"${k.onclick ? ` onclick="${k.onclick}" style="cursor:pointer" role="button" tabindex="0"` : ''}><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.subClass}">${k.sub}</div>${k.onclick ? `<div class="kpi-expand-hint" title="${k.hintTitle||'Ver projeção completa'}">${kpiExpandHintSvg}</div>` : ''}</div>
     `).join('');
 
     // Banner do sênior: mesmos números de Total pra Atuar / Meta Diária já calculados acima,
@@ -684,6 +699,32 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   };
   document.getElementById('btnCloseMjForecast').addEventListener('click', () => { document.getElementById('mjForecastModalOverlay').style.display = 'none'; });
   document.getElementById('mjForecastModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'mjForecastModalOverlay') e.currentTarget.style.display = 'none'; });
+
+  // Modal "Meta por Categoria" — pedido do Victor, 2026-09-30: no card "Meta do Gestor"/"Meta
+  // Total", mostrar também a meta (e o realizado) de cada categoria (Individual/Super Simples/
+  // PME/Administradora), não só o total somado. Mesmo padrão do forecast acima (ícone de
+  // expandir no card, dados prontos em mjMetaCatData a cada render, sem recalcular no clique).
+  // Cores/limiares (verde ≥100%, amarelo ≥70%, vermelho abaixo) reaproveitam pctColor/pctBg, já
+  // usadas no resto da tela (ex.: gráfico de % Atingimento por categoria).
+  window.__openMjMetaCat = function(){
+    const d = mjMetaCatData;
+    if (!d) return;
+    document.getElementById('mjMetaCatTitulo').textContent = d.titulo;
+    document.getElementById('mjMetaCatSub').textContent = d.mesLabel;
+    document.getElementById('mjMetaCatRows').innerHTML = d.rows.map(r => `
+      <div class="mjmc-row">
+        <div class="mjmc-icon" style="background:${pctColor(r.pct)};"><i class="${r.icon}" style="font-size:13px; color:#fff;"></i></div>
+        <div class="mjmc-body">
+          <div class="mjmc-top"><span class="mjmc-name">${r.label}</span><span class="mjmc-nums">${fmt0(r.int)} / ${fmt0(r.meta)} vidas</span></div>
+          <div class="mjmc-track"><div class="mjmc-fill" style="width:${Math.min(100, r.pct*100)}%; background:${pctColor(r.pct)};"></div></div>
+        </div>
+        <div class="mjmc-pct" style="color:${pctColor(r.pct)};">${pctf(r.pct)}</div>
+      </div>
+    `).join('');
+    document.getElementById('mjMetaCatModalOverlay').style.display = 'flex';
+  };
+  document.getElementById('btnCloseMjMetaCat').addEventListener('click', () => { document.getElementById('mjMetaCatModalOverlay').style.display = 'none'; });
+  document.getElementById('mjMetaCatModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'mjMetaCatModalOverlay') e.currentTarget.style.display = 'none'; });
 
   const MJ_MONTH_LABELS_PT = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro'};
   function monthLabelPt(yearMonth){

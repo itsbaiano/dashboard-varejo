@@ -514,6 +514,19 @@
   .kpi-expand-hint{position:absolute; bottom:14px; right:16px; width:22px; height:22px; border-radius:50%; background:rgba(46,82,212,.09); color:var(--primary-mid); display:flex; align-items:center; justify-content:center;}
   .kpi-expand-hint svg{width:12px; height:12px;}
 
+  /* Modal "Meta por Categoria" — pedido do Victor 2026-09-30, mesmo padrão de clique-pra-
+     expandir do card "Meta Diária" acima. */
+  .mjmc-row{display:flex; align-items:center; gap:12px; padding:13px 0; border-top:1px solid var(--line);}
+  .mjmc-row:first-child{border-top:none; padding-top:16px;}
+  .mjmc-icon{width:32px; height:32px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .mjmc-body{flex:1; min-width:0;}
+  .mjmc-top{display:flex; justify-content:space-between; align-items:baseline; gap:8px;}
+  .mjmc-name{font-size:12.5px; font-weight:700; color:var(--navy);}
+  .mjmc-nums{font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums;}
+  .mjmc-track{height:6px; border-radius:20px; background:#EEF1FA; margin-top:7px; overflow:hidden;}
+  .mjmc-fill{height:100%; border-radius:20px;}
+  .mjmc-pct{width:50px; text-align:right; font-size:12.5px; font-weight:800; font-variant-numeric:tabular-nums; flex-shrink:0;}
+
   .mjf-hero{display:flex; align-items:center; gap:20px; flex-wrap:wrap; padding-bottom:18px; border-bottom:1px solid var(--line); margin-bottom:18px;}
   .mjf-hero-num{flex:1; min-width:160px;}
   .mjf-label{font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);}
@@ -2088,6 +2101,20 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
           <b style="color:var(--text);">Como calcula:</b> Forecast = Realizado até agora + (Ritmo atual × Dias úteis restantes) — e a cobertura projetada é Forecast ÷ Meta. O "ritmo atual" é a mesma média que já decide o "Enquadrado/Fora do ritmo" no card, só que aqui aplicada pra frente e comparada com a meta inteira.
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="mjMetaCatModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100; align-items:center; justify-content:center; padding:20px;">
+    <div style="background:#fff; border-radius:18px; max-width:600px; width:100%; max-height:85vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 20px 50px rgba(16,30,99,.25);">
+      <div style="background:linear-gradient(120deg, var(--navy) 0%, var(--navy-light) 100%); color:#fff; padding:18px 24px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+        <div>
+          <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:rgba(255,255,255,.6);">Meta por Categoria</div>
+          <h2 style="font-size:17px; font-weight:800; margin:2px 0 0;" id="mjMetaCatTitulo">—</h2>
+          <div style="font-size:12px; color:rgba(255,255,255,.75); margin-top:2px;" id="mjMetaCatSub">—</div>
+        </div>
+        <button id="btnCloseMjMetaCat" class="btn-reset" style="background:rgba(255,255,255,.14); color:#fff; border-color:rgba(255,255,255,.3); flex-shrink:0;">Fechar ✕</button>
+      </div>
+      <div style="padding:8px 24px 22px; overflow-y:auto;" id="mjMetaCatRows"></div>
     </div>
   </div>
 
