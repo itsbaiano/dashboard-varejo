@@ -1656,6 +1656,23 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // personalizado que termina no mês mais recente (o caso mais comum, "de X até agora") era
     // silenciosamente trocado pelos números do trimestre vigente, ignorando o que foi escolhido.
     const isCurrentPeriod = !selectedMonths.__literal && Math.max.apply(null, selectedMonths) === d.m.length - 1;
+
+    // displayTotal/displayMeta = números do período EXATO escolhido (ex.: só Setembro, se foi
+    // isso que o usuário filtrou em Mensal) — SEMPRE calculados, nunca substituídos pelo
+    // trimestre. Achado real 2026-09-30 (Victor, corretora QUALI PLANOS): filtrando por Mensal/
+    // Setembro, o card "Set/26 Atual" mostrava 3.778 — o total do 3TRI inteiro (Jul+Ago+Set), não
+    // o de setembro sozinho (1.280) — a quebra por categoria logo abaixo do card, que sempre usou
+    // esses mesmos meses literais (nunca teve esse bug), foi o que expôs a diferença. Usados só
+    // pelos cards "Atual/Meta/Gap" (rotulados com o período exato selecionado); a classificação
+    // de Elegibilidade/Ranking abaixo continua sempre por TRIMESTRE oficial (ver isCurrentPeriod
+    // logo abaixo) — são duas perguntas diferentes ("quanto vendeu NESSE período" vs "está
+    // elegível pela regra oficial, que é sempre trimestral"), não devem se misturar.
+    const displayTotal = selectedMonths.reduce((s,i)=>s+(d.m[i]||0), 0);
+    const displayPrevMonths = getPrevEquivalentMonths(selectedMonths);
+    const displayPrevTotal = displayPrevMonths ? displayPrevMonths.reduce((s,i)=>s+(d.m[i]||0), 0) : 0;
+    const displayFactor = isNewEra(selectedMonths) ? 0.80 : 1.10;
+    const displayMeta = displayPrevMonths ? displayPrevTotal * displayFactor : 0;
+
     if (isCurrentPeriod){
       // A elegibilidade "oficial" é sempre calculada por TRIMESTRE — o trimestre vigente
       // (mesmo parcial, se ainda não fechou) contra o trimestre ANTERIOR completo — nunca por
@@ -1677,16 +1694,11 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       // além do real (corretoras com histórico esporádico "reativando" em massa).
       const el = (meta > 0 && periodTotal >= meta) ? 1 : 0;
       const rk = computeRankingFromVolume(periodTotal, curTri.months);
-      return { periodTotal, meta, el, rk, factor };
+      return { periodTotal, meta, el, rk, factor, displayTotal, displayMeta, isCurrentPeriod };
     }
-    const periodTotal = selectedMonths.reduce((s,i)=>s+(d.m[i]||0), 0);
+    const periodTotal = displayTotal;
     const rk = computeRankingFromVolume(periodTotal, selectedMonths);
-    const prevMonths = getPrevEquivalentMonths(selectedMonths);
-    const prevTotal = prevMonths ? prevMonths.reduce((s,i)=>s+(d.m[i]||0), 0) : 0;
-    // Régua depende da era do período avaliado: 3TRI26+ usa ×0,80; anteriores ×1,10
-    const factor = isNewEra(selectedMonths) ? 0.80 : 1.10;
-    const meta = prevMonths ? prevTotal * factor : 0;
-    let el = (meta > 0 && periodTotal >= meta) ? 1 : 0;
+    let el = (displayMeta > 0 && periodTotal >= displayMeta) ? 1 : 0;
     // Mês único, já superado como "mês vigente" (ex.: Agosto depois que Setembro chegou) —
     // achado real 2026-09-09 (Victor: "se você olhar na planilha que tem a coluna de agosto,
     // vai ver que a quantidade de elegíveis não bate"). O "el" calculado acima (mês isolado vs
@@ -1702,7 +1714,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     if (selectedMonths.length === 1 && d.elByMonth && d.elByMonth[selectedMonths[0]] !== undefined){
       el = d.elByMonth[selectedMonths[0]];
     }
-    return { periodTotal, meta, el, rk, factor };
+    return { periodTotal, meta: displayMeta, el, rk, factor: displayFactor, displayTotal, displayMeta, isCurrentPeriod };
   }
 
   /* =========================================================
@@ -3524,14 +3536,26 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const curGap = curTotal - curMeta;
     const curRank = calc ? calc.rk : d.rk;
 
+    // Números do período EXATO selecionado (ex.: só Setembro, se Mensal/Setembro foi o que o
+    // usuário filtrou) — usados SÓ nos cards "Atual/Meta/Gap" abaixo, rotulados com esse mesmo
+    // período (periodLabel). curTotal/curMeta/curRank (acima) continuam os OFICIAIS (por
+    // trimestre, quando aplicável) — usados pela Elegibilidade e pelo "faltam X vidas pra
+    // alcançar <faixa>" logo abaixo, que respondem uma pergunta diferente ("está elegível pela
+    // regra oficial, sempre trimestral") da que os cards respondem ("quanto vendeu NESSE
+    // período"). Achado real 2026-09-30 (Victor, corretora QUALI PLANOS) — ver comentário em
+    // computePeriodElegRank.
+    const dispTotal = calc ? calc.displayTotal : d.t2;
+    const dispMeta = calc ? calc.displayMeta : d.meta;
+    const dispGap = dispTotal - dispMeta;
+
     document.getElementById('detailMeta').textContent = `Código ${d.c} · Gestor: ${d.g} · Grade: ${d.gr || '—'} · Ranking: ${curRank}`;
     document.getElementById('dT2Label').textContent = periodLabel;
     document.getElementById('dMetaLabel').textContent = periodLabel;
     document.getElementById('dGapLabel').textContent = periodLabel;
     document.getElementById('dTot').textContent = fmt0(d.tot);
-    document.getElementById('dT2').textContent = fmt0(curTotal);
-    document.getElementById('dMeta').textContent = fmt0(curMeta);
-    document.getElementById('dGap').textContent = (curGap>=0?'+':'')+fmt0(curGap);
+    document.getElementById('dT2').textContent = fmt0(dispTotal);
+    document.getElementById('dMeta').textContent = fmt0(dispMeta);
+    document.getElementById('dGap').textContent = (dispGap>=0?'+':'')+fmt0(dispGap);
     document.getElementById('dPico').textContent = fmt0(d.pico);
     document.getElementById('dU3').textContent = fmt0(d.u3);
 
@@ -3542,11 +3566,16 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const elegEl = document.getElementById('detailElegStatus');
     const isElig = calc ? calc.el === 1 : d.el === 1;
     const pctMeta = curMeta > 0 ? (curTotal / curMeta * 100) : null;
+    // Quando o período selecionado é o "vigente" (ex.: Mensal/Setembro sendo o mês mais
+    // recente), os números usados aqui (curTotal/curMeta) são os do TRIMESTRE oficial, não os do
+    // mês sozinho mostrado nos cards acima — nota curta pra não parecer contradição entre os dois
+    // (achado 2026-09-30, mesmo contexto do comentário em computePeriodElegRank).
+    const eligOficialNote = (calc && calc.isCurrentPeriod) ? ' <span style="font-weight:400; opacity:.75;">(regra oficial — sempre por trimestre)</span>' : '';
     if (isElig){
       elegEl.style.background = 'rgba(22,184,122,.10)';
       elegEl.style.border = '1px solid rgba(22,184,122,.3)';
       elegEl.style.color = '#0f6b4f';
-      elegEl.innerHTML = `<i class=ic-check></i> <b>Elegível</b>` + (pctMeta!==null
+      elegEl.innerHTML = `<i class=ic-check></i> <b>Elegível</b>${eligOficialNote}` + (pctMeta!==null
         ? ` — ${fmt0(curTotal)} de ${fmt0(curMeta)} vidas necessárias (${pctMeta.toFixed(0)}% da meta)${curGap>0?', +'+fmt0(curGap)+' acima do mínimo':''}.`
         : ' — sem meta cadastrada pro período (coluna oficial da planilha).');
     } else if (pctMeta !== null){
@@ -3558,7 +3587,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       elegEl.style.background = 'rgba(245,54,74,.08)';
       elegEl.style.border = '1px solid rgba(245,54,74,.3)';
       elegEl.style.color = '#b91c1c';
-      elegEl.innerHTML = `<i class=ic-alarm></i> <b>Não elegível</b> — faltam <b>${fmt0(faltam)} vidas</b> (está em <b>${pctMeta.toFixed(0)}%</b> da meta) para virar elegível · ${tom}.`;
+      elegEl.innerHTML = `<i class=ic-alarm></i> <b>Não elegível</b>${eligOficialNote} — faltam <b>${fmt0(faltam)} vidas</b> (está em <b>${pctMeta.toFixed(0)}%</b> da meta) para virar elegível · ${tom}.`;
     } else {
       elegEl.style.background = '#f1f5f9';
       elegEl.style.border = '1px solid var(--line)';
@@ -3566,18 +3595,30 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       elegEl.innerHTML = `<i class=ic-bulb></i> Sem meta cadastrada pra esse período (sem histórico suficiente) — não dá pra calcular a elegibilidade aqui.`;
     }
 
-    const RANK_THRESHOLDS_EST = [{r:'Bronze 1',min:900},{r:'Bronze 2',min:600},{r:'Bronze 3',min:300},{r:'Bronze 4',min:150},{r:'Bronze 5',min:60},{r:'Bronze 6',min:15}];
+    // BUG corrigido 2026-09-30 (Victor, urgente, print real de "QUALY VITTA"/Ranking Ouro
+    // mostrando "falta pra Bronze 6"): esse trecho usava uma tabela própria, incompleta e
+    // desatualizada (RANK_THRESHOLDS_EST, só Bronze 1-6, nome de "estimativa" porque tinha sido
+    // copiada à mão e nunca acompanhou a era nova) — quando o ranking atual nem existia nela
+    // (Prata/Ouro/Diamante/Safira), o índice não-encontrado (-1) caía no ramo "curIdx>0 ? ... :
+    // ÚLTIMO item da lista", ou seja, sempre "Bronze 6" pra qualquer corretora acima de Bronze,
+    // disfarçado de mensagem específica. Corrigido reaproveitando a MESMA tabela real usada pra
+    // calcular o ranking em si (RANK_THRESHOLDS_NEW/OLD, já com Safira/Diamante/Ouro/Prata/
+    // Bronze — ver computeRankingFromVolume), ordenada do maior pro menor: a próxima faixa é
+    // sempre a posição anterior no array, não mais uma tabela paralela que podia divergir.
+    const rankTable = (periodMonths && isNewEra(periodMonths)) ? RANK_THRESHOLDS_NEW : RANK_THRESHOLDS_OLD;
     const rgEl = document.getElementById('detailRankGap');
-    if (curRank === 'Bronze 1'){
-      rgEl.innerHTML = '<i class=ic-award></i> Já está na faixa máxima (Bronze 1).';
+    const curRankIdx = rankTable.findIndex(t => t.label === curRank);
+    if (curRankIdx === 0){
+      rgEl.innerHTML = `<i class=ic-award></i> Já está na faixa máxima (${curRank}).`;
     } else {
-      const curIdx = RANK_THRESHOLDS_EST.findIndex(x=>x.r === curRank);
-      const nextTier = curIdx > 0 ? RANK_THRESHOLDS_EST[curIdx-1] : RANK_THRESHOLDS_EST[RANK_THRESHOLDS_EST.length-1];
+      // curRankIdx === -1 (ex.: "Não Classificado") cai no mesmo "senão" abaixo — a próxima
+      // faixa alcançável é a última da tabela (a mais baixa), não um caso especial à parte.
+      const nextTier = curRankIdx > 0 ? rankTable[curRankIdx-1] : rankTable[rankTable.length-1];
       const falta = Math.max(0, nextTier.min - curTotal);
       const pct = nextTier.min ? Math.min(100, curTotal/nextTier.min*100) : 0;
       rgEl.innerHTML = falta > 0
-        ? `<i class=ic-chart></i> Faltam <b>${fmt0(falta)} vidas</b> (está em <b>${pct.toFixed(0)}%</b>) para alcançar <b>${nextTier.r}</b> — estimativa com limiares aproximados, sujeita a confirmação`
-        : `<i class=ic-trophy></i> Volume já suficiente para <b>${nextTier.r}</b> — classificação deve atualizar no próximo fechamento`;
+        ? `<i class=ic-chart></i> Faltam <b>${fmt0(falta)} vidas</b> (está em <b>${pct.toFixed(0)}%</b>) para alcançar <b>${nextTier.label}</b>`
+        : `<i class=ic-trophy></i> Volume já suficiente para <b>${nextTier.label}</b> — classificação deve atualizar no próximo fechamento`;
     }
 
     const cq = computeConquista(d);
