@@ -53,6 +53,15 @@
     --text:var(--text-primary); --muted:var(--text-secondary);
   }
   *{box-sizing:border-box; margin:0; padding:0;}
+  /* Foco por teclado (2026-10-01, análise de design) — regra única, genérica, cobrindo todo
+     elemento nativamente focável (botão, link, campo) MAIS qualquer coisa que a gente marque como
+     [role="button"][tabindex] (cards/linhas clicáveis via JS, ver script de ativação por teclado
+     logo no fim do body). Sem isso, cada elemento tinha foco visível só se alguém tivesse lembrado
+     de estilizar individualmente — a maioria não tinha nenhum destaque ao navegar via Tab. */
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+  [tabindex]:focus-visible{
+    outline:2px solid var(--primary-light); outline-offset:2px; border-radius:4px;
+  }
   body{
     font-family:'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     background:var(--bg); color:var(--text); line-height:1.5; -webkit-font-smoothing:antialiased;
@@ -120,11 +129,15 @@
     .main-area{padding:16px;}
   }
 
-  /* Celular — o menu (barra horizontal acima) precisava rolar de lado pra caber tudo
-     (logo + 5 abas com texto + seletor de mês). Aqui ele encolhe pra caber sem rolagem:
+  /* Celular/tablet — o menu (barra horizontal acima) precisava rolar de lado pra caber tudo
+     (logo + 6 abas com texto + seletor de mês). Aqui ele encolhe pra caber sem rolagem:
      abas viram só ícone (com aria-label pra continuar acessível), logo fica menor, e tudo
-     quebra de linha se precisar em vez de exigir arrastar o dedo pro lado. */
-  @media (max-width:640px){
+     quebra de linha se precisar em vez de exigir arrastar o dedo pro lado. Breakpoint subiu de
+     640 pra 860 (2026-10-01, análise de design) — um tablet comum em pé (iPad ~768px) caía
+     bem no meio do intervalo 641-900px, onde o menu virava barra horizontal só com texto e
+     ainda exigia rolar de lado pra ver as 6 abas; agora recebe o mesmo tratamento só-ícone que
+     já funcionava bem no celular. */
+  @media (max-width:860px){
     .sidebar{flex-wrap:wrap; overflow-x:visible; gap:10px 14px; padding:12px 14px;}
     .sidebar-top{flex-wrap:wrap; gap:10px 14px; width:100%;}
     .sidebar-logo{gap:8px;}
@@ -1111,6 +1124,30 @@
      define a imagem de fundo direto, não lê var(--bg). */
   [data-theme="dark"] body{ background:linear-gradient(180deg,#0E1220 0%, #0A0D18 100%); background-attachment:fixed; }
   [data-theme="dark"] .logo-chip{ background:#1E2540; box-shadow:0 4px 14px rgba(0,0,0,.4); }
+  /* Achados 2026-10-01 (auditoria de contraste automática, análise de design) — mesmo padrão dos
+     casos acima: fundo claro fixo (nunca lido de variável) por baixo de texto que JÁ usava
+     var(--muted)/var(--navy) e por isso virou claro no escuro sozinho — texto claro sobre fundo
+     claro, quase ilegível. Nenhum desses tinha override ainda. */
+  /* Mesmo achado acima, mas é o MESMO #eef1f6 reaproveitado em ~10 classes diferentes — uma
+     regra só, agrupando todas, em vez de uma pra cada (mais fácil de manter se aparecer mais
+     uma no futuro usando o mesmo tom). */
+  [data-theme="dark"] .view-switch, [data-theme="dark"] .cmp-clear, [data-theme="dark"] .ek-delta.flat,
+  [data-theme="dark"] .vs-tag.neutral, [data-theme="dark"] .cat-row .bar-bg, [data-theme="dark"] .mj-tr-bar,
+  [data-theme="dark"] .cb-track-wrap, [data-theme="dark"] .ass-rank-chip, [data-theme="dark"] .rk-delta.gone{
+    background:var(--card) !important;
+  }
+  [data-theme="dark"] .insight-item,
+  [data-theme="dark"] .mj-team-expand-head,
+  [data-theme="dark"] .prox-row{ background:var(--card) !important; }
+  [data-theme="dark"] .tag.noelig{ background:rgba(255,255,255,.06) !important; }
+  /* Mesmo problema, família dos banners de aviso claro (#eff6ff) — #execSearchBanner e
+     #detailAssessoriaNote já tinham override; faltavam estes dois. */
+  [data-theme="dark"] #faixasNote, [data-theme="dark"] #fewResultsNotice{
+    background:#1B2A45 !important; color:#9DBBFF !important; border-color:#2E4370 !important;
+  }
+  /* Setinha de expandir/recolher do time (▸) herdava --primary-light (azul vivo, pensado pra
+     fundo claro) — virava quase invisível sobre o fundo escuro do card. */
+  [data-theme="dark"] .chev{ color:var(--muted) !important; }
   #btnToggleTheme{ transition:background .15s ease; }
 </style>
 </head>

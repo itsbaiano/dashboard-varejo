@@ -16,6 +16,28 @@
   });
 })();
 
+// ===== Ativação por teclado pra elementos clicáveis que não são <button> (2026-10-01, análise
+// de design) — cards/linhas marcados com role="button" tabindex="0" (gestor-card, resumo-card,
+// linhas de tabela clicáveis, KPIs, etc.) ficam alcançáveis via Tab, mas um <div> não dispara
+// "click" sozinho ao apertar Enter/Espaço do jeito que um <button> real dispara — isso é só o
+// navegador fazendo isso automaticamente PRA botões nativos, não pra qualquer coisa com
+// tabindex. Um único listener delegado no document resolve pra TODOS os elementos assim, atuais
+// e futuros, sem precisar repetir essa lógica em cada lugar que cria um card clicável. Espaço
+// teria rolado a página (comportamento padrão do navegador pra tecla de espaço) — por isso o
+// preventDefault só nesse caso.
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target.closest('[role="button"][tabindex]');
+  if (!el) return;
+  if (e.key === ' ') e.preventDefault();
+  el.click();
+});
+// Marca um elemento não-botão (tr/td/div/span criado via JS) como alcançável por teclado — usar
+// junto com addEventListener('click', ...) nos padrões mais comuns (linha de tabela, cabeçalho
+// ordenável, card). Não cobre 100% dos cliques da base (são muitos, espalhados em ~30 pontos
+// diferentes) — passo focado nos padrões mais repetidos/mais usados, não uma varredura completa.
+window.__kb = function(el){ if (el){ el.tabIndex = 0; el.setAttribute('role','button'); } return el; };
+
 // ===== Status por fonte de dado (pedido do Victor, 2026-09-14: "algo que informe o que
 // exatamente foi atualizado... BI atualizado, funil não") =====
 // Guarda, por tipo de arquivo, a hora real da última vez que foi importado de verdade — mora
@@ -535,7 +557,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       document.getElementById('mjGestorGrid').innerHTML = teamRows.map((r,i) => {
         const p = r.meta ? r.int/r.meta : 0;
         const cor = ['#2E52D4','#F26B21','#101E63','#16B87A','#FFB81C'][i % 5];
-        return `<div class="gestor-card" style="cursor:pointer" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}')" title="Ver detalhe deste time">
+        return `<div class="gestor-card" style="cursor:pointer" role="button" tabindex="0" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}')" title="Ver detalhe deste time">
           <div class="avatar" style="background:${cor}">${iniciais(r.name)}</div><div class="name">${r.name}</div><div class="role">${MJ_TEAMS[r.name].members.length} gestores</div>
           <div class="total-pct" style="color:${pctColor(p)}">${pctf(p)}</div>
           <div class="total-label">${fmt0(r.int)} / ${fmt0(r.meta)} vidas (meta total)</div></div>`;
@@ -564,7 +586,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         });
         const rowsHtml = members.map(m => {
           const pm = m.total.meta ? m.total.int/m.total.meta : 0;
-          return `<div class="mj-team-row" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver detalhe deste gestor">
+          return `<div class="mj-team-row" role="button" tabindex="0" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver detalhe deste gestor">
             <div class="mj-tr-avatar" style="background:${m.cor}">${iniciais(m.nome)}</div>
             <div class="mj-tr-name">${m.nome}</div>
             <div class="mj-tr-bar"><div class="mj-tr-bar-fill" style="width:${Math.min(pm*100,100)}%; background:${pctColor(pm)}"></div></div>
@@ -573,7 +595,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           </div>`;
         }).join('');
         return `<div class="mj-team-expand ${isOpen?'open':''}">
-          <div class="mj-team-expand-head" style="border-left-color:${cor}" onclick="window.__mjToggleTeamExpand('${r.name.replace(/'/g,"\\'")}')">
+          <div class="mj-team-expand-head" style="border-left-color:${cor}" role="button" tabindex="0" onclick="window.__mjToggleTeamExpand('${r.name.replace(/'/g,"\\'")}')">
             <div class="mj-team-expand-title" style="color:${cor}"><span class="chev">${isOpen?'▾':'▸'}</span>${r.name} — ${pctf(p)}</div>
             <div class="mj-team-expand-sub">${fmt0(r.int)} / ${fmt0(r.meta)} vidas</div>
           </div>
@@ -609,7 +631,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       if (oppPct === Infinity) oppPct = 0;
       const miniCats = catKeys.filter(k=>k!==oppKey).map(k => { const c = m.cat[k]; const p = c.meta ? c.int/c.meta : 0; return `${k} ${pctf(p)}`; }).join(' · ');
       const ringR = 20, ringC = 2*Math.PI*ringR, ringOffset = ringC * (1 - Math.min(pTotal,1));
-      return `<div class="gestor-card" style="cursor:pointer" onclick="window.showPendenciasModal('${m.nome.replace(/'/g,"\\'")}')" title="Ver pendências PME/PF">
+      return `<div class="gestor-card" style="cursor:pointer" role="button" tabindex="0" onclick="window.showPendenciasModal('${m.nome.replace(/'/g,"\\'")}')" title="Ver pendências PME/PF">
         <div class="avatar" style="background:${m.cor}">${iniciais(m.nome)}</div><div class="name">${m.nome}</div><div class="role">Gestor(a) Comercial</div>
         <div class="ring-row">
           <svg width="56" height="56" viewBox="0 0 56 56">
@@ -1051,7 +1073,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       return groupLabel + `<span class="status-chip${pendSelectedStatuses.has(k)?' active':''}" data-status="${k}">${statusLabel(o)} <span class="status-chip-count">${statusCounts[k]}</span></span>`;
     }).join('');
     chipsWrap.querySelectorAll('.status-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
+      window.__kb(chip).addEventListener('click', () => {
         const k = chip.dataset.status;
         if (pendSelectedStatuses.has(k)) pendSelectedStatuses.delete(k); else pendSelectedStatuses.add(k);
         renderPendencias();
@@ -1243,7 +1265,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   document.getElementById('pendPdfBtn').addEventListener('click', pendGerarPDF);
 
   document.querySelectorAll('#pendModal thead th[data-k]').forEach(th => {
-    th.addEventListener('click', () => {
+    window.__kb(th).addEventListener('click', () => {
       pendSortDir *= -1;
       document.querySelectorAll('#pendModal thead th[data-k]').forEach(h => h.setAttribute('data-dir', pendSortDir>0?'asc':'desc'));
       renderPendencias();
@@ -1336,7 +1358,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   function renderResumoPme(gestores){
     document.getElementById('resumoCards').innerHTML = gestores.map(g => {
       const s = resumoPmeStats(g);
-      return `<div class="resumo-card" style="cursor:pointer" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pme')" title="Ver detalhes de ${g}">
+      return `<div class="resumo-card" style="cursor:pointer" role="button" tabindex="0" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pme')" title="Ver detalhes de ${g}">
         <div class="rc-head"><div class="rc-avatar">${initialsOf(g)}</div><div class="rc-name">${g}</div></div>
         <div class="rc-stats">
           <div class="rc-stat"><div class="rc-label">Em Funil</div><div class="rc-value" style="color:var(--navy);">${s.funil}</div></div>
@@ -1356,7 +1378,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       const rows = PENDENCIAS_PF[g] || [];
       const porStatus = statuses.map(s => rows.filter(p=>p.status===s).reduce((sum,p)=>sum+(p.vidas||0),0));
       const total = porStatus.reduce((a,b)=>a+b,0);
-      return `<tr style="cursor:pointer" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pf')" title="Ver detalhes de ${g}"><td class="name">${g}</td>${porStatus.map(v=>`<td class="num">${v||''}</td>`).join('')}<td class="num" style="font-weight:700;">${total}</td></tr>`;
+      return `<tr style="cursor:pointer" role="button" tabindex="0" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pf')" title="Ver detalhes de ${g}"><td class="name">${g}</td>${porStatus.map(v=>`<td class="num">${v||''}</td>`).join('')}<td class="num" style="font-weight:700;">${total}</td></tr>`;
     }).join('');
     document.getElementById('resumoPfTable').innerHTML = thead + '<tbody>' + tbody + '</tbody>';
   }
@@ -2169,7 +2191,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         <td class="num">${monthsSinceLastSale(d)} meses</td>
       </tr>`).join('');
     document.querySelectorAll('#chartDrilldownBody tr').forEach(tr => {
-      tr.addEventListener('click', () => showDetail(tr.dataset.c));
+      window.__kb(tr).addEventListener('click', () => showDetail(tr.dataset.c));
     });
   }
   document.getElementById('chartDrilldownClose').addEventListener('click', () => {
@@ -2327,7 +2349,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         <td class="num">${a.meta>0?a.ating.toFixed(0)+'%':'—'}</td>
       </tr>`;
     }).join('');
-    document.querySelectorAll('#assRankBody tr').forEach(tr=>tr.addEventListener('click',()=>openAssDetail(tr.dataset.k)));
+    document.querySelectorAll('#assRankBody tr').forEach(tr=>window.__kb(tr).addEventListener('click',()=>openAssDetail(tr.dataset.k)));
   }
 
   function openAssDetail(key){
@@ -2382,7 +2404,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           </table>
         </div>
       </div>`;
-    detail.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', ()=>showDetail(tr.dataset.c, {fromAssessoria: agg.name})));
+    detail.querySelectorAll('tr.clickable').forEach(tr => window.__kb(tr).addEventListener('click', ()=>showDetail(tr.dataset.c, {fromAssessoria: agg.name})));
   }
 
   const shortAssName = name => { name = String(name); return name.length > 26 ? name.slice(0,24)+'…' : name; };
@@ -2406,7 +2428,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   document.getElementById('assDetailBack').addEventListener('click', closeAssDetail);
   document.querySelectorAll('#assRankTable thead th').forEach((th,i)=>{
     const keys=['name','n','vidas','eleg','pctEl','ating'];
-    th.addEventListener('click',()=>{ const k=keys[i]; if(assCurrentSort===k) assCurrentDir*=-1; else {assCurrentSort=k; assCurrentDir=(k==='name'?1:-1);} renderAssRankTable(aggregateAssessorias(applyFilters())); });
+    window.__kb(th).addEventListener('click',()=>{ const k=keys[i]; if(assCurrentSort===k) assCurrentDir*=-1; else {assCurrentSort=k; assCurrentDir=(k==='name'?1:-1);} renderAssRankTable(aggregateAssessorias(applyFilters())); });
   });
 
   // Conquista Premiada — visão geral da campanha (independe dos filtros da tela;
@@ -2458,7 +2480,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       </tr>`).join('') || `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:16px;">Nenhuma corretora encontrada com esses filtros.</td></tr>`;
     document.getElementById('cqgPagInfo').textContent = `Página ${cqgPage+1} de ${totalPag} (${filtered.length} resultado(s))`;
     document.querySelectorAll('#cqgTableBody tr[data-c]').forEach(tr => {
-      tr.addEventListener('click', () => { closeConquistaModal(); showDetail(tr.dataset.c); });
+      window.__kb(tr).addEventListener('click', () => { closeConquistaModal(); showDetail(tr.dataset.c); });
     });
   }
 
@@ -2495,7 +2517,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     document.querySelectorAll('#cqgKpiRow .cqg-kpi[data-cqi]').forEach(el => {
       const k = kpis[Number(el.dataset.cqi)];
       if (!k || !k.eleg) return;
-      el.addEventListener('click', () => {
+      window.__kb(el).addEventListener('click', () => {
         cqgFilterEleg = (cqgFilterEleg === k.eleg) ? '' : k.eleg;
         document.getElementById('cqgFEleg').value = cqgFilterEleg;
         cqgPage = 0;
@@ -2534,10 +2556,10 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       </div>`;
     }).join('');
     gestorGrid.querySelectorAll('.cqg-top3-row').forEach(el => {
-      el.addEventListener('click', (e) => { e.stopPropagation(); closeConquistaModal(); showDetail(el.dataset.c); });
+      window.__kb(el).addEventListener('click', (e) => { e.stopPropagation(); closeConquistaModal(); showDetail(el.dataset.c); });
     });
     gestorGrid.querySelectorAll('.cqg-card').forEach(el => {
-      el.addEventListener('click', () => {
+      window.__kb(el).addEventListener('click', () => {
         const g = el.dataset.g;
         cqgFilterGestor = (cqgFilterGestor === g) ? '' : g;
         document.getElementById('cqgFGestor').value = cqgFilterGestor;
@@ -2637,7 +2659,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       document.querySelectorAll('#execKpiRow .exec-kpi[data-i]').forEach(el => {
         const k = kpiDefs[Number(el.dataset.i)];
         if (!k || !k.list) return;
-        el.addEventListener('click', () => {
+        window.__kb(el).addEventListener('click', () => {
           if (k.list.length === 1) showDetail(k.list[0].c);
           else showChartDrilldown(k.title, k.list);
         });
@@ -2673,7 +2695,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           <td class="num">${fmt0(d.tot)}</td>
           <td>${monthsSinceLastSale(d)} meses</td>
         </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma corretora encontrada com esses filtros.</td></tr>`;
-      document.querySelectorAll('#reactTableBody tr[data-c]').forEach(tr => tr.addEventListener('click', () => showDetail(tr.dataset.c)));
+      document.querySelectorAll('#reactTableBody tr[data-c]').forEach(tr => window.__kb(tr).addEventListener('click', () => showDetail(tr.dataset.c)));
 
       window.__execInsights = n ? [{ico:'<i class=ic-target></i>', text:`<b>${fmt0(n)} corretoras</b> com histórico relevante estão sem vender há pelo menos 3 meses — <b>${fmt0(totalVidas)} vidas</b> em potencial de reativação.`}] : [];
       return;
@@ -2811,7 +2833,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       // pra dentro do card. Clicar de novo no card já aberto fecha; clicar em outro card
       // move o painel pra lá (só um aberto por vez).
       document.querySelectorAll('#execSearchResultsCards .search-result-card').forEach(card => {
-        card.addEventListener('click', () => {
+        window.__kb(card).addEventListener('click', () => {
           const panel = document.getElementById('detailPanel');
           const jaAbertoAqui = panel.classList.contains('show') && panel.parentElement === card;
           if (jaAbertoAqui){ panel.classList.remove('show'); return; }
@@ -2871,13 +2893,19 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         label:'Não Elegíveis (distantes)', value: fmt0(distantes.length), pct: n?(distantes.length/n*100).toFixed(1)+'% do total':'0%',
         delta:'<span class="ek-delta flat">abaixo de 76% da meta</span>',
         note:'Foco em reativação estrutural', list: distantes, title:'Não elegíveis abaixo de 76% da meta — '+cycleLabel },
-      { key:null, bar:'#1D33A8', ico:'<i class=ic-users></i>', icoBg:'rgba(29,51,168,.10)', color:'#101E63',
+      // color omitido de propósito (2026-10-01, achado da auditoria de contraste): era '#101E63'
+      // fixo (igual à --navy do modo claro) — os outros 4 cards usam cor semântica (verde/amarelo/
+      // laranja/vermelho) que faz sentido ficar igual nos dois temas, mas "Total de Corretoras"
+      // não tem significado de cor nenhum, só pegava o navy por engano. --ek-color some, .ek-value
+      // cai no próprio fallback do CSS (var(--ek-color, var(--navy))) — que já é escuro no claro e
+      // claro no escuro sozinho.
+      { key:null, bar:'#1D33A8', ico:'<i class=ic-users></i>', icoBg:'rgba(29,51,168,.10)',
         label:'Total de Corretoras', value: fmt0(n), pct:'100% do filtro atual',
         delta:'<span class="ek-delta flat">base analisada</span>', note:'', list:null },
     ];
     document.getElementById('execKpiRow').innerHTML = kpiDefs.map((k,i)=>{
       const isActive = k.key && activeKpiFilter === k.key;
-      return `<div class="exec-kpi ${k.key?'clickable':''}" data-i="${i}" style="--ek-bar:${k.bar}; --ek-ico-bg:${k.icoBg}; --ek-color:${k.color}; ${isActive?'box-shadow:0 0 0 2.5px '+k.bar+'; transform:translateY(-1px);':''}" ${k.key?`title="${isActive?'Clique para limpar o filtro':'Clique para filtrar o dashboard por essa fatia'}"`:''}>
+      return `<div class="exec-kpi ${k.key?'clickable':''}" data-i="${i}" style="--ek-bar:${k.bar}; --ek-ico-bg:${k.icoBg};${k.color?` --ek-color:${k.color};`:''} ${isActive?'box-shadow:0 0 0 2.5px '+k.bar+'; transform:translateY(-1px);':''}" ${k.key?`title="${isActive?'Clique para limpar o filtro':'Clique para filtrar o dashboard por essa fatia'}"`:''}>
         <div class="ek-ico">${k.ico}</div>
         <div class="ek-label">${k.label}${isActive?' <span style="font-size:9.5px; font-weight:800; letter-spacing:.3px;">● FILTRANDO</span>':''}</div>
         <div class="ek-value">${k.value}</div>
@@ -2895,7 +2923,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       </div>`;
     document.querySelectorAll('#execKpiRow .exec-kpi[data-i]').forEach(el => {
       const k = kpiDefs[Number(el.dataset.i)];
-      if (k && k.key) el.addEventListener('click', () => {
+      if (k && k.key) window.__kb(el).addEventListener('click', () => {
         activeKpiFilter = (activeKpiFilter === k.key) ? null : k.key;
         page = 1;
         renderActive();
@@ -2967,7 +2995,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     document.getElementById('heatmapTable').innerHTML = hmHtml;
     document.getElementById('heatmapSub').innerHTML = `Corretoras por gestor em cada faixa de atingimento da meta — ${cycleLabel} · clique numa célula` + (periodMonths ? recalcSuffix : '');
     document.getElementById('heatmapLegend').innerHTML = hmCols.map((c,i)=>`<span><i style="background:${hmColors[i]};"></i>${c}</span>`).join('') + '<span style="margin-left:auto;">Intensidade = concentração dentro do gestor</span>';
-    document.querySelectorAll('#heatmapTable .hm-cell').forEach(td => td.addEventListener('click', () => {
+    document.querySelectorAll('#heatmapTable .hm-cell').forEach(td => window.__kb(td).addEventListener('click', () => {
       const key = td.dataset.k; const [g, ci] = key.split('|');
       showChartDrilldown(`${shortGestor(g)} — faixa ${hmCols[Number(ci)]}`, (hmLists[key]||[]).map(r=>r.d));
     }));
@@ -2995,7 +3023,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       fHtml += `<div class="funnel-stage"><div class="funnel-bar-area"><div class="funnel-bar" data-i="${i}" style="width:${w}%; background:${s.color};">${fmt0(s.list.length)}</div></div><div class="funnel-meta"><b>${s.label}</b><span>${s.sub} · ${pct}% do total</span></div></div>`;
     });
     document.getElementById('funnelWrap').innerHTML = fHtml;
-    document.querySelectorAll('#funnelWrap .funnel-bar').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('#funnelWrap .funnel-bar').forEach(b => window.__kb(b).addEventListener('click', () => {
       const s = stages[Number(b.dataset.i)]; showChartDrilldown('Funil — '+s.label, s.list.map(r=>r.d));
     }));
 
@@ -3032,7 +3060,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         <div class="p-gap"><b>${a.toFixed(0)}%</b><span>faltam ${fmt0(gap)}</span></div>
       </div>`;
     }).join('') : '<div class="loss-empty"><i class=ic-check></i> Nenhuma corretora não-elegível com meta definida neste filtro.</div>';
-    document.querySelectorAll('#proxList .prox-row').forEach(el => el.addEventListener('click', ()=>showDetail(el.dataset.c)));
+    document.querySelectorAll('#proxList .prox-row').forEach(el => window.__kb(el).addEventListener('click', ()=>showDetail(el.dataset.c)));
 
     // ---- Maiores crescimentos do período ----
     document.getElementById('gainSub').innerHTML = `Comparado a <b>${prevLabel}</b> — reconhecimento para reforçar em campo` + recalcSuffix;
@@ -3045,7 +3073,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       </div>`;
     }).join('') + (gained.length>8?`<div style="font-size:11px; color:var(--muted); text-align:center; padding-top:4px;">+ ${gained.length-8} corretora(s) — use os filtros para ver todas</div>`:'')
       : '<div class="loss-empty"><i class=ic-check></i> Nenhuma corretora com crescimento na comparação com '+prevLabel+'.</div>';
-    document.querySelectorAll('#gainList .gain-row').forEach(el => el.addEventListener('click', ()=>showDetail(el.dataset.c)));
+    document.querySelectorAll('#gainList .gain-row').forEach(el => window.__kb(el).addEventListener('click', ()=>showDetail(el.dataset.c)));
 
     // ---- Evolução trimestral (recalculada) ----
     const lastIdx = MONTH_LABELS.length - 1;
@@ -3151,7 +3179,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       {icon:"<i class=ic-target></i>", label:'Oportunidades de Reativação', value: reactListEffective.length.toLocaleString('pt-BR'), sub: fmt0(reactListEffective.reduce((s,d)=>s+d.tot,0))+' vidas em potencial', cls:'warn'},
     ];
     document.getElementById('elKpiRow').innerHTML = kpis.map((k,i)=>`<div class="kpi" ${k.action?'style="cursor:pointer" title="Clique para ver as corretoras"':''} data-idx="${i}"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.cls}">${k.sub}</div></div>`).join('');
-    document.querySelectorAll('#elKpiRow .kpi').forEach((el,i) => { if (kpis[i].action) el.addEventListener('click', kpis[i].action); });
+    document.querySelectorAll('#elKpiRow .kpi').forEach((el,i) => { if (kpis[i].action) window.__kb(el).addEventListener('click', kpis[i].action); });
 
     renderExecutive(filtered);
 
@@ -3481,7 +3509,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     document.getElementById('btnNext').disabled = page>=totalPages;
 
     document.querySelectorAll('#elTableBody tr').forEach(tr=>{
-      tr.addEventListener('click', ()=>{
+      window.__kb(tr).addEventListener('click', ()=>{
         document.querySelectorAll('#elTableBody tr').forEach(r=>r.classList.remove('selected'));
         tr.classList.add('selected');
         showDetail(tr.dataset.c);
@@ -3692,7 +3720,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   // cabeçalhos ordenáveis do modal de Pendências (mesmo padrão data-k reaproveitado ali), fazendo
   // os dois handlers dispararem no mesmo clique e brigarem pelo atributo data-dir.
   document.querySelectorAll('#baseCorretorasWrap thead th[data-k]').forEach(th=>{
-    th.addEventListener('click', ()=>{
+    window.__kb(th).addEventListener('click', ()=>{
       const k = th.dataset.k;
       if (sortKey===k){ sortDir *= -1; } else { sortKey=k; sortDir = (k==='n'||k==='g'||k==='rk'||k==='el') ? 1 : -1; }
       document.querySelectorAll('#baseCorretorasWrap thead th[data-k]').forEach(h=>{ h.classList.remove('sorted'); h.removeAttribute('data-dir'); });
@@ -3872,7 +3900,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     }).join('');
     document.getElementById('rankTableSub').innerHTML = (rankSeeAllOn?`Todas as ${rows.length}`:'Top 20') + ' corretoras · a coluna "vs mês anterior" compara com ' + prevLabel + (segActive?' · <b>segmento filtrado: comparação indisponível</b>':'') + ' · clique numa linha para o histórico';
     document.getElementById('rankSeeAll').textContent = rankSeeAllOn ? 'Mostrar só o Top 20 ▴' : `Ver todas as ${rows.length} ▾`;
-    document.querySelectorAll('#rankBody tr').forEach(tr=>tr.addEventListener('click',()=>rankShowDetail(tr.dataset.c)));
+    document.querySelectorAll('#rankBody tr').forEach(tr=>window.__kb(tr).addEventListener('click',()=>rankShowDetail(tr.dataset.c)));
 
     rankRenderCharts(rows, totalCur, totalPrev, seg, curLabel, prevLabel);
   }
@@ -4285,19 +4313,19 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // o clique geral do card (que abre o detalhe completo, continua funcionando como "ver tudo").
     const go = (fn, gestor) => `event.stopPropagation(); window.${fn}('${gestor.replace(/'/g,"\\'")}')`;
     document.getElementById('convGrid').innerHTML = rows.map(r => { const g = r.gestor; return `
-      <div class="resumo-card" style="cursor:pointer;" onclick="window.openConversaoDetail('${g.replace(/'/g,"\\'")}')" title="Ver detalhe de ${g}">
+      <div class="resumo-card" style="cursor:pointer;" role="button" tabindex="0" onclick="window.openConversaoDetail('${g.replace(/'/g,"\\'")}')" title="Ver detalhe de ${g}">
         <div class="rc-head"><div class="rc-avatar">${iniciaisConv(g)}</div><div class="rc-name">${g}</div>
-          ${r.criticos ? `<span onclick="${go('showPendenciasModal',g)}" style="font-size:9px; font-weight:800; padding:3px 8px; border-radius:20px; background:rgba(245,54,74,.12); color:var(--accent-red); white-space:nowrap; cursor:pointer;" title="Ver pendências de ${g}">${r.criticos} crítico${r.criticos>1?'s':''}</span>` : ''}
+          ${r.criticos ? `<span onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" style="font-size:9px; font-weight:800; padding:3px 8px; border-radius:20px; background:rgba(245,54,74,.12); color:var(--accent-red); white-space:nowrap; cursor:pointer;" title="Ver pendências de ${g}">${r.criticos} crítico${r.criticos>1?'s':''}</span>` : ''}
         </div>
         <div class="rc-stats" style="row-gap:10px;">
-          <div onclick="${go('showPendenciasModal',g)}" style="cursor:pointer;" title="Ver pendências de ${g}"><div class="rc-label">SLA médio</div><div class="rc-value" style="font-size:15px; color:${r.atrasoMedio>0?'var(--accent-red)':'var(--accent-mint)'};">${r.atrasoMedio>0 ? '+'+r.atrasoMedio+'d' : 'No prazo'}</div></div>
-          <div onclick="${go('openAssinaturaList',g)}" style="cursor:pointer;" title="Ver lista de assinaturas de ${g}"><div class="rc-label">Aguard. Assinatura</div><div class="rc-value" style="font-size:15px; color:var(--primary-light);">${fmt0c(r.assinTotal)}</div></div>
-          <div onclick="${go('showPendenciasModal',g)}" style="cursor:pointer;" title="Ver pendências de ${g}"><div class="rc-label">Em Funil</div><div class="rc-value" style="font-size:15px; color:var(--accent-gold);">${r.ativasCount}</div></div>
-          <div onclick="${go('openConversaoDetail',g)}" style="cursor:pointer;" title="Ver detalhe de ${g}"><div class="rc-label">% Conversão</div><div class="rc-value" style="font-size:15px; color:${r.conv!==null && r.conv>=70?'var(--accent-mint)':'var(--navy)'};">${r.conv!==null ? r.conv+'%' : '—'}</div></div>
+          <div onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver pendências de ${g}"><div class="rc-label">SLA médio</div><div class="rc-value" style="font-size:15px; color:${r.atrasoMedio>0?'var(--accent-red)':'var(--accent-mint)'};">${r.atrasoMedio>0 ? '+'+r.atrasoMedio+'d' : 'No prazo'}</div></div>
+          <div onclick="${go('openAssinaturaList',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver lista de assinaturas de ${g}"><div class="rc-label">Aguard. Assinatura</div><div class="rc-value" style="font-size:15px; color:var(--primary-light);">${fmt0c(r.assinTotal)}</div></div>
+          <div onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver pendências de ${g}"><div class="rc-label">Em Funil</div><div class="rc-value" style="font-size:15px; color:var(--accent-gold);">${r.ativasCount}</div></div>
+          <div onclick="${go('openConversaoDetail',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver detalhe de ${g}"><div class="rc-label">% Conversão</div><div class="rc-value" style="font-size:15px; color:${r.conv!==null && r.conv>=70?'var(--accent-mint)':'var(--navy)'};">${r.conv!==null ? r.conv+'%' : '—'}</div></div>
         </div>
         <div style="display:flex; justify-content:space-between; gap:10px; margin-top:12px; padding-top:10px; border-top:1px solid var(--line);">
-          <div onclick="${go('openConversaoDetail',g)}" style="cursor:pointer;" title="Ver detalhe de ${g}"><div class="rc-label">Funil ontem→hoje</div><div style="font-size:12px; color:var(--navy);">${r.funilOntem!==null ? fmt0c(r.funilOntem)+' → '+fmt0c(r.funilHojeReport) : '—'}</div>${cresLabel(r.cresFunil)}</div>
-          <div onclick="${go('openAssinaturaList',g)}" style="cursor:pointer; text-align:right;" title="Ver lista de assinaturas de ${g}"><div class="rc-label">Assinatura ontem→hoje</div><div style="font-size:12px; color:var(--navy);">${r.assinOntem!==null ? fmt0c(r.assinOntem)+' → '+fmt0c(r.assinHojeReport) : '—'}</div>${cresLabel(r.cresAssin)}</div>
+          <div onclick="${go('openConversaoDetail',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver detalhe de ${g}"><div class="rc-label">Funil ontem→hoje</div><div style="font-size:12px; color:var(--navy);">${r.funilOntem!==null ? fmt0c(r.funilOntem)+' → '+fmt0c(r.funilHojeReport) : '—'}</div>${cresLabel(r.cresFunil)}</div>
+          <div onclick="${go('openAssinaturaList',g)}" role="button" tabindex="0" style="cursor:pointer; text-align:right;" title="Ver lista de assinaturas de ${g}"><div class="rc-label">Assinatura ontem→hoje</div><div style="font-size:12px; color:var(--navy);">${r.assinOntem!==null ? fmt0c(r.assinOntem)+' → '+fmt0c(r.assinHojeReport) : '—'}</div>${cresLabel(r.cresAssin)}</div>
         </div>
       </div>`; }).join('');
 
@@ -4903,7 +4931,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           onclick:`window.jumpToElegibilidade({gestor:'${jumpGestor.replace(/'/g,"\\'")}'})`}
       );
     }
-    document.getElementById('ovKpiRow').innerHTML = kpis.map(k=>`<div class="kpi" style="cursor:pointer" title="Clique para ver o detalhe" onclick="${k.onclick}"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.cls}">${k.sub}</div></div>`).join('');
+    document.getElementById('ovKpiRow').innerHTML = kpis.map(k=>`<div class="kpi" style="cursor:pointer" role="button" tabindex="0" title="Clique para ver o detalhe" onclick="${k.onclick}"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.cls}">${k.sub}</div></div>`).join('');
 
     // Evolução — só existe para escopo Cauda Longa (depende da base de Elegibilidade)
     document.getElementById('ovEvolucaoPanel').style.display = isCaudaLongaScope ? '' : 'none';
@@ -4969,7 +4997,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     } else {
       document.getElementById('ovGestorGrid').innerHTML = scopeMembers.map(m => {
         const p = m.total.meta ? m.total.int/m.total.meta : 0;
-        const clickable = `style="cursor:pointer" onclick="window.jumpToMetaJunho('${teamName.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver números deste gestor no Desempenho Comercial"`;
+        const clickable = `style="cursor:pointer" role="button" tabindex="0" onclick="window.jumpToMetaJunho('${teamName.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver números deste gestor no Desempenho Comercial"`;
         return `<div class="gestor-card" ${clickable}><div class="avatar" style="background:${m.cor}">${iniciais(m.nome)}</div><div class="name">${m.nome}</div><div class="role">Gestor(a) Comercial</div>
           <div class="total-pct" style="color:${pctColor(p)}">${pctf(p)}</div>
           <div class="total-label">${fmt0(m.total.int)} / ${fmt0(m.total.meta)} vidas (meta total)</div></div>`;
