@@ -211,7 +211,7 @@
   .dh-icon-circle{width:38px; height:38px; border-radius:50%; flex-shrink:0; background:rgba(61,126,245,.22); display:flex; align-items:center; justify-content:center; color:var(--dh-ice-100);}
   .dh-stat-text{display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left;}
   .dh-stat-label{font-size:11.5px; color:var(--dh-blue-300);}
-  .dh-stat-value{font-size:14.5px; font-weight:600; font-family:'Sora',sans-serif; display:flex; align-items:center; gap:5px; color:#fff;}
+  .dh-stat-value{font-size:14px; font-weight:600; font-family:'Sora',sans-serif; display:flex; align-items:center; gap:5px; color:#fff;}
   .dh-chevron{transition:transform .2s ease;}
   .dh-stat-team[aria-expanded="true"] .dh-chevron{transform:rotate(180deg);}
   .dh-team-list{overflow:hidden; max-height:0; transition:max-height .28s ease;}
@@ -457,7 +457,7 @@
   /* Botão "Conquista Premiada" realocado pra fora da barra de filtros (pedido do Victor,
      2026-09-09) — fica numa fileira própria, alinhado à direita, acima dos modos
      Corretoras/Assessorias da Elegibilidade. */
-  .conquista-cta{display:flex; justify-content:flex-end; margin-bottom:16px;}
+  .conquista-cta{display:flex; justify-content:flex-end; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
   .result-count{font-size:12px; color:var(--muted); margin-left:auto; align-self:center; font-weight:600;}
 
   /* ===== REACTIVATION BANNER ===== */
@@ -471,7 +471,7 @@
     display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(242,107,33,.3);
   }
   .reactivation-banner .txt{flex:1; min-width:240px;}
-  .reactivation-banner .txt b{color:#9a3412; font-size:14.5px; font-weight:800;}
+  .reactivation-banner .txt b{color:#9a3412; font-size:14px; font-weight:800;}
   .reactivation-banner .txt p{font-size:12.5px; color:#8a4023; margin-top:3px;}
   .reactivation-banner .stat{text-align:center; min-width:90px;}
   .reactivation-banner .stat .n{font-size:25px; font-weight:800; color:#c2410c; letter-spacing:-.02em;}
@@ -519,6 +519,7 @@
   .mjb-tag.warn{background:rgba(245,54,74,.24); color:#FFC1C8;}
   .mjb-sugestao{background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.16); border-radius:10px; padding:9px 12px;}
   .mjb-sugestao .mjb-stat-label{margin-bottom:3px;}
+  .mjb-sugestao .mjb-stat-label i{margin-right:1px;}
   .mjb-sugestao-text{font-size:13px; font-weight:700; line-height:1.35;}
   .mjb-sugestao-text b{color:#FFD87A;}
 
@@ -678,6 +679,7 @@
   .ic-warn{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/><line x1='12' y1='9' x2='12' y2='13'/><line x1='12' y1='17' x2='12.01' y2='17'/></svg>");}
   .ic-dot{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><circle cx='12' cy='12' r='8'/></svg>");}
   .ic-new{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m12 3 1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3Z'/></svg>");}
+  .ic-search{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>");}
   .ic-dot{color:#16B87A;}
 
   /* ===== v8: REDESIGN VISUAL — identidade Hapvida ===== */
@@ -721,7 +723,7 @@
   .exec-kpi::before{content:''; position:absolute; top:0; left:0; right:0; height:4px; background:var(--ek-bar, var(--primary-light));}
   .exec-kpi .ek-ico{position:absolute; top:13px; right:13px; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; background:var(--ek-ico-bg, rgba(46,82,212,.10));}
   .exec-kpi .ek-label{font-size:10px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; padding-right:34px; line-height:1.35;}
-  .exec-kpi .ek-value{font-size:26px; font-weight:800; color:var(--ek-color, var(--navy)); letter-spacing:-.02em; margin-top:6px; line-height:1;}
+  .exec-kpi .ek-value{font-size:25px; font-weight:800; color:var(--ek-color, var(--navy)); letter-spacing:-.02em; margin-top:6px; line-height:1;}
   .exec-kpi .ek-pct{font-size:11px; color:var(--muted); font-weight:600; margin-top:4px;}
   .exec-kpi .ek-delta{display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:800; margin-top:9px; padding:3px 9px; border-radius:20px;}
   .ek-delta.up{color:#1b7a63; background:rgba(22,184,122,.14);}
@@ -772,6 +774,15 @@
   .gain-row .g-delta{text-align:right; font-size:13px; font-weight:800; color:#16B87A;}
   .gain-row .g-delta span{display:block; font-size:9.5px; font-weight:600; color:var(--muted);}
   .loss-empty{display:flex; align-items:center; gap:10px; padding:16px; background:rgba(22,184,122,.07); border:1px solid rgba(22,184,122,.25); border-radius:11px; font-size:12.5px; color:#1b7a63; font-weight:600;}
+
+  /* Estado vazio de tabela com filtro (ex.: Pendências PME/PF) — nomeia o que está
+     filtrando pra zero resultados e oferece limpar, em vez de só "nenhum resultado". */
+  .pend-empty{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; padding:26px 16px 24px; text-align:center;}
+  .pend-empty-ic{width:44px; height:44px; border-radius:50%; background:var(--bg); display:flex; align-items:center; justify-content:center; margin-bottom:2px;}
+  .pend-empty-ic i{font-size:20px; color:var(--blue);}
+  .pend-empty strong{font-size:13px; font-weight:700; color:var(--navy);}
+  .pend-empty p{font-size:11.5px; color:var(--muted); margin:0; max-width:380px;}
+  .pend-empty .btn-reset{margin-top:4px; padding:7px 16px; font-size:11.5px;}
 
   /* Heatmap Gestor × Faixa */
   .hm-table{width:100%; border-collapse:separate; border-spacing:5px;}
@@ -1877,7 +1888,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       <div class="imp-head">
         <div class="imp-head-icon"><i class=ic-refresh></i></div>
         <div>
-          <h2 style="font-size:16.5px; color:var(--navy); margin-bottom:2px;">Atualizar Dados</h2>
+          <h2 style="font-size:16px; color:var(--navy); margin-bottom:2px;">Atualizar Dados</h2>
           <p style="font-size:12px; color:var(--muted);">Envie as planilhas atualizadas. Você verá um resumo das mudanças antes de confirmar.</p>
         </div>
       </div>
@@ -2365,7 +2376,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
           <span class="mjb-tag" id="mjBannerMetaTag" style="display:none;"></span>
         </div>
         <div class="mjb-sugestao" id="mjBannerSugestaoBox">
-          <div class="mjb-stat-label">💡 Sugestão</div>
+          <div class="mjb-stat-label"><i class="ic-bulb" style="color:var(--accent-gold);"></i> Sugestão</div>
           <div class="mjb-sugestao-text" id="mjBannerSugestaoText"></div>
         </div>
       </div>
@@ -2470,6 +2481,17 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
          show/hide por período em app.js (linha ~3103) não precisa mudar. -->
     <div class="conquista-cta">
       <button class="btn-reset" id="btnOpenConquista" style="background:linear-gradient(135deg, var(--accent-coral), var(--accent-gold)); color:#fff; border:none; font-weight:700;"><i class=ic-trophy></i> Conquista Premiada</button>
+      <!-- Exportar Elegibilidade — pedido do Victor, 2026-10-01: gerar de volta o .xlsx no mesmo
+           formato que ele importa (uma equipe por arquivo), pra não depender só do arquivo que a
+           Hapvida manda. Mesmo lugar/estilo do botão de Conquista, fora da fileira de filtros de
+           propósito (não é um filtro). -->
+      <select id="elExportTeam" class="ic-left ic-building" style="min-width:200px;">
+        <option value="CAUDA LONGA">Exportar: Cauda Longa</option>
+        <option value="PLATAFORMA SP">Exportar: Plataforma SP</option>
+        <option value="DIGITAL">Exportar: Digital</option>
+        <option value="PLATAFORMA ABC/ALTO TIETÊ/BX">Exportar: ABC/Alto Tietê/BX</option>
+      </select>
+      <button class="btn-reset" id="btnExportElig" title="Baixa a Elegibilidade dessa equipe em .xlsx, no mesmo formato pra reimportar depois"><i class=ic-doc></i> Baixar .xlsx</button>
     </div>
 
     <!-- ===== MODO CORRETORAS ===== -->
@@ -2580,7 +2602,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
             <tr>
               <th data-k="c">Código</th><th data-k="n">Corretora</th><th data-k="g">Gestor</th><th data-k="rk">Ranking</th><th data-k="el">Elegibilidade</th>
               <th class="num">Individual</th><th class="num">SS</th><th class="num">PME</th><th class="num">Total (período)</th>
-              <th data-k="tot" class="num sorted" data-dir="desc">Total 17M</th><th data-k="t2" class="num" id="thAtual">2TRI26 Atual</th><th data-k="meta" class="num" id="thMeta">Meta 2TRI26</th>
+              <th data-k="tot" class="num sorted" data-dir="desc" id="thTotMeses">Total 17M</th><th data-k="t2" class="num" id="thAtual">2TRI26 Atual</th><th data-k="meta" class="num" id="thMeta">Meta 2TRI26</th>
               <th data-k="gap" class="num">Gap</th><th data-k="u3" class="num">Últ. 3 meses</th><th>Status</th>
             </tr>
           </thead>
@@ -2703,7 +2725,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
         </div>
         <div class="table-wrap pend-scroll" style="max-height:420px;">
           <table>
-            <thead><tr><th>Código</th><th>Corretora</th><th>Gestor</th><th class="num">Total 17M</th><th class="num">Meses Parado</th></tr></thead>
+            <thead><tr><th>Código</th><th>Corretora</th><th>Gestor</th><th class="num" id="thTotMesesDrilldown">Total 17M</th><th class="num">Meses Parado</th></tr></thead>
             <tbody id="chartDrilldownBody"></tbody>
           </table>
         </div>

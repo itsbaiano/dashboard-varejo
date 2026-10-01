@@ -1105,15 +1105,41 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       ? pmeFiltered.reduce((s,p)=>s+(p.beneficiarios||0),0)
       : pfFiltered.reduce((s,p)=>s+(p.vidas||0),0);
     document.getElementById('pendBeneficiariosTotal').textContent = `Total de beneficiários (filtro atual): ${beneficiariosTotal}`;
+    // Estado vazio com nome do filtro ativo + botão "Limpar filtros" — sugestão de polimento
+    // visual aprovada por Victor 2026-10-01 (demonstrativo "Polimento Visual"), aplicada aqui
+    // porque é o único lugar do app com estado de filtro conhecido o bastante (mês/corretora/
+    // status/busca, todos locais a renderPendencias) pra montar a mensagem e o botão de verdade,
+    // em vez de um texto genérico "nenhum resultado encontrado".
+    const pendFilterParts = [];
+    if (activeMonth) pendFilterParts.push(activeMonth);
+    if (activeCorretora) pendFilterParts.push(activeCorretora);
+    if (pendSelectedStatuses.size) pendFilterParts.push(pendSelectedStatuses.size === 1 ? '1 status' : pendSelectedStatuses.size+' status');
+    if (searchRaw) pendFilterParts.push(`busca "${searchRaw}"`);
+    const pendHasActiveFilters = pendFilterParts.length > 0;
+    const pendEmptyRow = (colspan, label) => `<tr><td colspan="${colspan}"><div class="pend-empty">
+        <span class="pend-empty-ic"><i class="ic-search"></i></span>
+        <strong>Nenhuma ${label} com esse filtro</strong>
+        <p>${pendHasActiveFilters ? 'Filtros ativos: '+pendFilterParts.join(' · ')+'.' : 'Não há pendências cadastradas pra esse gestor no momento.'}</p>
+        ${pendHasActiveFilters ? '<button type="button" class="btn-reset pend-empty-clear">Limpar filtros</button>' : ''}
+      </div></td></tr>`;
     document.getElementById('pendPmeBody').innerHTML = pmeFiltered.length ? pmeFiltered.map(p => `
       <tr><td>${p.proposta}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td>
         ${p.status.planium ? `<span class="tag ${p.status.planium==='pendencia'?'react':'noelig'}">${p.status.planium}</span>` : ''}
         <div style="font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.6;">${['cadastro','ditec','bitix'].filter(k=>p.status[k] && p.status[k]!=='0').map(k=>`${k.charAt(0).toUpperCase()+k.slice(1)}: <b>${p.status[k]}</b>`).join(' · ')}</div>
       </td><td class="num">${p.beneficiarios}</td><td>${p.dataReceb}</td><td>${p.dataVigencia}</td></tr>
-    `).join('') : `<tr><td colspan="${showGestorCol?7:6}" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma pendência PME/SS para este filtro.</td></tr>`;
+    `).join('') : pendEmptyRow(showGestorCol?7:6, 'pendência PME/SS');
     document.getElementById('pendPfBody').innerHTML = pfFiltered.length ? pfFiltered.map(p => `
       <tr><td>${p.orcamento}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td><span class="tag react">${p.status}</span></td><td class="num">${p.vidas}</td><td>${p.dataStatus}</td></tr>
-    `).join('') : `<tr><td colspan="${showGestorCol?6:5}" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma pendência PF para este filtro.</td></tr>`;
+    `).join('') : pendEmptyRow(showGestorCol?6:5, 'pendência PF');
+    document.querySelectorAll('#pendPmeBody .pend-empty-clear, #pendPfBody .pend-empty-clear').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('pendMonthFilter').value = '';
+        document.getElementById('pendCorretoraFilter').value = '';
+        document.getElementById('pendPropostaSearch').value = '';
+        pendSelectedStatuses.clear();
+        renderPendencias();
+      });
+    });
   }
 
   window.showPendenciasModal = function(gestorNome){
@@ -2157,6 +2183,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     document.getElementById('chartDrilldownOverlay').style.display = 'flex';
     const sorted = [...list].sort((a,b)=>b.tot-a.tot);
     const totalVidas = sorted.reduce((s,d)=>s+d.tot,0);
+    const thTotDrill = document.getElementById('thTotMesesDrilldown');
+    if (thTotDrill && sorted.length && sorted[0].m) thTotDrill.textContent = `Total ${sorted[0].m.length}M`;
     document.getElementById('chartDrilldownTitle').textContent = `${title} (${sorted.length} corretora${sorted.length!==1?'s':''})`;
     document.getElementById('chartDrilldownSub').textContent = `${fmt0(totalVidas)} vidas em potencial · clique em uma linha para ver a evolução mensal`;
 
@@ -2820,7 +2848,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
             ${r.ctx.el===1 ? '<span class="tag elig">Elegível</span>' : '<span class="tag noelig">Não elegível</span>'}
           </div>
           <div class="sr-stats">
-            <div class="sr-stat"><div class="sr-label">Total 17M</div><div class="sr-value" style="color:var(--navy);">${fmt0(r.d.tot)}</div></div>
+            <div class="sr-stat"><div class="sr-label">Total ${r.d.m ? r.d.m.length : 17}M</div><div class="sr-value" style="color:var(--navy);">${fmt0(r.d.tot)}</div></div>
             <div class="sr-stat"><div class="sr-label">${cycleLabel} Atual</div><div class="sr-value" style="color:var(--primary-light);">${fmt0(r.ctx.periodTotal)}</div></div>
             <div class="sr-stat"><div class="sr-label">Meta ${cycleLabel}</div><div class="sr-value" style="color:#a5690f;">${fmt0(r.ctx.meta)}</div></div>
             <div class="sr-stat"><div class="sr-label">Gap</div><div class="sr-value" style="color:${gap>=0?'#16B87A':'#F5364A'};">${gap>=0?'+':''}${fmt0(gap)}</div></div>
@@ -3447,6 +3475,12 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   }
 
   function renderTable(filtered){
+    // "Total 17M" ficou travado desse texto desde quando só existia a Cauda Longa (histórico
+    // desde o ano passado) — achado 2026-10-01, Victor: as outras 3 equipes só têm 9 meses, e a
+    // própria Cauda Longa já passou dos 17 há tempo. Usa o tamanho real do histórico (igual ao
+    // resto da tela já faz com "N MESES TOTAIS" na importação), não mais um número fixo.
+    const totMesesEl = document.getElementById('thTotMeses');
+    if (totMesesEl && DATA.length && DATA[0].m) totMesesEl.textContent = `Total ${DATA[0].m.length}M`;
     const sorted = [...filtered].sort((a,b)=>{
       let av=a[sortKey], bv=b[sortKey];
       if (typeof av === 'string') return sortDir * av.localeCompare(bv);
@@ -4688,7 +4722,6 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         const lastIdx = (targetIdx >= 0 && targetIdx < d.m.length) ? targetIdx : d.m.length - 1;
         d.m[lastIdx] = c.total;
         if (d.mc){ d.mc.pf[lastIdx] = c.ind; d.mc.ss[lastIdx] = c.ss; d.mc.pme[lastIdx] = c.pme; }
-        d.tot = d.m.reduce((s,v)=>s+v, 0);
         // Mudar d.m acima não basta — Elegível/Ranking (d.el/d.rk) e a meta do trimestre
         // vigente (d.meta3tri) só eram calculados uma vez, na hora de subir a planilha
         // "Elegibilidade (17 meses)" inteira, e ficavam congelados depois disso (Desempenho
@@ -4712,6 +4745,17 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         }
         atualizadas++;
       }
+      // Fora do "if (c)" de propósito (achado 2026-10-01, pedido do Victor: "Total 17M" com
+      // número mais baixo do que deveria pra ~9% das corretoras, sempre faltando exatamente o
+      // mês mais recente) — antes só recalculava o total geral de quem aparecia no extrato do
+      // dia; uma corretora sem venda registrada no dia específico em que o mês fechava/abria
+      // ficava com esse total "preso" num valor antigo, mesmo com d.m[] certo por baixo. Não
+      // consegui provar a sequência exata que causa isso (só existe ESTE lugar que grava os
+      // dois campos, e sempre junto — pode ter sido um reimport histórico cruzando com uma
+      // atualização ao vivo), mas recalcular pra TODO MUNDO aqui, sempre, fecha a brecha de
+      // qualquer jeito: d.m[] já está correto nesse ponto (só ganhou o mês novo zerado, se foi
+      // o caso, o que não muda a soma de quem não apareceu no extrato de hoje).
+      d.tot = d.m.reduce((s,v)=>s+v, 0);
     });
     return atualizadas;
   };
@@ -4751,6 +4795,75 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     }
     return found;
   };
+
+  // ===== EXPORTAR ELEGIBILIDADE EM .XLSX (pedido do Victor, 2026-10-01) =====
+  // Gera de volta o arquivo no MESMO formato que parseEligibilidadeWorkbook (IIFE de import,
+  // mais abaixo) espera — mesmos nomes de coluna, mesmo esquema de 2 linhas de cabeçalho por
+  // bloco de mês (nome do mês na linha 1, "TOTAL" na linha 2, 3 colunas PF/SS/PME antes dela) —
+  // pra ser reimportável pelo próprio importador do dashboard, não só um espelho visual. Um
+  // arquivo por equipe (mesmo recorte de ELIG_GESTOR_TEAM, acima), igual ao que a Hapvida manda
+  // hoje. Montei conferindo célula por célula contra o que parseEligibilidadeWorkbook lê
+  // (monthCols = i+3, mc.pf/ss/pme = c-3/c-2/c-1, monthly = c) — testado de ponta a ponta
+  // reimportando o próprio export e comparando os registros resultantes contra os originais
+  // antes de considerar pronto. Fica nesta IIFE (não na de import) porque precisa de DATA/
+  // ELIG_GESTOR_TEAM direto — window.exportEligibilidadeXlsx exposto pro botão (outro script).
+  const MONTH_NUM_TO_NAME = {1:'JANEIRO',2:'FEVEREIRO',3:'MARCO',4:'ABRIL',5:'MAIO',6:'JUNHO',7:'JULHO',8:'AGOSTO',9:'SETEMBRO',10:'OUTUBRO',11:'NOVEMBRO',12:'DEZEMBRO'};
+  function globalIdxToMonthHeader(idx){
+    const year = 2025 + Math.floor(idx/12), monthNum = (idx % 12) + 1;
+    return `${MONTH_NUM_TO_NAME[monthNum]} ${String(year).slice(2)}`;
+  }
+  function buildEligibilidadeExportAOA(team){
+    const rows = DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === team);
+    if (!rows.length) return null;
+    const monthCount = rows[0].m.length;
+    // Trimestres FECHADOS (grupos completos de 3 meses, índice 0 = Jan/25) — mesma convenção de
+    // buildTrimestreBuckets, mas aqui no formato de rótulo do ARQUIVO ("1TRI26 TOTAL"), diferente
+    // do rótulo de exibição da tela ("1º Trimestre/26"). Inclui TODOS os fechados, não só os 2
+    // últimos — o importador só usa os 2 últimos mesmo (triTotalCols.length-2/-1), os anteriores
+    // ficam só como referência histórica no arquivo, igual a planilha real cresce com o tempo.
+    const closedQuarters = [];
+    for (let start = 0; start + 3 <= monthCount; start += 3){
+      const year = 2025 + Math.floor(start/12), qInYear = Math.floor((start%12)/3) + 1;
+      closedQuarters.push({ label: `${qInYear}TRI${String(year).slice(2)} TOTAL`, months: [start, start+1, start+2] });
+    }
+    const header1 = ['CODIGO','RAZAO SOCIAL','GRADE DE COMISSAO','ASSESSORIA','GESTOR'];
+    const header2 = ['','','','',''];
+    for (let i = 0; i < monthCount; i++){
+      header1.push(globalIdxToMonthHeader(i), '', '', '');
+      header2.push('', '', '', 'TOTAL');
+    }
+    closedQuarters.forEach(q => { header1.push(q.label); header2.push(''); });
+    header1.push(`${monthCount} MESES TOTAIS`, 'ELEGIBILIDADE', 'RANKING');
+    header2.push('', '', '');
+
+    const aoa = [header1, header2];
+    rows.forEach(d => {
+      // GRADE só existe de verdade pra Cauda Longa (mesma régua de parseEligibilidadeWorkbook,
+      // que já deixa opcional pras outras equipes) — deixa em branco pras demais, não inventa.
+      const row = [d.c, d.n, (team === 'CAUDA LONGA' ? (d.gr || '') : ''), d.ass || '', d.g];
+      for (let i = 0; i < monthCount; i++){
+        row.push(d.mc ? (d.mc.pf[i]||0) : 0, d.mc ? (d.mc.ss[i]||0) : 0, d.mc ? (d.mc.pme[i]||0) : 0, d.m[i]||0);
+      }
+      closedQuarters.forEach(q => { row.push(q.months.reduce((s,i)=>s+(d.m[i]||0), 0)); });
+      const totGeral = d.m.reduce((s,v)=>s+v, 0);
+      row.push(totGeral, d.el === 1 ? 'Elegível' : 'Não Elegível', d.rk || 'Não Classificado');
+      aoa.push(row);
+    });
+    return aoa;
+  }
+  window.exportEligibilidadeXlsx = function(team){
+    const aoa = buildEligibilidadeExportAOA(team);
+    if (!aoa){ alert('Nenhuma corretora encontrada pra essa equipe.'); return; }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'ELEGIBILIDADE');
+    const teamSlug = team.replace(/[^A-Za-z0-9]+/g, '_');
+    const hoje = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `Elegibilidade_${teamSlug}_${hoje}.xlsx`);
+  };
+  document.getElementById('btnExportElig').addEventListener('click', () => {
+    window.exportEligibilidadeXlsx(document.getElementById('elExportTeam').value);
+  });
   window.updateEligibilidadeData = function(newRecords){
     // Funde com o DATA já existente em vez de substituir tudo — achado real 2026-09-09,
     // thread "Agosto não bate": (1) uma planilha mestre mais ANTIGA/mais curta (ex.: reimportar
