@@ -8017,6 +8017,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   });
 
   synthMonths();
+  renderSeniorChips();   // chips do cabeçalho já na 1ª carga (antes só apareciam depois de algum clique/render)
   renderBar();
   apply();
 })();
