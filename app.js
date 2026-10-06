@@ -2058,6 +2058,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   const GESTOR_EQUIPE = {"VENDA INTERNA": "VENDA INTERNA", "PATRICIA PESSOA MONKS": "CAUDA LONGA", "KAROLLAINNY RANGEL DE SOUSA LOPES": "DIGITAL", "PABLO SERGIO RIBEIRO AMORA": "CAUDA LONGA", "GUILHERME DE LIMA MUSACHI": "PLATAFORMA ABC/ALTO TIETÊ/BX", "CAMILA ALVES PERTINHEZ": "PLATAFORMA SP", "JONATHAN LEAL DOS SANTOS SILVA": "CAUDA LONGA", "MAXUEL PIMENTEL NOBREGA": "DIGITAL", "AGATHA EIKO RODRIGUES SAKAMOTO": "CAUDA LONGA", "DANIELA NOVAIS DOS SANTOS": "DIGITAL", "ERIKA DE SOUSA SILVA": "PLATAFORMA SP", "LAIS DOS SANTOS MARTINS": "PLATAFORMA SP", "WILDER COCA PATZI": "PLATAFORMA SP", "AMANDA DOS SANTOS SOBRAL": "DIGITAL", "IZABELE DE OLIVEIRA DA SILVA": "PLATAFORMA ABC/ALTO TIETÊ/BX", "KAIQUE ARAUJO DA SILVA": "INTERIOR SP", "VIVIAN DE CASSIA AMBROSIO": "PLATAFORMA ABC/ALTO TIETÊ/BX", "DANIELA FREDERICO MARTINS CAMPINAS": "INTERIOR SP", "FLAVIA AUANA SILVA DE OLIVEIRA": "INTERIOR SP", "DANIELA FREDERICO MARTINS AM": "INTERIOR SP"};
   // Exposto em window pois o parser do "Crescimento Geral" (mais abaixo no arquivo) vive
   // numa IIFE diferente desta — sem isso, GESTOR_EQUIPE não existe nesse escopo (2026-09-04).
+  // Executiva nova na Plataforma (Out/26, planilha NDI SP) — ainda não está na Carteira.
+  if (!GESTOR_EQUIPE['AGATHA AMARAL RIBEIRO']) GESTOR_EQUIPE['AGATHA AMARAL RIBEIRO'] = 'PLATAFORMA SP';
   window.GESTOR_EQUIPE = GESTOR_EQUIPE;
 
   const fmt0 = n => Math.round(n).toLocaleString('pt-BR');
@@ -5091,7 +5093,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   function renderOverview(){
     const mjData = window.getMetaJunhoData ? window.getMetaJunhoData() : null;
     const eligAll = window.getEligibilidadeData ? window.getEligibilidadeData() : [];
-    if (!mjData || !mjData.teams || !mjData.teams[CL_LABEL]) return;
+    if (!mjData || !mjData.teams || !Object.keys(mjData.teams).some(k => /\(Cauda Longa\)\s*$/.test(k))) return;
 
     const teamSel = document.getElementById('ovTeam');
     const wasTeamChange = teamSel.dataset.lastTeam !== undefined && teamSel.dataset.lastTeam !== teamSel.value;
@@ -5778,7 +5780,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     'CAMILA FOIADELLI': 'Camila Foiadelli (Plataforma)',
     'LEONARDO MARIANO': 'Leonardo Mariano (ABC)',
     'ESTEVÃO CARDOSO': 'Estevão Cardoso (Cauda Longa)',
-    'MARCELO LIMA': 'Marcelo Lima (Digital)',
+    'MARCELO LIMA': 'Marcelo Lima (Digital)',   // só vale se a planilha vier sem a coluna FILIAL (ver FILIAL_TIPO)
+    'MARIA APARECIDA': 'Maria Aparecida (Digital)',
     'MARIA CABRAL': 'Maria Cabral (Interior)'
   };
   const PALETTE = ['#2E52D4','#F26B21','#101E63','#16B87A','#FFB81C','#1D33A8'];
@@ -5841,8 +5844,14 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const rawToFriendly = {};
     const naoAtribuido = { ind:0, ss:0, pme:0, adm:0 };
     let buffer = [];
+    // Tipo do time pela coluna FILIAL (PLATAFORMA/ABC/CAUDA LONGA/DIGITAL/INTERIOR), preenchida na 1ª linha
+    // de cada bloco — o rótulo do time é "<Sênior> (<Tipo>)" e NÃO depende mais de quem é o sênior:
+    // em 06/10/2026 o sênior da Cauda Longa virou Marcelo Lima e o do Digital virou Maria Aparecida.
+    const FILIAL_TIPO = {'PLATAFORMA':'Plataforma','ABC':'ABC','CAUDA LONGA':'Cauda Longa','DIGITAL':'Digital','INTERIOR':'Interior'};
+    let blockFilial = '';
     for (let i = 3; i < metaRows.length; i++){
       const row = metaRows[i] || [];
+      if (typeof row[0] === 'string' && FILIAL_TIPO[row[0].trim().toUpperCase()]) blockFilial = row[0].trim().toUpperCase();
       const gestorName = row[1];
       if (!gestorName || typeof gestorName !== 'string') continue;
       const gestorNameUpper = gestorName.trim().toUpperCase();
@@ -5853,7 +5862,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (gestorNameUpper === 'TOTAL') continue;
       if (gestorName.trim().indexOf('TOTAL ') === 0){
         const seniorRaw = gestorName.trim().replace('TOTAL ','').trim();
-        const teamLabel = SENIOR_TEAM_LABELS[seniorRaw] || titlecasePt(seniorRaw);
+        const tipoTime = FILIAL_TIPO[blockFilial];
+        const teamLabel = tipoTime ? (titlecasePt(seniorRaw) + ' (' + tipoTime + ')') : (SENIOR_TEAM_LABELS[seniorRaw] || titlecasePt(seniorRaw));
+        blockFilial = '';
         benchmark.push({time: teamLabel, meta:num(row[14]), int:num(row[15]), pct:num(row[16])});
         teams[teamLabel] = {
           members: buffer.slice(),
@@ -5874,8 +5885,10 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         total: { meta:num(row[14]), int:num(row[15]) }
       });
     }
-    const cauda = teams['Estevão Cardoso (Cauda Longa)'];
-    if (!cauda) throw new Error('Não encontrei o time "Estevão Cardoso (Cauda Longa)" na planilha.');
+    // Time Cauda Longa achado pelo TIPO, qualquer que seja o sênior (Estevão até 09/2026, Marcelo Lima depois).
+    const caudaKey = Object.keys(teams).find(k => /\(Cauda Longa\)\s*$/.test(k));
+    const cauda = caudaKey ? teams[caudaKey] : null;
+    if (!cauda) throw new Error('Não encontrei o time "Cauda Longa" na planilha (esperado um bloco FILIAL = CAUDA LONGA seguido de "TOTAL <sênior>").');
     const clFound = cauda.members.map(m=>m.nome);
     const missing = Object.values(CL_GESTORES_RAW).filter(n => !clFound.includes(n));
     if (missing.length) throw new Error('Não encontrei na planilha os gestores: ' + missing.join(', '));
@@ -6089,7 +6102,10 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     }
     html += '<table style="width:100%;font-size:12.5px;margin-bottom:10px;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--line);"><th style="text-align:left;padding:4px;">Time</th><th style="text-align:right;padding:4px;">Meta (atual→novo)</th><th style="text-align:right;padding:4px;">Integrado (atual→novo)</th></tr></thead><tbody>';
     Object.keys(newData.teams).forEach(t => {
-      const oldT = (old.teams[t] && old.teams[t].total) || {meta:0,int:0};
+      // Casa o time antigo pelo rótulo e, se o sênior mudou (ex.: Cauda Longa: Estevão -> Marcelo Lima), pelo TIPO do time.
+      const tipoDe = l => ((/\(([^)]*)\)\s*$/.exec(l) || [])[1]) || '';
+      const oldKey = old.teams[t] ? t : Object.keys(old.teams).find(k => tipoDe(k) && tipoDe(k) === tipoDe(t));
+      const oldT = (oldKey && old.teams[oldKey].total) || {meta:0,int:0};
       const newT = newData.teams[t].total;
       const bold = t.indexOf('Cauda Longa') >= 0 ? 'font-weight:700;' : '';
       html += `<tr style="${bold}"><td style="padding:4px;">${t}</td><td style="text-align:right;padding:4px;">${fmtN(oldT.meta)} → ${fmtN(newT.meta)}</td><td style="text-align:right;padding:4px;">${fmtN(oldT.int)} → ${fmtN(newT.int)}</td></tr>`;
@@ -6707,7 +6723,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     'KAROLLAINNY RANGEL DE SOUSA LOPES':'Karollainny Rangel de Sousa Lopes','AMANDA DOS SANTOS SOBRAL':'Amanda dos Santos Sobral',
     'DANIELA NOVAIS DOS SANTOS':'Daniela Novais dos Santos','MAXUEL PIMENTEL NOBREGA':'Maxuel Pimentel Nobrega',
     'DANIELA FREDERICO MARTINS CAMPINAS':'Daniela Frederico Martins (Campinas)','DANIELA FREDERICO MARTINS AM':'Daniela Frederico Martins (AM)',
-    'KAIQUE ARAUJO DA SILVA':'Kaique Araujo da Silva','FLAVIA AUANA SILVA DE OLIVEIRA':'Flavia Auana Silva de Oliveira'
+    'KAIQUE ARAUJO DA SILVA':'Kaique Araujo da Silva','FLAVIA AUANA SILVA DE OLIVEIRA':'Flavia Auana Silva de Oliveira',
+    'AGATHA AMARAL RIBEIRO':'Agatha Amaral Ribeiro'
   };
   // Exposto pra outras views converterem nome cru da planilha ("PABLO SERGIO RIBEIRO
   // AMORA", como o PLANIUM/Conversão usa) pro nome bonito ("Pablo Amora", como
@@ -7350,7 +7367,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     ['CARDOSO',   'Estevão Cardoso (Cauda Longa)'],
     ['MARCELO',   'Marcelo Lima (Digital)'],
   ];
-  const SENIOR_EXCLUIDOS = ['CABRAL', 'GALERANI'];
+  // Só o Galerani (Interior) segue excluído por nome; a Cabral virou sênior do Digital em 10/2026, então a
+  // exclusão por nome saiu — quem não está na estrutura atual (Excel) já fica de fora (teamOfNow).
+  const SENIOR_EXCLUIDOS = ['GALERANI'];
+  // Tipo do time = texto entre parênteses do rótulo: Marcelo Lima (Cauda Longa) vira Cauda Longa.
+  const tipoTime = l => { const m = /\(([^)]*)\)\s*$/.exec(String(l || '')); return m ? m[1] : ''; };
+  const ORDEM_TIPOS = ['Plataforma', 'ABC', 'Cauda Longa', 'Digital'];
   const NOME_BONITO = {
     'AGATHA SAKAMOTO':'Agatha Sakamoto', 'AGATHA EIKO RODRIGUES SAKAMOTO':'Agatha Sakamoto', 'PATRICIA PESSOA MONKS':'Patricia Monks',
     'JONATHAN LEAL DOS SANTOS SILVA':'Jonathan Leal', 'PABLO SERGIO RIBEIRO AMORA':'Pablo Amora',
@@ -7551,7 +7573,18 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // hoje, mesmo que na época estivesse em outra; quem não está mais na estrutura atual (ex.: foi
   // pro Interior) não entra em nenhum trimestre. Quando entrar a meta de Outubro, "hoje" passa a
   // ser Outubro automaticamente.
-  const structureNow = () => { const ms = allMonths(); return ms.length ? metaMonth(ms[ms.length - 1]) : null; };
+  // Equipes/pessoas de HOJE = as do mês OFICIAL mais recente (Excel NDI SP, com os sêniores atuais); só se
+  // não houver, cai na estrutura do último mês com meta.
+  const structureNow = () => {
+    const latest = window.getLatestKnownMonth ? window.getLatestKnownMonth() : null;
+    const tm = latest && window.getMetaJunhoTeamsStrict ? window.getMetaJunhoTeamsStrict(latest) : null;
+    if (tm && Object.keys(tm).length){
+      const out = {};
+      Object.entries(tm).forEach(([label, td]) => { out[label] = (td.members || []).map(m => ({ nome:m.nome })); });
+      return out;
+    }
+    const ms = allMonths(); return ms.length ? metaMonth(ms[ms.length - 1]) : null;
+  };
   function teamOfNow(nome){
     const md = structureNow();
     if (!md) return null;
@@ -7666,10 +7699,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const { months, teams } = buildQuarter(sel);
     const N = months.length;
     const cur = window.getMjCurrentTeam ? window.getMjCurrentTeam() : 'ALL_TEAMS';
-    const ordem = SENIOR_LABELS.map(x => x[1]).concat(Object.keys(teams).filter(l => !SENIOR_LABELS.some(x => x[1] === l)));
-    let labels = ordem.filter(l => teams[l]);
-    const scoped = cur !== 'ALL_TEAMS' && teams[cur];
-    if (scoped) labels = [cur];
+    const ordIdx = l => { const i = ORDEM_TIPOS.indexOf(tipoTime(l)); return i < 0 ? 99 : i; };
+    let labels = Object.keys(teams).sort((a, b) => ordIdx(a) - ordIdx(b));
+    // Equipe selecionada na tela (pode ser de um mês antigo, com outro sênior): casa pelo TIPO do time.
+    const scopedKey = cur !== 'ALL_TEAMS' ? labels.find(l => teams[l] && tipoTime(l) && tipoTime(l) === tipoTime(cur)) : null;
+    const scoped = !!scopedKey;
+    if (scoped) labels = [scopedKey];
 
     const rowsByTeam = {};
     labels.forEach(l => { rowsByTeam[l] = Object.values(teams[l]).sort((a, b) => aggregate([b], N).metaTot - aggregate([a], N).metaTot); });
@@ -7682,7 +7717,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const per = multi ? 'do Período' : 'do Trimestre';
 
     $('mjTriTitle').textContent = `Meta vs. Integrado por Executivo — ${lab}`;
-    $('mjTriSub').textContent = `${scoped ? cur : 'Todas as equipes (sem Interior)'} · ${nomesMeses} somados · passe o mouse numa linha pra ver por categoria`;
+    $('mjTriSub').textContent = `${scoped ? scopedKey : 'Todas as equipes (sem Interior)'} · ${nomesMeses} somados · passe o mouse numa linha pra ver por categoria`;
     $('mjTriThMeta').textContent = `Meta ${lab}`;
     $('mjTriThInt').textContent = `Integrado ${lab}`;
 
@@ -7829,8 +7864,29 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     hit.rank = rows;
     return rows;
   };
+  // Chips dos sêniores no cabeçalho (Sêniores ▾): montados a partir dos times do mês, pra seguir quem é o sênior
+  // de cada equipe (06/10/2026: Cauda Longa -> Marcelo Lima, Digital -> Maria Aparecida).
+  function renderSeniorChips(){
+    const grid = document.querySelector('#dhTeamList .dh-team-grid');
+    if (!grid || !window.getMetaJunhoData) return;
+    const teams = window.getMetaJunhoData().teams || {};
+    const labels = Object.keys(teams).sort((a, b) => { const f = l => { const i = ORDEM_TIPOS.indexOf(tipoTime(l)); return i < 0 ? 99 : i; }; return f(a) - f(b); });
+    if (!labels.length) return;
+    grid.innerHTML = '';
+    labels.forEach(l => {
+      const nome = l.replace(/\s*\([^)]*\)\s*$/, '');
+      const ini = nome.split(/\s+/).map(w => w.charAt(0)).slice(0, 2).join('').toUpperCase();
+      const d = document.createElement('div'); d.className = 'dh-team-member';
+      const av = document.createElement('div'); av.className = 'dh-avatar'; av.textContent = ini;
+      const sp = document.createElement('span'); sp.textContent = nome;
+      d.appendChild(av); d.appendChild(sp);
+      d.addEventListener('click', () => { if (window.jumpToMetaJunho) window.jumpToMetaJunho(l, null); });
+      grid.appendChild(d);
+    });
+  }
   window.__mjAfterRender = function(){
     if (synthCarteira !== (window.CARTEIRA_MAP || null)) synthMonths();   // Carteira mudou (ou acabou de carregar)
+    renderSeniorChips();
     renderBar(); apply();
   };
 
