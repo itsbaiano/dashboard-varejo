@@ -564,7 +564,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       document.getElementById('mjGestorGridSub').textContent = 'Clique num card pra abrir o detalhe completo do time — ou use o botão pra ver todos os gestores aqui mesmo';
       document.getElementById('mjGestorGrid').innerHTML = teamRows.map((r,i) => {
         const p = r.meta ? r.int/r.meta : 0;
-        const cor = ['#2E52D4','#F26B21','#101E63','#16B87A','#FFB81C'][i % 5];
+        const cor = ['#2E52D4','#F26B21','#5B7CFA','#16B87A','#FFB81C'][i % 5];
         return `<div class="gestor-card" style="cursor:pointer" role="button" tabindex="0" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}')" title="Ver detalhe deste time">
           <div class="avatar" style="background:${cor}">${iniciais(r.name)}</div><div class="name">${r.name}</div><div class="role">${MJ_TEAMS[r.name].members.length} gestores</div>
           <div class="total-pct" style="color:${pctColor(p)}">${pctf(p)}</div>
@@ -584,7 +584,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       };
 
       document.getElementById('mjTeamsExpand').innerHTML = teamRows.map((r,i) => {
-        const cor = ['#2E52D4','#F26B21','#101E63','#16B87A','#FFB81C'][i % 5];
+        const cor = ['#2E52D4','#F26B21','#5B7CFA','#16B87A','#FFB81C'][i % 5];
         const p = r.meta ? r.int/r.meta : 0;
         const isOpen = mjExpandedTeams.has(r.name);
         // Menor % primeiro dentro do time — quem precisa de atenção aparece no topo da lista.
@@ -828,6 +828,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // o mês pedido não existe — certo pra as telas de mês único, errado pra somar trimestre.
   window.getMetaJunhoTeamsStrict = function(month){ return MJ_SYNTH.has(month) ? null : (MJ_TEAMS_BY_MONTH[month] || null); };
   window.getMjCurrentTeam = function(){ return currentTeam; };
+  // Re-renderiza a tela do Desempenho Comercial (usado pelo módulo de trimestre ao voltar pra visão mensal).
+  window.mjRerender = function(){ renderMetaJunho(); };
   window.updateMetaJunhoData = function(newData){
     // Grava sempre no mês que a planilha realmente representa (detectedMonth),
     // não sempre em "currentMonth" — senão um arquivo de mês passado sobrescreveria
@@ -7778,12 +7780,24 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const tri = state.mode === 'tri' && state.qs.length > 0;
     if (state.mode === 'tri' && !tri) state.mode = 'mes';
     const keep = [view.children[0], $('mjPeriodBar'), $('mjTriPanel')];
-    [...view.children].forEach(el => { if (keep.indexOf(el) < 0) el.style.display = tri ? 'none' : ''; });
-    const stats = $('mjBannerStats');
-    if (stats) stats.style.display = tri ? 'none' : '';
+    // Só mexe nos painéis da visão mensal quando o trimestre está LIGADO (esconde) ou acabou de ser DESLIGADO
+    // (restaura e pede um re-render, que reaplica o que a tela mensal esconde por conta própria — ex.: o painel de
+    // Corretoras no agregado "Todos os Times"). Antes isto forçava display='' em tudo a cada render e reabria
+    // painéis que o render tinha escondido (06/10/2026: tabela de Corretoras vazia em Todos os Times).
+    if (tri){
+      [...view.children].forEach(el => { if (keep.indexOf(el) < 0) el.style.display = 'none'; });
+      const stats = $('mjBannerStats'); if (stats) stats.style.display = 'none';
+      triHidden = true;
+    } else if (triHidden){
+      triHidden = false;
+      [...view.children].forEach(el => { if (keep.indexOf(el) < 0) el.style.display = ''; });
+      const stats = $('mjBannerStats'); if (stats) stats.style.display = '';
+      if (window.mjRerender) window.mjRerender();
+    }
     $('mjTriPanel').style.display = tri ? '' : 'none';
     if (tri) renderTri();
   }
+  let triHidden = false;
 
   // ---------- meses RECONSTRUÍDOS (Jan–Mai/26) pro seletor "Mês de referência" ----------
   // Sem fechamento oficial do Excel, o mês é montado em memória: estrutura de equipes/cores = a do
