@@ -7370,6 +7370,13 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // Só o Galerani (Interior) segue excluído por nome; a Cabral virou sênior do Digital em 10/2026, então a
   // exclusão por nome saiu — quem não está na estrutura atual (Excel) já fica de fora (teamOfNow).
   const SENIOR_EXCLUIDOS = ['GALERANI'];
+  // A partir de 10/2026 (4º TRI): Marcelo Lima lidera a Cauda Longa e Maria Aparecida (Cabral) o Digital. O rótulo aqui é só\n  // informativo — quem decide a equipe de cada pessoa é a estrutura atual (teamOfNow).
+  const SENIOR_LABELS_NOVO = [
+    ['FOIADELLI', 'Camila Foiadelli (Plataforma)'],
+    ['MARIANO',   'Leonardo Mariano (ABC)'],
+    ['MARCELO',   'Marcelo Lima (Cauda Longa)'],
+    ['CABRAL',    'Maria Aparecida (Digital)'],
+  ];
   // Tipo do time = texto entre parênteses do rótulo: Marcelo Lima (Cauda Longa) vira Cauda Longa.
   const tipoTime = l => { const m = /\(([^)]*)\)\s*$/.exec(String(l || '')); return m ? m[1] : ''; };
   const ORDEM_TIPOS = ['Plataforma', 'ABC', 'Cauda Longa', 'Digital'];
@@ -7424,7 +7431,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
           team = null;
           if (section !== 'ndi') return;
           if (SENIOR_EXCLUIDOS.some(k => an.indexOf(k) >= 0)) return;
-          const hit = SENIOR_LABELS.find(([k]) => an.indexOf(k) >= 0);
+          const hit = (((year + '-' + mm) >= '2026-10') ? SENIOR_LABELS_NOVO : SENIOR_LABELS).find(([k]) => an.indexOf(k) >= 0);
           if (hit) team = hit[1];
           else {
             team = titulo(a.replace(/^GERENTE SENIOR:?\s*/i, ''));
@@ -7681,6 +7688,16 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // qs = trimestres selecionados (um ou mais — clicar em outro trimestre soma, clicar de novo tira)
   const state = { mode:'mes', qs:[] };
   const $ = id => document.getElementById(id);
+  // Os campos "Metas por Executivo" e "Integrado de meses passados" carregam direto, sem passar por Processar Arquivos →
+  // Confirmar Atualização — que é o que normalmente revela o botão Publicar. Sem isto o Victor não tinha como publicar (06/10/2026).
+  function mostrarPublicar(){
+    const ps = $('publishStep'); if (!ps) return;
+    ps.style.display = 'block';
+    const isAdmin = window.__userRole__ === 'admin';
+    if ($('publishAdminControls')) $('publishAdminControls').style.display = isAdmin ? 'block' : 'none';
+    if ($('publishNonAdminMsg')) $('publishNonAdminMsg').style.display = isAdmin ? 'none' : 'block';
+    try { ps.scrollIntoView({block:'nearest'}); } catch(e){}
+  }
 
   function renderBar(){
     const el = $('mjPeriodBtns');
@@ -7928,6 +7945,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     }
     if (ok) msgs.push('<div style="color:var(--muted); margin-top:4px;">Clique em Publicar pra salvar pra todo mundo.</div>');
     st.innerHTML = msgs.join('');
+    if (ok) mostrarPublicar();
     synthMonths();
     renderBar(); apply();
   });
@@ -7979,6 +7997,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     }
     if (ok) msgs.push('<div style="color:var(--muted); margin-top:4px;">Não altera o mês atual, Elegibilidade nem Ranking. Clique em Publicar pra salvar pra todo mundo.</div>');
     st.innerHTML = msgs.join('');
+    if (ok) mostrarPublicar();
     synthMonths();
     renderBar(); apply();
   });
