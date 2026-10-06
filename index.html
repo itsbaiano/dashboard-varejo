@@ -2351,12 +2351,13 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
           <div class="f-group" style="min-width:170px;">
             <label>Período</label>
             <select id="ovTopPeriod" class="ic-left ic-clock">
-              <option value="tot">17 Meses (Total)</option>
+              <!-- Opções refeitas pelo app.js (renderOverview) a partir do mês mais recente. -->
+              <option value="tot">Todos os meses</option>
               <option value="ano2025">Ano 2025</option>
               <option value="ano2026">Ano 2026</option>
-              <option value="sem">Último Semestre</option>
-              <option value="tri" selected>Último Trimestre (3TRI26)</option>
-              <option value="mes">Mês Atual (Jul/26)</option>
+              <option value="sem">Semestre atual</option>
+              <option value="tri" selected>Trimestre atual</option>
+              <option value="mes">Mês Atual</option>
             </select>
           </div>
         </div>

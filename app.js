@@ -1636,6 +1636,14 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     trimestre: buildTrimestreBuckets(),
     mensal: MONTH_LABELS.map((label,i) => ({label, months:[i]})),
   };
+  // Trimestre vigente (último balde de PERIOD_DEFS.trimestre, mesmo parcial — é o que
+  // applyCorretorasToEligibilidade usa pra d.el/d.rk/d.meta3tri) e o trimestre anterior a ele.
+  // Substituem os rótulos fixos "3TRI26"/"2TRI26" do modo "Todos os meses", que travaram no
+  // 3º trimestre quando Outubro abriu o 4TRI26 (achado 2026-10-07). Sempre lidos na hora
+  // (PERIOD_DEFS.trimestre é refeito quando um mês novo abre).
+  const curTriDef = () => { const t = PERIOD_DEFS.trimestre; return t[t.length - 1] || null; };
+  const prevTriDef = () => { const t = PERIOD_DEFS.trimestre; return t[t.length - 2] || null; };
+  const triShort = def => def ? def.label.replace(/^(\d)º Trimestre\/(\d\d)$/, '$1TRI$2') : '';
   // Recalcula MONTH_LABELS/PERIOD_DEFS quando a Elegibilidade é atualizada NA MESMA
   // sessão (sem recarregar a página) e o arquivo novo já tem mais meses do que o painel
   // conhecia até então. Sem isso, um mês novo (ex.: Agosto) só apareceria nos filtros de
@@ -2309,7 +2317,9 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       const prev = getPrevEquivalentMonths(periodMonths);
       return prev ? computePeriodElegRank(d, prev) : null;
     }
-    return computePeriodElegRank(d, [15,16,17]); // 2TRI26 recalculado (trimestre anterior ao ciclo vigente)
+    // Trimestre anterior ao vigente, recalculado (era fixo em [15,16,17] = 2TRI26).
+    const prevTri = prevTriDef();
+    return prevTri ? computePeriodElegRank(d, prevTri.months) : null;
   }
   function faixaIdx(ctx){
     if (!(ctx.meta > 0)) return -1; // sem meta (sem histórico no período anterior)
@@ -2793,13 +2803,13 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const periodMonths = getPeriodMonths();
     const periodType = document.getElementById('fPeriodType').value;
     const periodIdx = Number(document.getElementById('fPeriodValue').value);
-    const cycleLabel = periodMonths ? ((PERIOD_DEFS[periodType][periodIdx]||{}).label || 'período') : 'Ciclo oficial (3TRI26)';
+    const cycleLabel = periodMonths ? ((PERIOD_DEFS[periodType][periodIdx]||{}).label || 'período') : ('Ciclo vigente (' + triShort(curTriDef()) + ')');
     // Rótulo da base de comparação do chip "vs ...": o delta compara com os N meses imediatamente
     // anteriores (N = nº de meses do período, getPrevEquivalentMonths). Com trimestre COMPLETO é o
     // trimestre anterior; com trimestre parcial (ex.: só Outubro) é só o(s) mês(es) antes — rotular
     // como "3º Trimestre" era enganoso (corrigido 2026-10-06).
     const prevLabel = (() => {
-      if (!periodMonths) return '2TRI26';
+      if (!periodMonths) return triShort(prevTriDef());
       const pe = getPrevEquivalentMonths(periodMonths);
       if (periodType === 'trimestre' && periodMonths.length < 3 && pe && pe.length){
         const ml = i => (window.MONTH_LABELS && window.MONTH_LABELS[i]) || ('mês ' + i);
@@ -3225,7 +3235,10 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     } else {
       t2Sum = isLatestMonthMode ? filtered.reduce((s,d)=>s+(d.m[d.m.length-1]||0),0) : filtered.reduce((s,d)=>s+d.t2,0);
       metaSum = isLatestMonthMode ? filtered.reduce((s,d)=>s+(d.meta3tri||0),0) : filtered.reduce((s,d)=>s+d.meta,0);
-      periodLabelKpi = isLatestMonthMode ? '3TRI26 (parcial) vs Meta' : '2TRI26 vs Meta';
+      const curTriKpi = curTriDef();
+      periodLabelKpi = isLatestMonthMode
+        ? (triShort(curTriKpi) + ((curTriKpi && curTriKpi.months.length < 3) ? ' (parcial)' : '') + ' vs Meta')
+        : '2TRI26 vs Meta'; // mês antigo: coluna oficial da planilha de Elegibilidade (ciclo 2TRI26)
     }
     const eligCount = periodMonthsKpi ? filtered.filter(d=>computePeriodElegRank(d, periodMonthsKpi).el===1).length : filtered.filter(d=>d.el===1).length;
     const eligPct = filtered.length ? (eligCount/filtered.length*100) : 0;
@@ -5240,21 +5253,47 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     document.getElementById('ovEligSection').style.display = 'none';
     if (isCaudaLongaScope){
       document.getElementById('ovOtherTeamCorretoras').style.display = 'none';
-      const periodOpt = document.getElementById('ovTopPeriod').value;
+      // Períodos de CALENDÁRIO a partir do mês mais recente (índice 0 = Jan/25), com as opções do
+      // seletor refeitas aqui. Antes eram texto fixo no index.html ("17 Meses", "3TRI26", "Jul/26")
+      // e "Último Trimestre" somava os 3 últimos meses (em Outubro: Ago+Set+Out). Pedido do
+      // Victor (2026-10-07): trimestre = calendário (3º tri = Jul+Ago+Set), semestre idem.
       const tm = window.MONTH_LABELS.length;
-      const periodRanges = {
-        tot: null, // usa d.tot diretamente (17 meses completos)
-        ano2025: Array.from({length:12},(_,i)=>i),
-        ano2026: Array.from({length:tm-12},(_,i)=>12+i),
-        sem: Array.from({length:Math.min(6,tm-12)},(_,i)=>tm-Math.min(6,tm-12)+i),
-        tri: Array.from({length:Math.min(3,tm-12)},(_,i)=>tm-Math.min(3,tm-12)+i),
-        mes: [tm-1],
+      const lastIdx = tm - 1;
+      const lastY = 2025 + Math.floor(lastIdx / 12), lastM = lastIdx % 12; // lastM 0-11
+      const yy = String(lastY).slice(2);
+      const seq = (a, b) => Array.from({length: b - a + 1}, (_, k) => a + k);
+      const mesAbbr = i => String(window.MONTH_LABELS[i]).split('/')[0];
+      const span = r => r.length === 1 ? mesAbbr(r[0]) : (mesAbbr(r[0]) + '–' + mesAbbr(r[r.length - 1]));
+      const triR = seq(lastIdx - (lastM % 3), lastIdx);
+      const semR = seq(lastIdx - (lastM % 6), lastIdx);
+      const periodRanges = { tot: null, sem: semR, tri: triR, mes: [lastIdx] }; // tot = soma de todos os meses de d.m
+      const periodLabels = {
+        tot: `Todos os meses (${tm})`,
+        sem: `Semestre atual (${lastM < 6 ? 1 : 2}º Sem/${yy} · ${span(semR)})`,
+        tri: `Trimestre atual (${Math.floor(lastM / 3) + 1}TRI${yy} · ${span(triR)})`,
+        mes: `Mês Atual (${window.MONTH_LABELS[lastIdx]})`,
       };
-      const ultimoMesLabel = window.MONTH_LABELS[tm-1];
-      const nomeTrimestre = Math.floor(((tm-1-12))/3)+1;
-      const periodLabels = {tot:'17 Meses (Total)', ano2025:'Ano 2025', ano2026:'Ano 2026', sem:'Último Semestre', tri:`Último Trimestre (${nomeTrimestre}TRI26)`, mes:`Mês Atual (${ultimoMesLabel})`};
+      const anos = [];
+      for (let y = 2025; y <= lastY; y++){
+        const a = (y - 2025) * 12;
+        periodRanges['ano' + y] = seq(a, Math.min(a + 11, lastIdx));
+        periodLabels['ano' + y] = 'Ano ' + y;
+        anos.push('ano' + y);
+      }
+      const ovPeriodSel = document.getElementById('ovTopPeriod');
+      const ovOrder = ['tot', ...anos, 'sem', 'tri', 'mes'];
+      const ovSig = ovOrder.map(k => k + '=' + periodLabels[k]).join('|');
+      if (ovPeriodSel.dataset.sig !== ovSig){
+        const prevOpt = ovPeriodSel.value;
+        ovPeriodSel.innerHTML = ovOrder.map(k => `<option value="${k}">${periodLabels[k]}</option>`).join('');
+        ovPeriodSel.value = ovOrder.includes(prevOpt) ? prevOpt : 'tri';
+        ovPeriodSel.dataset.sig = ovSig;
+      }
+      const periodOpt = ovPeriodSel.value;
       const range = periodRanges[periodOpt];
-      const sumFor = d => range ? range.reduce((s,i)=>s+d.m[i],0) : d.tot;
+      // "Todos os meses" soma d.m direto (não d.tot, que já ficou defasado em algumas corretoras —
+      // ver applyCorretorasToEligibilidade) pra barra bater com o detalhe por categoria.
+      const sumFor = d => range ? range.reduce((s,i)=>s+(d.m[i]||0),0) : (d.m || []).reduce((s,v)=>s+(v||0),0);
       document.getElementById('ovTopSub').textContent = `Maiores produtoras — ${periodLabels[periodOpt]} · clique numa barra para ver a venda por categoria`;
 
       const top8 = [...elig].map(d=>({d, val:sumFor(d)})).sort((a,b)=>b.val-a.val).slice(0,8);
@@ -5293,7 +5332,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   }
 
   function showCorretoraCategoryDetail(d, range, periodLabel){
-    const idxs = range || Array.from({length:18},(_,i)=>i);
+    // Sem período = todos os meses da corretora (era fixo em 18 meses, Jan/25–Jun/26).
+    const idxs = range || Array.from({length:(d.m || []).length},(_,i)=>i);
     let pf=0, ss=0, pme=0;
     if (d.mc){
       idxs.forEach(i => { pf += d.mc.pf[i]||0; ss += d.mc.ss[i]||0; pme += d.mc.pme[i]||0; });
