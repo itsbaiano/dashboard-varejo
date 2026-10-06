@@ -1639,7 +1639,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   // Trimestre vigente (último balde de PERIOD_DEFS.trimestre, mesmo parcial — é o que
   // applyCorretorasToEligibilidade usa pra d.el/d.rk/d.meta3tri) e o trimestre anterior a ele.
   // Substituem os rótulos fixos "3TRI26"/"2TRI26" do modo "Todos os meses", que travaram no
-  // 3º trimestre quando Outubro abriu o 4TRI26 (achado 2026-10-07). Sempre lidos na hora
+  // 3º trimestre quando Outubro abriu o 4TRI26 (achado 2026-10-06). Sempre lidos na hora
   // (PERIOD_DEFS.trimestre é refeito quando um mês novo abre).
   const curTriDef = () => { const t = PERIOD_DEFS.trimestre; return t[t.length - 1] || null; };
   const prevTriDef = () => { const t = PERIOD_DEFS.trimestre; return t[t.length - 2] || null; };
@@ -4939,62 +4939,207 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   // reimportando o próprio export e comparando os registros resultantes contra os originais
   // antes de considerar pronto. Fica nesta IIFE (não na de import) porque precisa de DATA/
   // ELIG_GESTOR_TEAM direto — window.exportEligibilidadeXlsx exposto pro botão (outro script).
-  const MONTH_NUM_TO_NAME = {1:'JANEIRO',2:'FEVEREIRO',3:'MARCO',4:'ABRIL',5:'MAIO',6:'JUNHO',7:'JULHO',8:'AGOSTO',9:'SETEMBRO',10:'OUTUBRO',11:'NOVEMBRO',12:'DEZEMBRO'};
+  //
+  // REFEITO 2026-10-06 (Victor: "vem totalmente desformatado, e faltando os nomes das colunas"):
+  // o layout agora copia a aba ELEGIBILIDADE da planilha oficial ("ELEGIBILIDADE CARTEIRA CAUDA
+  // LONGA - 17 MESES 05.10.2026") — cores, mesclas, 2 linhas congeladas, filtro, larguras e as
+  // cores condicionais de Elegível/Ranking. O SheetJS gratuito não grava formatação, então o
+  // arquivo é gerado pelo ExcelJS (carregado do cdnjs só na hora do clique); se ele não carregar,
+  // cai num .xlsx sem cores mas com o MESMO layout. Regras do layout:
+  // - 5 colunas de cadastro; cada mês = PF/SS/PME/TOTAL com o nome do mês mesclado em cima;
+  // - 2025 (ano fechado; só quem tem histórico) termina com os blocos 1T25..4T25, 1 SEMESTRE,
+  //   2 SEMESTRE e TOTAL 25 (também PF/SS/PME/TOTAL), como na planilha;
+  // - de 2026 em diante, depois de cada trimestre fechado uma coluna "nTRIaa TOTAL"; o trimestre
+  //   vigente leva "nTRI TOTAL" (sem ano, igual à planilha) + META/GAP. Assim o importador (que usa
+  //   os 2 últimos "nTRIaa TOTAL" como t1/t2) relê o arquivo com a régua do trimestre vigente;
+  // - "N MESES TOTAIS" = soma de TODOS os meses (a fórmula da planilha pula Ago/26 e Set/26 —
+  //   Victor decidiu somar tudo); Meta/Gap/Elegibilidade/Ranking = trimestre vigente recalculado
+  //   (computePeriodElegRank), o mesmo número que a tela mostra;
+  // - outras equipes começam em Jan/26 (sem 2025), como os arquivos oficiais delas (decisão do Victor).
+  const MONTH_NUM_TO_NAME = {1:'JANEIRO',2:'FEVEREIRO',3:'MARÇO',4:'ABRIL',5:'MAIO',6:'JUNHO',7:'JULHO',8:'AGOSTO',9:'SETEMBRO',10:'OUTUBRO',11:'NOVEMBRO',12:'DEZEMBRO'};
   function globalIdxToMonthHeader(idx){
     const year = 2025 + Math.floor(idx/12), monthNum = (idx % 12) + 1;
     return `${MONTH_NUM_TO_NAME[monthNum]} ${String(year).slice(2)}`;
   }
-  function buildEligibilidadeExportAOA(team){
+  function buildEligExportLayout(team){
     const rows = DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === team);
     if (!rows.length) return null;
-    const monthCount = rows[0].m.length;
-    // Trimestres FECHADOS (grupos completos de 3 meses, índice 0 = Jan/25) — mesma convenção de
-    // buildTrimestreBuckets, mas aqui no formato de rótulo do ARQUIVO ("1TRI26 TOTAL"), diferente
-    // do rótulo de exibição da tela ("1º Trimestre/26"). Inclui TODOS os fechados, não só os 2
-    // últimos — o importador só usa os 2 últimos mesmo (triTotalCols.length-2/-1), os anteriores
-    // ficam só como referência histórica no arquivo, igual a planilha real cresce com o tempo.
-    const closedQuarters = [];
-    for (let start = 0; start + 3 <= monthCount; start += 3){
-      const year = 2025 + Math.floor(start/12), qInYear = Math.floor((start%12)/3) + 1;
-      closedQuarters.push({ label: `${qInYear}TRI${String(year).slice(2)} TOTAL`, months: [start, start+1, start+2] });
-    }
-    const header1 = ['CODIGO','RAZAO SOCIAL','GRADE DE COMISSAO','ASSESSORIA','GESTOR'];
-    const header2 = ['','','','',''];
-    for (let i = 0; i < monthCount; i++){
-      header1.push(globalIdxToMonthHeader(i), '', '', '');
-      header2.push('', '', '', 'TOTAL');
-    }
-    closedQuarters.forEach(q => { header1.push(q.label); header2.push(''); });
-    header1.push(`${monthCount} MESES TOTAIS`, 'ELEGIBILIDADE', 'RANKING');
-    header2.push('', '', '');
-
-    const aoa = [header1, header2];
-    rows.forEach(d => {
-      // GRADE só existe de verdade pra Cauda Longa (mesma régua de parseEligibilidadeWorkbook,
-      // que já deixa opcional pras outras equipes) — deixa em branco pras demais, não inventa.
-      const row = [d.c, d.n, (team === 'CAUDA LONGA' ? (d.gr || '') : ''), d.ass || '', d.g];
-      for (let i = 0; i < monthCount; i++){
-        row.push(d.mc ? (d.mc.pf[i]||0) : 0, d.mc ? (d.mc.ss[i]||0) : 0, d.mc ? (d.mc.pme[i]||0) : 0, d.m[i]||0);
+    const lastIdx = rows[0].m.length - 1;
+    const tem2025 = rows.some(d => d.m.slice(0, 12).some(v => v));
+    const start = (tem2025 || lastIdx < 12) ? 0 : 12;
+    const seq = (a, b) => Array.from({length: b - a + 1}, (_, k) => a + k);
+    const yy = i => String(2025 + Math.floor(i / 12)).slice(2);
+    const triNum = i => Math.floor((i % 12) / 3) + 1;
+    const vigStart = lastIdx - (lastIdx % 3);
+    const vigIdx = seq(vigStart, lastIdx);
+    const vigLabel = `${triNum(lastIdx)}TRI${yy(lastIdx)}`;
+    const sumIdx = (arr, idxs) => idxs.reduce((s, i) => s + ((arr && arr[i]) || 0), 0);
+    const calcCache = new Map();
+    const cx = d => {
+      if (!calcCache.has(d)){
+        const c = (typeof computePeriodElegRank === 'function') ? computePeriodElegRank(d, vigIdx) : null;
+        calcCache.set(d, c ? { total: c.periodTotal, meta: c.meta, el: c.el, rk: c.rk }
+                           : { total: sumIdx(d.m, vigIdx), meta: d.meta3tri || 0, el: d.el, rk: d.rk });
       }
-      closedQuarters.forEach(q => { row.push(q.months.reduce((s,i)=>s+(d.m[i]||0), 0)); });
-      const totGeral = d.m.reduce((s,v)=>s+v, 0);
-      row.push(totGeral, d.el === 1 ? 'Elegível' : 'Não Elegível', d.rk || 'Não Classificado');
-      aoa.push(row);
+      return calcCache.get(d);
+    };
+    // kind: info | mes | resumo (blocos de 2025) | tri (trimestre fechado) | vig (vigente/meta/gap/total) | eleg | rank
+    const cols = [];
+    const cat4 = (h1, idxs, kind) => {
+      const g = cols.length;
+      cols.push({h1, h2:'PF', kind, g, w:4.875, val: d => sumIdx(d.mc && d.mc.pf, idxs)});
+      cols.push({h1, h2:'SS', kind, g, w:5.125, val: d => sumIdx(d.mc && d.mc.ss, idxs)});
+      cols.push({h1, h2:'PME', kind, g, w:6.625, val: d => sumIdx(d.mc && d.mc.pme, idxs)});
+      cols.push({h1, h2:'TOTAL', kind, g, w:9.625, val: d => sumIdx(d.m, idxs)});
+    };
+    const single = (h1, kind, w, val, extra) => cols.push(Object.assign({h1, h2:null, kind, w, val}, extra || {}));
+    single('CÓDIGO', 'info', 12, d => String(d.c), {numFmt:'@'});
+    single('NOME CORRETOR', 'info', 60, d => d.n);
+    single('GRADE DE COMISSÃO', 'info', 22, d => team === 'CAUDA LONGA' ? (d.gr || '') : '');
+    single('ASSESSORIA', 'info', 45, d => d.ass || '');
+    single('GERENTE', 'info', 28, d => d.g);
+    for (let i = start; i <= lastIdx; i++){
+      cat4(globalIdxToMonthHeader(i), [i], 'mes');
+      if (i === 11 && lastIdx > 11){
+        [0, 1, 2, 3].forEach(q => cat4(`${q + 1}T25`, seq(q * 3, q * 3 + 2), 'resumo'));
+        cat4('1 SEMESTRE', seq(0, 5), 'resumo');
+        cat4('2 SEMESTRE', seq(6, 11), 'resumo');
+        cat4('TOTAL 25', seq(0, 11), 'resumo');
+      }
+      if (i >= 12 && (i % 3) === 2 && i < vigStart) single(`${triNum(i)}TRI${yy(i)} TOTAL`, 'tri', 18, d => sumIdx(d.m, [i - 2, i - 1, i]));
+    }
+    single(`${triNum(lastIdx)}TRI TOTAL`, 'vig', 18, d => cx(d).total);
+    single(`META ${vigLabel}`, 'vig', 22, d => cx(d).meta, {numFmt:'0'});
+    single(`GAP ${vigLabel}`, 'vig', 20, d => cx(d).total - cx(d).meta, {numFmt:'0'});
+    const nMeses = lastIdx - start + 1;
+    single(`${nMeses} MESES TOTAIS`, 'vig', 22, d => sumIdx(d.m, seq(start, lastIdx)));
+    single('ELEGIBILIDADE', 'eleg', 23.625, d => cx(d).el === 1 ? 'Elegível' : 'Não elegível');
+    single('RANKING', 'rank', 19.125, d => cx(d).rk || 'Não Classificado');
+    // Mesclas: mês/bloco = 4 colunas na linha 1; coluna única = linhas 1 e 2.
+    const merges = [];
+    cols.forEach((c, i) => {
+      if (c.h2 === null) merges.push([1, i + 1, 2, i + 1]);
+      else if (c.h2 === 'PF') merges.push([1, i + 1, 1, i + 4]);
     });
-    return aoa;
+    const hoje = new Date();
+    const dataBR = String(hoje.getDate()).padStart(2, '0') + '.' + String(hoje.getMonth() + 1).padStart(2, '0') + '.' + hoje.getFullYear();
+    // "/" (ex.: "PLATAFORMA ABC/ALTO TIETÊ/BX") não pode em nome de arquivo no Windows.
+    const fileName = `ELEGIBILIDADE CARTEIRA ${team.replace(/[\\/:*?"<>|]+/g, '-')} - ${nMeses} MESES ${dataBR}.xlsx`;
+    return { team, rows, cols, merges, fileName };
   }
-  window.exportEligibilidadeXlsx = function(team){
-    const aoa = buildEligibilidadeExportAOA(team);
-    if (!aoa){ alert('Nenhuma corretora encontrada pra essa equipe.'); return; }
+  let excelJsPromise = null;
+  function loadExcelJS(){
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    if (!excelJsPromise){
+      excelJsPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+        s.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('ExcelJS não carregou'));
+        s.onerror = () => { excelJsPromise = null; reject(new Error('Falha ao baixar o ExcelJS')); };
+        document.head.appendChild(s);
+      });
+    }
+    return excelJsPromise;
+  }
+  function downloadBlob(blob, fileName){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+  async function buildEligXlsxStyled(L){
+    const ExcelJS = await loadExcelJS();
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('ELEGIBILIDADE', { views: [{ state:'frozen', ySplit:2, zoomScale:77 }] });
+    // Cores lidas da planilha oficial (aba ELEGIBILIDADE).
+    const C = { azul:'FF003DA5', marinho:'FF002B7F', laranja:'FFFF6A00', grafite:'FF4D4D4D', cinza:'FFA6A6A6', verde:'FF4EA72E', branco:'FFFFFFFF', preto:'FF000000' };
+    const solid = argb => ({ type:'pattern', pattern:'solid', fgColor:{ argb } });
+    const thin = { style:'thin' };
+    const box = { top:thin, left:thin, bottom:thin, right:thin };
+    const center = { horizontal:'center', vertical:'middle' };
+    const headFill = { info:C.azul, mes:C.marinho, resumo:C.laranja, tri:C.grafite, vig:C.grafite, eleg:C.azul, rank:C.azul };
+    // Estilo de dado por coluna (fonte/alinhamento/formato) — Elegibilidade/Ranking são por célula.
+    L.cols.forEach((c, i) => {
+      const col = ws.getColumn(i + 1);
+      col.width = c.w;
+      col.font = { name:'Aptos Narrow', size: c.kind === 'info' ? 11 : 12 };
+      col.alignment = center;
+      if (c.numFmt) col.numFmt = c.numFmt;
+    });
+    const r1 = ws.getRow(1), r2 = ws.getRow(2);
+    r1.height = 15.75; r2.height = 15.75;
+    L.cols.forEach((c, i) => {
+      const font = c.kind === 'info'
+        ? { name:'Calibri', size:11, bold:true, color:{ argb:C.branco } }
+        : { name:'Aptos Narrow', size: c.kind === 'rank' ? 14 : 12, bold:true, color:{ argb:C.branco } };
+      const a = r1.getCell(i + 1);
+      a.value = c.h1; a.font = font; a.fill = solid(headFill[c.kind]); a.alignment = center; a.border = box; a.numFmt = 'General';
+      const b = r2.getCell(i + 1);
+      if (c.h2 === null){
+        b.value = c.h1; b.font = font; b.fill = solid(headFill[c.kind]);
+      } else {
+        b.value = c.h2; b.font = { name:'Aptos Narrow', size:12, bold:true, color:{ argb:C.preto } }; b.fill = solid(C.cinza);
+      }
+      b.alignment = center; b.border = box; b.numFmt = 'General';
+    });
+    L.rows.forEach(d => ws.addRow(L.cols.map(c => c.val(d))));
+    const elegCol = L.cols.findIndex(c => c.kind === 'eleg') + 1;
+    const rankCol = L.cols.findIndex(c => c.kind === 'rank') + 1;
+    const lastRow = L.rows.length + 2;
+    for (let r = 3; r <= lastRow; r++){
+      const e = ws.getRow(r).getCell(elegCol);
+      e.font = { name:'Aptos Narrow', size:11, bold:true, color:{ argb:C.branco } }; e.fill = solid(C.verde); e.border = box;
+      const k = ws.getRow(r).getCell(rankCol);
+      k.font = { name:'Aptos Narrow', size:14, bold:true }; k.border = box;
+    }
+    L.merges.forEach(m => ws.mergeCells(m[0], m[1], m[2], m[3]));
+    const letter = n => ws.getColumn(n).letter;
+    const dxf = (bg, fg) => ({ fill:{ type:'pattern', pattern:'solid', bgColor:{ argb:bg } }, font:{ color:{ argb:fg } } });
+    ws.addConditionalFormatting({ ref: `${letter(elegCol)}3:${letter(elegCol)}${lastRow}`, rules: [
+      { type:'containsText', operator:'containsText', text:'Não elegível', priority:1, style: dxf('FFFFC7CE', 'FF9C0006') },
+      { type:'containsText', operator:'containsText', text:'Elegível', priority:2, style: dxf('FFC6EFCE', 'FF006100') },
+    ]});
+    const RANK_CF = [['Safira','FFCE93D8','FF4A148C'], ['Diamante','FF90CAF9','FF0D47A1'], ['Ouro','FFFFD54F','FF5D4037'], ['Prata','FFE0E0E0','FF424242'],
+      ['Bronze 1','FFF57C00','FFFFFFFF'], ['Bronze 2','FFFB8C00','FFFFFFFF'], ['Bronze 3','FFFFA726','FFFFFFFF'], ['Bronze 4','FFFFB74D','FF4E342E'],
+      ['Bronze 5','FFFFCC80','FF5D4037'], ['Bronze 6','FFFFE0B2','FF6D4C41'], ['Não Classificado','FFBDBDBD','FFFFFFFF']];
+    ws.addConditionalFormatting({ ref: `${letter(rankCol)}3:${letter(rankCol)}${lastRow}`,
+      rules: RANK_CF.map(([txt, bg, fg], i) => ({ type:'cellIs', operator:'equal', formulae:[`"${txt}"`], priority: 3 + i, style: dxf(bg, fg) })) });
+    ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:lastRow, column:L.cols.length } };
+    const buf = await wb.xlsx.writeBuffer();
+    return new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  // Plano B (ExcelJS não carregou): mesmo layout e mesclas, sem cores.
+  function buildEligXlsxPlain(L){
+    const aoa = [L.cols.map(c => c.h1), L.cols.map(c => c.h2 === null ? c.h1 : c.h2)];
+    L.rows.forEach(d => aoa.push(L.cols.map(c => c.val(d))));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = L.merges.map(m => ({ s:{ r:m[0] - 1, c:m[1] - 1 }, e:{ r:m[2] - 1, c:m[3] - 1 } }));
+    ws['!cols'] = L.cols.map(c => ({ wch: c.w }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'ELEGIBILIDADE');
-    const teamSlug = team.replace(/[^A-Za-z0-9]+/g, '_');
-    const hoje = new Date().toISOString().slice(0,10);
-    XLSX.writeFile(wb, `Elegibilidade_${teamSlug}_${hoje}.xlsx`);
+    return new Blob([XLSX.write(wb, { bookType:'xlsx', type:'array' })], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  window.exportEligibilidadeXlsx = async function(team){
+    const L = buildEligExportLayout(team);
+    if (!L){ alert('Nenhuma corretora encontrada pra essa equipe.'); return; }
+    let blob;
+    try { blob = await buildEligXlsxStyled(L); }
+    catch (e){
+      console.warn('[export Elegibilidade] sem formatação (ExcelJS indisponível):', e);
+      blob = buildEligXlsxPlain(L);
+    }
+    downloadBlob(blob, L.fileName);
   };
-  document.getElementById('btnExportElig').addEventListener('click', () => {
-    window.exportEligibilidadeXlsx(document.getElementById('elExportTeam').value);
+  document.getElementById('btnExportElig').addEventListener('click', async () => {
+    const btn = document.getElementById('btnExportElig');
+    if (btn.disabled) return;
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'Gerando .xlsx…';
+    try { await window.exportEligibilidadeXlsx(document.getElementById('elExportTeam').value); }
+    catch (e){ console.error(e); alert('Não consegui gerar o arquivo: ' + (e && e.message ? e.message : e)); }
+    finally { btn.disabled = false; btn.innerHTML = original; }
   });
   window.updateEligibilidadeData = function(newRecords){
     // Funde com o DATA já existente em vez de substituir tudo — achado real 2026-09-09,
@@ -5256,7 +5401,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       // Períodos de CALENDÁRIO a partir do mês mais recente (índice 0 = Jan/25), com as opções do
       // seletor refeitas aqui. Antes eram texto fixo no index.html ("17 Meses", "3TRI26", "Jul/26")
       // e "Último Trimestre" somava os 3 últimos meses (em Outubro: Ago+Set+Out). Pedido do
-      // Victor (2026-10-07): trimestre = calendário (3º tri = Jul+Ago+Set), semestre idem.
+      // Victor (2026-10-06): trimestre = calendário (3º tri = Jul+Ago+Set), semestre idem.
       const tm = window.MONTH_LABELS.length;
       const lastIdx = tm - 1;
       const lastY = 2025 + Math.floor(lastIdx / 12), lastM = lastIdx % 12; // lastM 0-11
@@ -6121,7 +6266,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (records.length === 0) throw new Error('Nenhuma corretora encontrada na aba ELEGIBILIDADE.');
     return records;
   }
-
   function fmtN(n){ return Math.round(n).toLocaleString('pt-BR'); }
 
   const META_MONTH_LABELS = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro'};
