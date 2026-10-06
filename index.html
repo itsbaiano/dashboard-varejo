@@ -522,6 +522,29 @@
   .mjb-sugestao .mjb-stat-label i{margin-right:1px;}
   .mjb-sugestao-text{font-size:13px; font-weight:700; line-height:1.35;}
   .mjb-sugestao-text b{color:#FFD87A;}
+  .tri-bar{display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px 18px;}
+  .tri-bar-label{font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);}
+  .tri-bar-btns{display:flex; gap:6px; flex-wrap:wrap;}
+  .tri-btn{padding:7px 15px; border-radius:9px; border:1.5px solid var(--line); background:var(--card); color:var(--text); font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s ease;}
+  .tri-btn:hover{border-color:var(--primary-light);}
+  .tri-btn.active{background:var(--navy); border-color:var(--navy); color:#fff;}
+  .tri-btn-sep{width:1px; align-self:stretch; background:var(--line); margin:0 4px;}
+  .tri-table td, .tri-table th{vertical-align:middle;}
+  .tri-team-row td{background:rgba(29,51,168,.07); font-weight:800; color:var(--navy);}
+  .tri-total-row td{border-top:2px solid var(--line); font-weight:800;}
+  .tri-track{background:var(--line); border-radius:6px; height:9px; overflow:hidden; min-width:90px;}
+  .tri-fill{height:100%; border-radius:6px;}
+  .tri-months{display:flex; gap:6px; align-items:flex-end;}
+  .tri-month{display:flex; flex-direction:column; align-items:center; gap:2px; width:34px;}
+  .tri-month-bar{width:16px; height:26px; background:var(--line); border-radius:3px; display:flex; align-items:flex-end; overflow:hidden;}
+  .tri-month-bar i{display:block; width:100%;}
+  .tri-month span{font-size:9px; font-weight:600; color:var(--muted);}
+  .tri-months-many{gap:3px;}
+  .tri-months-many .tri-month{width:26px;}
+  .tri-months-many .tri-month-bar{width:14px;}
+  .tri-bar-hint{font-size:11px; color:var(--muted); margin-left:auto;}
+  .tri-dim{color:var(--muted); font-weight:500;}
+  [data-theme="dark"] .tri-team-row td{background:rgba(120,140,255,.12); color:var(--text);}
 
   /* Card "Meta Diária" clicável (hint no canto) + modal de Forecast — pedido do sênior de
      Victor 2026-09-15: projeção de fim de mês no ritmo atual, em relação à meta. */
@@ -1247,7 +1270,7 @@
    ========================================================= */
 window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
 (function(){
-  var EMPTY = {MJ_TEAMS_BY_MONTH:{}, currentMonth:"", PENDENCIAS_PME:{}, PENDENCIAS_PF:{}, PENDENCIAS_ASSINATURA:{}, MJ_CORRETORAS_BY_MONTH:{}, MJ_NAO_ATRIBUIDO_BY_MONTH:{}, MJ_BENCHMARK:[], DATA:[], RANKDATA:[], PROPOSTAS:[], SLA_HISTORICO:[], DAILY_SNAPSHOTS:{}, CONV_ONTEM_HOJE:{}, RANK_CUR_LABEL:"", RANK_PREV_LABEL:"", CARTEIRA_MAP:null, LAST_UPDATED_BY_SOURCE:{}, publishedAt:""};
+  var EMPTY = {MJ_TEAMS_BY_MONTH:{}, currentMonth:"", PENDENCIAS_PME:{}, PENDENCIAS_PF:{}, PENDENCIAS_ASSINATURA:{}, MJ_CORRETORAS_BY_MONTH:{}, MJ_NAO_ATRIBUIDO_BY_MONTH:{}, MJ_BENCHMARK:[], DATA:[], RANKDATA:[], PROPOSTAS:[], SLA_HISTORICO:[], DAILY_SNAPSHOTS:{}, CONV_ONTEM_HOJE:{}, META_EXEC_BY_MONTH:{}, INT_EXEC_BY_MONTH:{}, RANK_CUR_LABEL:"", RANK_PREV_LABEL:"", CARTEIRA_MAP:null, LAST_UPDATED_BY_SOURCE:{}, publishedAt:""};
   window.__EMPTY_DASH_DATA__ = EMPTY;
   function showFatalError(msg){
     document.addEventListener('DOMContentLoaded', function(){
@@ -1662,7 +1685,14 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     const sectionsBase = backupDoc.collection('sections');
     const results = await Promise.all(FS_SECTIONS.map(async section => {
       const liveRef = db.collection(DATA_COLLECTION).doc(section);
-      const value = await fsReadSection(section, liveRef);
+      let value;
+      try { value = await fsReadSection(section, liveRef); }
+      catch(e){
+        // Seções opcionais novas (metas por executivo): se as Regras do Firestore ainda não cobrem
+        // o nome, isso não pode impedir o backup (e, por tabela, a publicação) das demais.
+        if (section === 'META_EXEC_BY_MONTH' || section === 'INT_EXEC_BY_MONTH') return false;
+        throw e;
+      }
       if (value === undefined) return false; // seção nunca publicada — nada pra guardar
       await fsWriteSection(section, value, sectionsBase.doc(section));
       return true;
@@ -1731,7 +1761,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   // toca aqui, só um "Confirmar Atualização" de verdade (ver btnConfirmImport em app.js).
   const FS_SECTIONS = ['MJ_TEAMS_BY_MONTH','currentMonth','PENDENCIAS_PME','PENDENCIAS_PF',
     'PENDENCIAS_ASSINATURA','MJ_CORRETORAS_BY_MONTH','MJ_NAO_ATRIBUIDO_BY_MONTH','MJ_BENCHMARK',
-    'DATA','RANKDATA','PROPOSTAS','SLA_HISTORICO','DAILY_SNAPSHOTS','CONV_ONTEM_HOJE',
+    'DATA','RANKDATA','PROPOSTAS','SLA_HISTORICO','DAILY_SNAPSHOTS','CONV_ONTEM_HOJE','META_EXEC_BY_MONTH','INT_EXEC_BY_MONTH',
     'RANK_CUR_LABEL','RANK_PREV_LABEL','CARTEIRA_MAP','LAST_UPDATED_BY_SOURCE','publishedAt'];
 
   // Chamada pelo auth <script> (lá em cima) assim que o login confirma que a pessoa está na
@@ -1809,6 +1839,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       <label class="sidebar-month-label" style="font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:rgba(255,255,255,.55); display:block; margin-bottom:6px;">Mês de referência</label>
       <select id="globalMonthSelect" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.08); color:#fff; font-size:13px; font-weight:600;">
       </select>
+      <div id="globalMonthHint" style="display:none; margin-top:6px; font-size:10.5px; line-height:1.35; color:rgba(255,255,255,.6);"></div>
     </div>
   </div>
   <div class="sidebar-bottom">
@@ -1950,6 +1981,18 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
             <label><i class=ic-check></i> Aguardando Assinatura (Notificadas)</label>
             <div class="file-field"><input type="file" id="fileAssinatura" accept=".xlsx"><button type="button" class="file-clear" data-target="fileAssinatura" title="Remover arquivo">✕ remover</button></div>
             <div style="font-size:10.5px; color:var(--muted); margin-top:5px;">O relatório "stats_export_gndi" já com as colunas GESTOR e CORRETORA preenchidas.</div>
+          </div>
+          <div class="f-group">
+            <label><i class=ic-target></i> Metas por Executivo — "META VAREJO" (1 arquivo por trimestre)</label>
+            <div class="file-field"><input type="file" id="fileMetaExec" accept=".xlsx" multiple><button type="button" class="file-clear" data-target="fileMetaExec" title="Remover arquivo">✕ remover</button></div>
+            <div style="font-size:10.5px; color:var(--muted); margin-top:5px;">Alimenta a visão por trimestre em Desempenho Comercial. Carrega assim que você escolhe o arquivo (não passa pelo "Processar Arquivos") — depois é só clicar em Publicar. Equipe Interior é ignorada.</div>
+            <div id="metaExecStatus" style="font-size:12px; margin-top:6px;"></div>
+          </div>
+          <div class="f-group">
+            <label><i class=ic-check></i> Integrado de meses passados — extratos "Corretoras" (1 por mês)</label>
+            <div class="file-field"><input type="file" id="fileIntHist" accept=".xlsx" multiple><button type="button" class="file-clear" data-target="fileIntHist" title="Remover arquivo">✕ remover</button></div>
+            <div style="font-size:10.5px; color:var(--muted); margin-top:5px;"><b>Opcional:</b> os extratos do BI de Jan–Set/26 já vêm embutidos no painel (ligados à Carteira). Use este campo só pra corrigir um desses meses ou acrescentar um mês novo fechado (ex.: Outubro, quando virar o mês) — o extrato subido aqui vale no lugar do embutido e do fechamento oficial, SÓ na visão por trimestre (atribuição pela Carteira de hoje). O mês vem do rodapé do próprio arquivo. <b>Não mexe no mês atual, Elegibilidade nem Ranking</b> — por isso use este campo (e não o "Extrato do BI") pra mês passado. Precisa da Carteira já carregada.</div>
+            <div id="intHistStatus" style="font-size:12px; margin-top:6px;"></div>
           </div>
           <div class="f-group" style="margin-bottom:0 !important;">
             <label><i class=ic-trophy></i> Ranking — Mês Anterior (ex: junho)</label>
@@ -2379,6 +2422,30 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
           <div class="mjb-stat-label"><i class="ic-bulb" style="color:var(--accent-gold);"></i> Sugestão</div>
           <div class="mjb-sugestao-text" id="mjBannerSugestaoText"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Seletor de período: "Mês" (tela de sempre) ou um trimestre fechado (1T/2T/3T...) — visão
+         dos números dos executivos por trimestre, pedido do sênior via Victor 2026-10-02. Os
+         botões de trimestre são montados por JS (módulo "Metas por executivo") a partir dos
+         meses que têm meta carregada. -->
+    <div class="panel tri-bar" id="mjPeriodBar">
+      <div class="tri-bar-label">Período</div>
+      <div class="tri-bar-btns" id="mjPeriodBtns"></div>
+    </div>
+
+    <div id="mjTriPanel" style="display:none;">
+      <div class="kpi-row" id="mjTriKpis" style="grid-template-columns:repeat(4,1fr);"></div>
+      <div class="panel">
+        <h2 id="mjTriTitle">Meta vs. Integrado por Executivo</h2>
+        <div class="panel-sub" id="mjTriSub"></div>
+        <div class="table-wrap">
+          <table class="tri-table">
+            <thead><tr><th>Executivo</th><th>Meta vs. Integrado</th><th>% por mês</th><th class="num" id="mjTriThMeta">Meta</th><th class="num" id="mjTriThInt">Integrado</th><th class="num">%</th></tr></thead>
+            <tbody id="mjTriBody"></tbody>
+          </table>
+        </div>
+        <div class="panel-sub" id="mjTriNote" style="margin-top:10px;"></div>
       </div>
     </div>
 
