@@ -5428,7 +5428,22 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     XLSX.utils.book_append_sheet(wb, ws, 'ELEGIBILIDADE');
     return new Blob([XLSX.write(wb, { bookType:'xlsx', type:'array' })], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
+  // Trava por equipe (pedido do Victor, 2026-10-07): quem tem a Elegibilidade restrita à própria equipe
+  // (window.__eligTeamScope__, setado no login) só exporta essa equipe — antes o seletor oferecia as 4 e
+  // dava pra baixar a carteira de outra equipe. O seletor mostra só a equipe da pessoa (sem equipe que
+  // bata com uma opção, o botão some) e o próprio export recusa qualquer outra.
+  function applyEligExportScope(){
+    const scope = window.__eligTeamScope__;
+    if (!scope) return;
+    const sel = document.getElementById('elExportTeam'), btn = document.getElementById('btnExportElig');
+    if (!sel) return;
+    [...sel.options].forEach(o => { if (o.value !== scope) o.remove(); });
+    if (!sel.options.length){ sel.style.display = 'none'; if (btn) btn.style.display = 'none'; }
+    else sel.value = scope;
+  }
+  applyEligExportScope();
   window.exportEligibilidadeXlsx = async function(team){
+    if (window.__eligTeamScope__ && team !== window.__eligTeamScope__) throw new Error('Seu acesso permite exportar só a sua equipe.');
     const L = buildEligExportLayout(team);
     if (!L){ alert('Nenhuma corretora encontrada pra essa equipe.'); return; }
     let blob;
@@ -5444,6 +5459,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     if (btn.disabled) return;
     const original = btn.innerHTML;
     btn.disabled = true; btn.textContent = 'Gerando .xlsx…';
+    applyEligExportScope();
     try { await window.exportEligibilidadeXlsx(document.getElementById('elExportTeam').value); }
     catch (e){ console.error(e); alert('Não consegui gerar o arquivo: ' + (e && e.message ? e.message : e)); }
     finally { btn.disabled = false; btn.innerHTML = original; }
