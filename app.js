@@ -165,6 +165,9 @@ function showView(view){
   if (view==="rank" && !window.rankInitialized){ window.rankInitialized = true; renderRanking(); }
   if (view==='conversao' && window.renderConversao){ window.renderConversao(); }
   document.getElementById('mainHeader').style.display = '';
+  // Cabeçalho enxuto (2026-10-07): o título mostra a tela em que a pessoa está.
+  const dhTitle = document.getElementById('dhViewTitle');
+  if (dhTitle) dhTitle.textContent = ({overview:'Visão Geral', mj:'Desempenho Comercial', el:'Elegibilidade', compare:'Comparativo', rank:'Ranking de Vendas', conversao:'Conversão'})[view] || 'Painel Comercial';
   if(view==='el' && !elInitialized){
     elInitialized = true;
     window.renderEligibilidade();
@@ -1430,22 +1433,69 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         if (fa !== fb) return fa - fb;
         return statusCounts[statusKey(b)] - statusCounts[statusKey(a)];
       });
+    // Filtro de status num painel (pedido do Victor, 2026-10-07 — demonstrativo aprovado): em vez de ~18
+    // "pílulas" soltas, um botão "Status" abre as áreas lado a lado NA ORDEM DA ESTEIRA (Planium → Cadastro →
+    // Ditec → Bitix), cada uma com uma frase explicando o que é (texto provisório — Victor vai revisar), status
+    // com caixinha + quantidade de propostas. Marcados viram etiquetas removíveis abaixo dos filtros. Status com
+    // código colado no texto ("INICIADO ANÁLISE:FF69051", glitch da origem) vão pra "Outros" no fim da área.
+    // A lógica do filtro NÃO mudou: qualquer status marcado (OU), igual antes.
+    const PEND_AREA_TEXTO = {
+      planium: 'Plataforma onde a proposta é digitada, enviada e assinada. Mostra a situação geral (implantada = concluída).',
+      cadastro: 'Conferência dos dados e documentos da empresa e dos beneficiários.',
+      ditec: 'Análise da área médica/técnica (declarações de saúde).',
+      bitix: 'Processamento da proposta no sistema até a implantação.',
+    };
+    const escHtml = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const isGlitch = o => /:\s*[A-Z0-9]{5,}\s*$/i.test(String(o.value));
+    const areaNome = f => f ? (PEND_STATUS_FIELD_LABELS[f] || f) : '';
+    const itemHtml = o => { const k = statusKey(o); return `<label class="pst-item${isGlitch(o)?' rare':''}"><input type="checkbox" data-status="${escHtml(k)}"${pendSelectedStatuses.has(k)?' checked':''}><span>${escHtml(o.value)}</span><span class="pst-n">${statusCounts[k]}</span></label>`; };
     const chipsWrap = document.getElementById('pendStatusChips');
-    let lastField;
-    chipsWrap.innerHTML = visibleStatuses.map(o => {
-      const k = statusKey(o);
-      const groupLabel = (o.field && o.field !== lastField) ? `<span class="status-chip-group">${PEND_STATUS_FIELD_LABELS[o.field]||o.field}</span>` : '';
-      lastField = o.field;
-      return groupLabel + `<span class="status-chip${pendSelectedStatuses.has(k)?' active':''}" data-status="${k}">${statusLabel(o)} <span class="status-chip-count">${statusCounts[k]}</span></span>`;
-    }).join('');
-    chipsWrap.querySelectorAll('.status-chip').forEach(chip => {
-      window.__kb(chip).addEventListener('click', () => {
-        const k = chip.dataset.status;
-        if (pendSelectedStatuses.has(k)) pendSelectedStatuses.delete(k); else pendSelectedStatuses.add(k);
+    const campos = [...new Set(visibleStatuses.map(o => o.field))];
+    if (!visibleStatuses.length){
+      chipsWrap.className = 'pst-flow';
+      chipsWrap.innerHTML = '<p class="pst-hint" style="margin:0">Nenhum status nesse recorte.</p>';
+    } else if (campos.length === 1 && campos[0] === null){
+      // PF: um status só por orçamento, sem áreas — lista simples.
+      chipsWrap.className = 'pst-flow pst-simple';
+      chipsWrap.innerHTML = `<div class="pst-area">${visibleStatuses.map(itemHtml).join('')}</div>`;
+    } else {
+      chipsWrap.className = 'pst-flow';
+      chipsWrap.innerHTML = campos.map((f, i) => {
+        const dela = visibleStatuses.filter(o => o.field === f);
+        const normais = dela.filter(o => !isGlitch(o)), raros = dela.filter(isGlitch);
+        return `<div class="pst-area"><div class="pst-step"><span class="pst-num">${i + 1}</span><h4>${escHtml(areaNome(f) || 'Status')}</h4></div>
+          ${PEND_AREA_TEXTO[f] ? `<p class="pst-desc">${PEND_AREA_TEXTO[f]}</p>` : ''}
+          <div class="pst-opts">${normais.map(itemHtml).join('')}${raros.length ? '<span class="pst-outros">Outros</span>' + raros.map(itemHtml).join('') : ''}</div>
+          ${normais.length > 1 ? `<button type="button" class="pst-all" data-field="${escHtml(f)}">Marcar todos de ${escHtml(areaNome(f))}</button>` : ''}</div>`;
+      }).join('');
+    }
+    chipsWrap.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const k = cb.dataset.status;
+        if (cb.checked) pendSelectedStatuses.add(k); else pendSelectedStatuses.delete(k);
         renderPendencias();
       });
     });
-    document.getElementById('pendStatusClear').style.display = pendSelectedStatuses.size ? '' : 'none';
+    chipsWrap.querySelectorAll('.pst-all').forEach(btn => {
+      btn.addEventListener('click', () => {
+        visibleStatuses.filter(o => o.field === btn.dataset.field && !isGlitch(o)).forEach(o => pendSelectedStatuses.add(statusKey(o)));
+        renderPendencias();
+      });
+    });
+    // Etiquetas dos status marcados + resumo no botão
+    const ativos = document.getElementById('pendStatusAtivos');
+    ativos.innerHTML = [...pendSelectedStatuses].map(k => {
+      const sep = k.indexOf('::'), f = sep >= 0 ? k.slice(0, sep) : null, v = sep >= 0 ? k.slice(sep + 2) : k;
+      return `<span class="pst-tag">${f ? `<span class="pst-tag-area">${escHtml(areaNome(f))} ·</span> ` : ''}${escHtml(v)}<button type="button" aria-label="Tirar o status ${escHtml(v)}" data-status="${escHtml(k)}">×</button></span>`;
+    }).join('');
+    ativos.querySelectorAll('button[data-status]').forEach(b => b.addEventListener('click', () => { pendSelectedStatuses.delete(b.dataset.status); renderPendencias(); }));
+    const n = pendSelectedStatuses.size;
+    document.getElementById('pendStatusResumo').textContent = n ? (n === 1 ? '1 status marcado' : n + ' status marcados') : 'Todos os status';
+    document.getElementById('pendStatusBtn').classList.toggle('on', n > 0);
+    document.getElementById('pendStatusHint').textContent = pendActiveTab === 'pme'
+      ? 'A proposta passa pelas áreas nessa ordem. Marque o que quer ver; os números mostram quantas propostas estão em cada situação.'
+      : 'Marque o que quer ver; os números mostram quantos orçamentos estão em cada situação.';
+    document.getElementById('pendStatusClear').style.display = n ? '' : 'none';
 
     // Busca por número — texto livre, casa parcialmente (contém), ignora espaços nas pontas.
     // Proposta (PME) e Orçamento (PF) são campos diferentes, mas o mesmo campo de busca serve
@@ -1489,13 +1539,13 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         ${pendHasActiveFilters ? '<button type="button" class="btn-reset pend-empty-clear">Limpar filtros</button>' : ''}
       </div></td></tr>`;
     document.getElementById('pendPmeBody').innerHTML = pmeFiltered.length ? pmeFiltered.map(p => `
-      <tr><td>${p.proposta}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td>
+      <tr><td>${p.proposta}</td><td class="num">${p.beneficiarios}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td>
         ${p.status.planium ? `<span class="tag ${p.status.planium==='pendencia'?'react':'noelig'}">${p.status.planium}</span>` : ''}
         <div style="font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.6;">${['cadastro','ditec','bitix'].filter(k=>p.status[k] && p.status[k]!=='0').map(k=>`${k.charAt(0).toUpperCase()+k.slice(1)}: <b>${p.status[k]}</b>`).join(' · ')}</div>
-      </td><td class="num">${p.beneficiarios}</td><td>${p.dataReceb}</td><td>${p.dataVigencia}</td></tr>
+      </td><td>${p.dataReceb}</td><td>${p.dataVigencia}</td></tr>
     `).join('') : pendEmptyRow(showGestorCol?7:6, 'pendência PME/SS');
     document.getElementById('pendPfBody').innerHTML = pfFiltered.length ? pfFiltered.map(p => `
-      <tr><td>${p.orcamento}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td><span class="tag react">${p.status}</span></td><td class="num">${p.vidas}</td><td>${p.dataStatus}</td></tr>
+      <tr><td>${p.orcamento}</td><td class="num">${p.vidas}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td><span class="tag react">${p.status}</span></td><td>${p.dataStatus}</td></tr>
     `).join('') : pendEmptyRow(showGestorCol?6:5, 'pendência PF');
     document.querySelectorAll('#pendPmeBody .pend-empty-clear, #pendPfBody .pend-empty-clear').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1529,7 +1579,14 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   };
   document.getElementById('btnClosePend').addEventListener('click', () => { document.getElementById('pendModalOverlay').style.display = 'none'; });
   document.getElementById('pendModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'pendModalOverlay') document.getElementById('pendModalOverlay').style.display = 'none'; });
-  document.getElementById('pendStatusClear').addEventListener('click', () => { pendSelectedStatuses.clear(); renderPendencias(); });
+  window.__kb(document.getElementById('pendStatusClear')).addEventListener('click', () => { pendSelectedStatuses.clear(); renderPendencias(); });
+  // Botão "Status" abre/fecha o painel das áreas (o painel fica fora do que renderPendencias redesenha, então
+  // continua aberto enquanto a pessoa marca e desmarca).
+  document.getElementById('pendStatusBtn').addEventListener('click', () => {
+    const p = document.getElementById('pendStatusPanel'), b = document.getElementById('pendStatusBtn');
+    p.hidden = !p.hidden;
+    b.setAttribute('aria-expanded', String(!p.hidden));
+  });
   document.getElementById('pendMonthFilter').addEventListener('change', renderPendencias);
   document.getElementById('pendCorretoraFilter').addEventListener('change', renderPendencias);
   document.getElementById('pendPropostaSearch').addEventListener('input', renderPendencias);
