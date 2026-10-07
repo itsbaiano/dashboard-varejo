@@ -1584,51 +1584,27 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   // não meses "sem elegíveis" de verdade. Setado mais abaixo, depois que o escopo é conhecido;
   // 0 = sem restrição (Cauda Longa e visão sem escopo continuam vendo desde Jan/25).
   let eligDataStartIdx = 0;
+  // Baldes de Ano/Semestre/Trimestre por CALENDÁRIO, para qualquer ano (índice 0 = Jan/25). Até
+  // 2026-10-07 eram fixos em 2025/2026: em Jan/27 o "Ano 2026" engolia Jan/27, o "2º Semestre/26"
+  // ficava com 7 meses e surgia um "5º Trimestre/26". O último balde pode ser parcial (ano/semestre/
+  // trimestre em andamento), como sempre foi.
+  function buildCalendarBuckets(size, labelOf){
+    const out = [];
+    for (let start = 0; start < totalMonths; start += size){
+      const len = Math.min(size, totalMonths - start);
+      out.push({ label: labelOf(start), months: Array.from({length: len}, (_, i) => start + i) });
+    }
+    return out;
+  }
+  const bucketYY = start => String(2025 + Math.floor(start / 12)).slice(2);
   function buildYearBuckets(){
-    const y26months = Array.from({length: totalMonths-12}, (_,i)=>12+i);
-    const complete26 = totalMonths >= 24;
-    const lastLabel = MONTH_LABELS[totalMonths-1].split('/')[0];
-    return [
-      {label:'2025', months:[0,1,2,3,4,5,6,7,8,9,10,11]},
-      {label: '2026', months: y26months},
-    ];
+    return buildCalendarBuckets(12, start => String(2025 + start / 12));
   }
   function buildSemestreBuckets(){
-    const sems = [
-      {label:'1º Semestre/25', months:[0,1,2,3,4,5]},
-      {label:'2º Semestre/25', months:[6,7,8,9,10,11]},
-    ];
-    const months26 = totalMonths - 12;
-    if (months26 > 0){
-      const sem1Len = Math.min(6, months26);
-      const sem1Months = Array.from({length:sem1Len}, (_,i)=>12+i);
-      const sem1Complete = months26 >= 6;
-      sems.push({label: '1º Semestre/26', months: sem1Months});
-      if (months26 > 6){
-        const sem2Months = Array.from({length:months26-6}, (_,i)=>18+i);
-        sems.push({label:'2º Semestre/26', months: sem2Months});
-      }
-    }
-    return sems;
+    return buildCalendarBuckets(6, start => `${(start % 12) / 6 + 1}º Semestre/${bucketYY(start)}`);
   }
   function buildTrimestreBuckets(){
-    const tris = [
-      {label:'1º Trimestre/25', months:[0,1,2]},
-      {label:'2º Trimestre/25', months:[3,4,5]},
-      {label:'3º Trimestre/25', months:[6,7,8]},
-      {label:'4º Trimestre/25', months:[9,10,11]},
-    ];
-    const months26 = totalMonths - 12;
-    let triNum = 1;
-    for (let start = 0; start < months26; start += 3){
-      const len = Math.min(3, months26-start);
-      const monthsArr = Array.from({length:len}, (_,i)=>12+start+i);
-      const complete = len === 3;
-      const lastM = MONTH_LABELS[12+start+len-1].split('/')[0];
-      tris.push({label: `${triNum}º Trimestre/26`, months: monthsArr});
-      triNum++;
-    }
-    return tris;
+    return buildCalendarBuckets(3, start => `${(start % 12) / 3 + 1}º Trimestre/${bucketYY(start)}`);
   }
   const PERIOD_DEFS = {
     ano: buildYearBuckets(),
@@ -2157,7 +2133,15 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   // inteira pra essa fatia — igual clicar numa barra do gráfico "Elegibilidade por Gestor" já
   // fazia. Clicar de novo no mesmo card limpa o filtro (toggle). null = nenhum filtro de KPI ativo.
   let activeKpiFilter = null; // null | 'eleg' | 'quase' | 'risco' | 'distantes'
-  function isReactivation(d){ return d.u3 === 0 && d.tot >= 20; }
+  // "Zero vendas nos últimos 3 meses" lido direto de d.m (atualizado a cada extrato). Até 2026-10-07
+  // usava d.u3, calculado só no upload da planilha de Elegibilidade — corretora que voltou a vender
+  // depois disso continuava na lista de reativação.
+  const vendasUltimos3 = d => { const m = d.m || []; return (m[m.length-1]||0) + (m[m.length-2]||0) + (m[m.length-3]||0); };
+  window.vendasUltimos3 = vendasUltimos3;
+  // d.u3 também aparece na tabela/detalhe e na ordenação — mantido igual a vendasUltimos3 (aqui na
+  // carga, e de novo em applyCorretorasToEligibilidade/updateEligibilidadeData).
+  (DATA || []).forEach(d => { d.u3 = vendasUltimos3(d); });
+  function isReactivation(d){ return vendasUltimos3(d) === 0 && d.tot >= 20; }
 
   // Destaca visualmente (classe .is-filtered, ver CSS) os campos de filtro da Elegibilidade
   // que estão com valor diferente do padrão — mesmo critério de "fatia estreita" que
@@ -3249,6 +3233,12 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const filtersActive = isAnyFilterActive();
     document.getElementById('reactBanner').style.display = filtersActive ? 'none' : '';
     if (!filtersActive) {
+      // Texto do aviso calculado (era fixo: "17 meses" e "Abr–Jun/26").
+      const nMesesReact = MONTH_LABELS.length - eligDataStartIdx;
+      const ini3 = MONTH_LABELS[Math.max(0, MONTH_LABELS.length - 3)] || '', fim3 = MONTH_LABELS[MONTH_LABELS.length - 1] || '';
+      const janela3 = ini3.split('/')[1] === fim3.split('/')[1] ? (ini3.split('/')[0] + '–' + fim3) : (ini3 + '–' + fim3);
+      const reactDescEl = document.getElementById('reactDesc');
+      if (reactDescEl) reactDescEl.textContent = `Corretoras com histórico relevante de produção (≥ 20 vidas em ${nMesesReact} meses) e zero vendas nos últimos 3 meses (${janela3}). Ponto de partida ideal para ações comerciais e visitas presenciais.`;
       document.getElementById('reactCount').textContent = reactList.length;
       document.getElementById('reactPotential').textContent = fmt0(reactList.reduce((s,d)=>s+d.tot,0));
       document.getElementById('reactPeak').textContent = reactList.length ? fmt0(Math.max(...reactList.map(d=>d.tot))) : '0';
@@ -4888,6 +4878,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       // qualquer jeito: d.m[] já está correto nesse ponto (só ganhou o mês novo zerado, se foi
       // o caso, o que não muda a soma de quem não apareceu no extrato de hoje).
       d.tot = d.m.reduce((s,v)=>s+v, 0);
+      d.u3 = vendasUltimos3(d);
     });
     return atualizadas;
   };
@@ -5191,6 +5182,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       if (!d.m) return;
       while (d.m.length < maxLen) d.m.push(0);
       if (d.mc){ ['pf','ss','pme'].forEach(k => { if (d.mc[k]) while (d.mc[k].length < maxLen) d.mc[k].push(0); }); }
+      d.u3 = vendasUltimos3(d);
     });
     refreshMonthDerivedState();
     EL_GESTORES.length = 0;
@@ -5302,7 +5294,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const totSum17m = elig.reduce((s,d)=>s+d.tot,0);
     const eligCount = elig.filter(d=>d.el===1).length;
     const eligPct = elig.length ? eligCount/elig.length*100 : 0;
-    const reactList = elig.filter(d => d.u3===0 && d.tot>=20);
+    const reactList = elig.filter(d => (window.vendasUltimos3 ? window.vendasUltimos3(d) : d.u3) === 0 && d.tot>=20);
     const jumpGestor = isTeamScope ? '' : execVal;
     const jumpTeamName = teamName;
 
@@ -6009,13 +6001,26 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // enviado é sempre do mês corrente. O ano usa como referência o mês mais recente já
   // conhecido (fallbackYearMonth) — simplificação razoável, já que corretoras não
   // corrigem meses de anos diferentes na prática.
+  // Ano de um mês que só chegou pelo NOME ("JANEIRO"): a ocorrência mais recente desse mês que não
+  // passe de `ahead` meses à frente de hoje. Até 2026-10-07 o ano vinha do último mês conhecido —
+  // em Jan/27 (último conhecido = Dez/26) o Excel "NDI SP - JANEIRO" virava Janeiro/2026 e era
+  // gravado por cima dele como "correção de mês passado". Ex. (hoje = Jan/27, ahead 1): JANEIRO →
+  // 2027, JUNHO → 2026 (reimportar mês passado continua indo pro ano certo). `today` só pra teste.
+  window.inferYearForMonth = function(monthNum, ahead, today){
+    const now = today || new Date();
+    const nowIdx = now.getFullYear() * 12 + now.getMonth();
+    // Começa no ano seguinte (ex.: metas do 1º TRI/27 subidas em Dez/26) e volta até cair na janela.
+    let year = now.getFullYear() + 1;
+    while (year * 12 + (Number(monthNum) - 1) > nowIdx + (ahead || 0)) year -= 1;
+    return year;
+  };
   function detectMetaMonth(workbook, fallbackYearMonth){
     const info = findMetaSheetInfo(workbook);
     if (!info || !fallbackYearMonth) return fallbackYearMonth;
     const monthWord = info.name.toUpperCase().replace(info.prefix.toUpperCase(), '').trim();
     const monthNum = META_MONTH_NAME_TO_NUM[monthWord];
     if (!monthNum) return fallbackYearMonth;
-    const year = fallbackYearMonth.split('-')[0];
+    const year = window.inferYearForMonth(monthNum, 1);
     return year + '-' + monthNum;
   }
 
@@ -7600,7 +7605,16 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const m = /(\d{4})/.exec(String((g[0] && g[0][0]) || ''));
       if (m) year = m[1];
     }
-    if (!year) year = String(new Date().getFullYear());
+    // Sem ano no título da TRI GERAL: mesma regra do Excel NDI SP (window.inferYearForMonth), pelo 1º
+    // mês do arquivo, aceitando até 2 meses à frente — o "1º TRI" de 2027 subido em Nov ou Dez/26 vira
+    // 2027 (antes usava o ano do computador e gravava as metas por cima de Jan–Mar/2026); em Out/26 um
+    // "1º TRI" sem ano continua sendo o de 2026.
+    if (!year){
+      const nums = wb.SheetNames.map(n => Number(MES_PT[norm(n)])).filter(Boolean);
+      year = (nums.length && window.inferYearForMonth)
+        ? String(window.inferYearForMonth(Math.min.apply(null, nums), 2))
+        : String(new Date().getFullYear());
+    }
     wb.SheetNames.forEach(sheetName => {
       const mm = MES_PT[norm(sheetName)];
       if (!mm) return;
