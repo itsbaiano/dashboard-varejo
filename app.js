@@ -828,6 +828,319 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // o mês pedido não existe — certo pra as telas de mês único, errado pra somar trimestre.
   window.getMetaJunhoTeamsStrict = function(month){ return MJ_SYNTH.has(month) ? null : (MJ_TEAMS_BY_MONTH[month] || null); };
   window.getMjCurrentTeam = function(){ return currentTeam; };
+
+  // ===== EXPORTAR DESEMPENHO COMERCIAL EM .XLSX (pedido do Victor, 2026-10-07) =====
+  // Gera o mês selecionado no MESMO formato do Excel "NDI SP - POR GESTOR - <MÊS> dd.mm.aaaa" dele, pra
+  // baixar todo dia e guardar o retrato do dia. Só as 3 abas principais (decisão dele): "NDI SP - <MÊS>"
+  // (por executivo/equipe), "EXPORT" (uma linha por corretora) e "META <MÊS>". Cores, bordas, mesclas,
+  // larguras e a escala de cor do % copiadas do arquivo de 06.10.2026. COM FÓRMULAS (pra simulação):
+  // - META <MÊS>: a cascata dele — total da diretora → categoria pelo % vertical (PF/SS/PME/ADESÃO) →
+  //   equipe pelo % → executivo pelo %. Cada % é derivado das metas do painel; se uma meta do painel não
+  //   seguir a cascata (diferença > 0,01), a célula vai com o NÚMERO, pra nunca sair meta diferente.
+  // - NDI SP: Meta = PROCV na aba META; Integrado = SOMASE na EXPORT; % e totais = fórmulas. Integrado
+  //   TOTAL = IND+SS+PME SEM ADM, igual ao arquivo dele (decisão do Victor); Meta TOTAL inclui ADM.
+  // - EXPORT: corretoras do painel naquele mês. Quando a soma das corretoras de um executivo não bate com
+  //   o Integrado dele (ex.: ADM por corretora só passou a ser guardado em 07/10), entra uma linha
+  //   "AJUSTE" do próprio executivo com a diferença — o total nunca fica diferente do painel.
+  // As abas têm os nomes do arquivo real, então um retrato baixado pode ser reimportado pelo campo normal.
+  window.exportDesempenhoXlsx = async function(month){
+    month = month || currentMonth;
+    const teams = MJ_TEAMS_BY_MONTH[month];
+    if (!teams || !Object.keys(teams).length) throw new Error('Não há dados do Desempenho Comercial para esse mês.');
+    if (!window.loadExcelJS) throw new Error('A biblioteca de planilhas não está disponível.');
+    const ExcelJS = await window.loadExcelJS();
+    const MESES = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+    const mesNome = MESES[Number(month.split('-')[1]) - 1];
+    const abaMain = 'NDI SP - ' + mesNome, abaMeta = 'META ' + mesNome;
+    const rawOf = nome => window.getGestorRawName ? window.getGestorRawName(nome) : String(nome).toUpperCase();
+    const corrMes = getCorretoras(month);
+    const naoAt = getNaoAtribuido(month) || {ind:0, ss:0, pme:0, adm:0};
+    const CATS = ['IND','SS','PME','ADM'];
+    const FILIAL_TXT = {'Plataforma':'PLATAFORMA','ABC':'ABC','Cauda Longa':'CAUDA LONGA','Digital':'DIGITAL','Interior':'INTERIOR'};
+    const teamList = Object.entries(teams).map(([label, td]) => {
+      const tipo = ((/\(([^)]*)\)\s*$/.exec(label) || [])[1]) || '';
+      return { label, td, filial: FILIAL_TXT[tipo] || tipo.toUpperCase(), senior: label.replace(/\s*\([^)]*\)\s*$/, '').toUpperCase() };
+    });
+
+    // ---------- EXPORT (linhas por corretora) ----------
+    const expRows = [];
+    let ajustes = 0;
+    teamList.forEach(t => t.td.members.forEach(m => {
+      const raw = rawOf(m.nome);
+      const lista = corrMes[m.nome] || [];
+      const soma = {ind:0, ss:0, pme:0, adm:0};
+      lista.forEach(c => {
+        const r = { c: String(c.c || ''), n: c.n || '', gestor: raw, ind: c.ind || 0, ss: c.ss || 0, pme: c.pme || 0, adm: c.adm || 0, filial: c.filial || '' };
+        soma.ind += r.ind; soma.ss += r.ss; soma.pme += r.pme; soma.adm += r.adm;
+        expRows.push(r);
+      });
+      const dif = { ind: (m.cat.IND.int || 0) - soma.ind, ss: (m.cat.SS.int || 0) - soma.ss, pme: (m.cat.PME.int || 0) - soma.pme, adm: (m.cat.ADM.int || 0) - soma.adm };
+      if (Object.values(dif).some(v => Math.abs(v) > 1e-9)){
+        ajustes++;
+        expRows.push({ c: '', n: 'AJUSTE — vendas sem detalhe por corretora', gestor: raw, ind: dif.ind, ss: dif.ss, pme: dif.pme, adm: dif.adm, filial: '', ajuste: true });
+      }
+    }));
+    // Sem executivo: corretoras guardadas sob um "gestor" que não é executivo de nenhuma equipe (ex.: o
+    // "#N/D" das corretoras fora do database, no Excel dele) saem uma por linha com GESTOR = "SEM
+    // EXECUTIVO"; o que faltar pra bater com o não-atribuído do painel vira uma linha agregada.
+    const membros = new Set(); teamList.forEach(t => t.td.members.forEach(m => membros.add(m.nome)));
+    const somaSem = {ind:0, ss:0, pme:0, adm:0};
+    Object.keys(corrMes).filter(g => !membros.has(g)).forEach(g => (corrMes[g] || []).forEach(c => {
+      const r = { c: String(c.c == null || c.c === 'null' ? '' : c.c), n: c.n || '', gestor: 'SEM EXECUTIVO', ind: c.ind || 0, ss: c.ss || 0, pme: c.pme || 0, adm: c.adm || 0, filial: c.filial || '' };
+      if (!r.c && !(r.ind || r.ss || r.pme || r.adm)) return;
+      somaSem.ind += r.ind; somaSem.ss += r.ss; somaSem.pme += r.pme; somaSem.adm += r.adm;
+      expRows.push(r);
+    }));
+    expRows.sort((a, b) => (a.ajuste === b.ajuste) ? a.c.localeCompare(b.c) : (a.ajuste ? 1 : -1));
+    const difSem = { ind: (naoAt.ind || 0) - somaSem.ind, ss: (naoAt.ss || 0) - somaSem.ss, pme: (naoAt.pme || 0) - somaSem.pme, adm: (naoAt.adm || 0) - somaSem.adm };
+    if (Object.values(difSem).some(v => Math.abs(v) > 1e-9)){
+      ajustes++;
+      expRows.push({ c: '', n: 'AJUSTE — corretoras sem executivo / fora do database (sem detalhe por corretora)', gestor: 'SEM EXECUTIVO', ind: difSem.ind, ss: difSem.ss, pme: difSem.pme, adm: difSem.adm, filial: '', ajuste: true });
+    }
+    const sumExp = (gestor, k) => expRows.reduce((s, r) => s + (r.gestor === gestor ? r[k] : 0), 0);
+
+    // ---------- estilos (copiados do arquivo real) ----------
+    const NAVY = 'FF1F3A93', FILIAL_FILL = 'FFB97034', PCT_FILL = 'FFE7EBF5', BRANCO = 'FFFFFFFF', PRETO = 'FF000000';
+    const solid = argb => ({ type:'pattern', pattern:'solid', fgColor:{ argb } });
+    const ln = (style, argb) => argb ? { style, color:{ argb } } : { style };
+    const center = { horizontal:'center', vertical:'middle' };
+    const F = (r, c) => r.getCell(c);
+    const set = (cell, value, result) => { cell.value = (typeof value === 'string' && value[0] === '=') ? { formula: value.slice(1), result } : value; };
+    const wb = new ExcelJS.Workbook();
+    wb.calcProperties = { fullCalcOnLoad: true };
+    // Abas criadas já na ordem do arquivo real (NDI SP, EXPORT, META); preenchidas abaixo.
+    const ws = wb.addWorksheet(abaMain, { views:[{ state:'frozen', ySplit:3, zoomScale:70, showGridLines:false }] });
+    const wsExp = wb.addWorksheet('EXPORT', { views:[{ zoomScale:80 }] });
+    const wsMeta = wb.addWorksheet(abaMeta, { views:[{ showGridLines:false }] });
+
+    // ---------- META <MÊS> ----------
+    [55, 21.7, 12, 12, 12, 12, 12, 8, 4, 4, 12, 8].forEach((w, i) => { wsMeta.getColumn(i + 1).width = w; });
+    const META_COL = { IND:'C', SS:'D', PME:'E', ADM:'F' };
+    const dirMetaCat = {}; CATS.forEach(k => { dirMetaCat[k] = teamList.reduce((s, t) => s + (t.td.total.cat[k].meta || 0), 0); });
+    const dirMetaTot = teamList.reduce((s, t) => s + (t.td.total.meta || 0), 0);
+    // layout: linha 1 cabeçalho, 2.. blocos (sênior + executivos + linha em branco), diretora no fim
+    let r = 3;
+    const blocks = teamList.map(t => { const b = { t, row: r, execRows: [] }; r++; t.td.members.forEach(() => { b.execRows.push(r); r++; }); r++; return b; });
+    const dirRow = r;
+    const vertRow = { IND:2, SS:3, PME:4, ADM:5 };
+    const h1 = wsMeta.getRow(1);
+    [['A','SP HAP NDI'],['C','IND'],['D','SS'],['E','PME'],['F','ADESÃO'],['G','TOTAL'],['H','%']].forEach(([c, v]) => { F(h1, c).value = v; });
+    'ABCDEFGH'.split('').forEach(c => { const x = F(h1, c); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; x.fill = solid('FF4F81BD'); x.alignment = { horizontal:'center' }; x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; });
+    F(h1, 'K').value = 'VERTICAL NDI'; wsMeta.mergeCells('K1:L1');
+    F(h1, 'K').font = { name:'Calibri', size:11, bold:true }; F(h1, 'K').fill = solid('FFFFFF00'); F(h1, 'K').alignment = { horizontal:'center' };
+    const pctVert = {}; CATS.forEach(k => { pctVert[k] = dirMetaTot ? dirMetaCat[k] / dirMetaTot * 100 : 0; });
+    [['IND','PF'],['SS','SS'],['PME','PME'],['ADM','ADESÃO']].forEach(([k, lbl]) => {
+      const row = wsMeta.getRow(vertRow[k]); F(row, 'K').value = lbl; F(row, 'L').value = pctVert[k];
+      ['K','L'].forEach(c => { F(row, c).border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; F(row, c).font = { name:'Calibri', size:11 }; });
+      F(row, 'L').numFmt = '0.##';
+    });
+    set(F(wsMeta.getRow(6), 'L'), '=SUM(L2:L5)', CATS.reduce((s, k) => s + pctVert[k], 0)); F(wsMeta.getRow(6), 'L').numFmt = '0.##';
+    const META_LIGHT = 'FFE6B9B8', META_NAME = 'FFD9D9D9';
+    const styleMetaRow = (row, kind) => {
+      'ABCDEFGH'.split('').forEach(c => {
+        const x = F(row, c);
+        x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') };
+        const nameCol = c === 'A' || c === 'B';
+        x.font = { name:'Calibri', size: nameCol ? 10 : 11, bold: kind !== 'exec' || c === 'G' };
+        x.alignment = { horizontal: c === 'A' ? 'left' : 'center', vertical:'middle' };
+        if (c >= 'C' && c <= 'G') x.numFmt = '#,##0';
+        if (kind === 'dir') x.fill = solid('FFFF0000');
+        else if (kind === 'team') { if (c !== 'H') x.fill = solid(META_LIGHT); }
+        else if (nameCol) x.fill = solid(META_NAME);
+        else if (c !== 'H') x.fill = solid(META_LIGHT);
+      });
+    };
+    const near = (a, b) => Math.abs((a || 0) - (b || 0)) <= 0.01;
+    const metaVal = {};  // valor final de cada célula de meta (pra conferir a cascata e alimentar o PROCV)
+    // diretora
+    const dRow = wsMeta.getRow(dirRow);
+    F(dRow, 'A').value = 'FABYANNA BOAVENTURA'; F(dRow, 'B').value = 'DIRETORA REGIONAL SP';
+    F(dRow, 'G').value = dirMetaTot; F(dRow, 'H').value = 100;
+    CATS.forEach(k => {
+      const viaFormula = dirMetaTot * pctVert[k] / 100;
+      if (near(viaFormula, dirMetaCat[k])) set(F(dRow, META_COL[k]), `=G${dirRow}*L${vertRow[k]}/100`, viaFormula);
+      else F(dRow, META_COL[k]).value = dirMetaCat[k];
+      metaVal['dir' + k] = near(viaFormula, dirMetaCat[k]) ? viaFormula : dirMetaCat[k];
+    });
+    styleMetaRow(dRow, 'dir');
+    blocks.forEach(b => {
+      const td = b.t.td, row = wsMeta.getRow(b.row);
+      const pctTeam = dirMetaTot ? (td.total.meta || 0) / dirMetaTot * 100 : 0;
+      F(row, 'A').value = 'GERENTE SENIOR: ' + b.t.senior; F(row, 'B').value = 'GERENTE SENIOR'; F(row, 'H').value = pctTeam;
+      const teamVal = {};
+      CATS.forEach(k => {
+        const viaFormula = pctTeam * metaVal['dir' + k] / 100;
+        if (near(viaFormula, td.total.cat[k].meta)) { set(F(row, META_COL[k]), `=H${b.row}*${META_COL[k]}${dirRow}/100`, viaFormula); teamVal[k] = viaFormula; }
+        else { F(row, META_COL[k]).value = td.total.cat[k].meta || 0; teamVal[k] = td.total.cat[k].meta || 0; }
+      });
+      set(F(row, 'G'), `=SUM(C${b.row}:F${b.row})`, CATS.reduce((s, k) => s + teamVal[k], 0));
+      F(row, 'H').numFmt = '0.##';
+      styleMetaRow(row, 'team');
+      const teamTot = CATS.reduce((s, k) => s + teamVal[k], 0);
+      td.members.forEach((m, i) => {
+        const er = b.execRows[i], erow = wsMeta.getRow(er);
+        const pctExec = teamTot ? (m.total.meta || 0) / teamTot * 100 : 0;
+        F(erow, 'A').value = rawOf(m.nome); F(erow, 'B').value = 'EXECUTIVO(A)'; F(erow, 'H').value = pctExec; F(erow, 'H').numFmt = '0.##';
+        let tot = 0;
+        CATS.forEach(k => {
+          const viaFormula = teamVal[k] * pctExec / 100;
+          let v;
+          if (near(viaFormula, m.cat[k].meta)) { set(F(erow, META_COL[k]), `=$${META_COL[k]}$${b.row}*H${er}/100`, viaFormula); v = viaFormula; }
+          else { v = m.cat[k].meta || 0; F(erow, META_COL[k]).value = v; }
+          metaVal[m.nome + '|' + k] = v; tot += v;
+        });
+        set(F(erow, 'G'), `=SUM(C${er}:F${er})`, tot);
+        metaVal[m.nome + '|TOT'] = tot;
+        styleMetaRow(erow, 'exec');
+      });
+    });
+
+    // ---------- EXPORT ----------
+    [60, 14.3, 61, 40.6, 20.7, 30, 31, 31, 15.1, 26.3].forEach((w, i) => { wsExp.getColumn(i + 1).width = w; });
+    const e1 = wsExp.getRow(1), e2 = wsExp.getRow(2);
+    ['CANAL','CODIGO','CORRETORA','GESTOR','01-INDIVIDUAL','02-PIM (IND/3-29 VIDAS)','03-MIDDLE I(30-99 VIDAS)','07-ADMINISTRADORA','Total','FILIAL'].forEach((v, i) => { e1.getCell(i + 1).value = v; });
+    e2.getCell(1).value = 'Código Corretora | Nome Corretora | Filial';
+    for (let c = 5; c <= 9; c++) e2.getCell(c).value = 'Vendas Novas';
+    const expFill = c => c === 1 ? 'FF002B7F' : (c <= 4 ? 'FF003DA5' : (c <= 8 ? 'FFFF6A00' : 'FF4D4D4D'));
+    [e1, e2].forEach(row => { for (let c = 1; c <= 10; c++){ const x = row.getCell(c); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; x.fill = solid(expFill(c)); x.alignment = { horizontal: c === 1 ? undefined : 'center', vertical:'middle' }; x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; } });
+    ['B1:B2','C1:C2','D1:D2','J1:J2'].forEach(m => wsExp.mergeCells(m));
+    expRows.forEach((er, i) => {
+      const rr = i + 3, row = wsExp.getRow(rr);
+      row.getCell(1).value = er.c ? `${er.c} - ${er.n}` : er.n;
+      row.getCell(2).value = er.c; row.getCell(3).value = er.n; row.getCell(4).value = er.gestor;
+      row.getCell(5).value = er.ind; row.getCell(6).value = er.ss; row.getCell(7).value = er.pme; row.getCell(8).value = er.adm;
+      set(row.getCell(9), `=SUM(E${rr}:H${rr})`, er.ind + er.ss + er.pme + er.adm);
+      row.getCell(10).value = er.filial;
+      for (let c = 1; c <= 10; c++){ const x = row.getCell(c); x.font = { name:'Calibri', size:11, italic: !!er.ajuste }; x.alignment = { horizontal: c === 1 ? undefined : 'center', vertical:'middle' }; if (c === 2 || c === 4 || c === 10) x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; }
+    });
+    wsExp.autoFilter = { from:{ row:1, column:1 }, to:{ row: expRows.length + 2, column:10 } };
+
+    // ---------- NDI SP - <MÊS> ----------
+    [21.1, 51.1, 11.9, 14.9].concat(Array(13).fill(11.9)).forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+    const META_IDX = { IND:3, SS:4, PME:5, ADM:6 };
+    const COLS = { IND:['C','D','E'], SS:['F','G','H'], PME:['I','J','K'], ADM:['L','M','N'] };
+    const EXP_COL = { IND:'E', SS:'F', PME:'G', ADM:'H' };
+    const CAT_KEY = { IND:'ind', SS:'ss', PME:'pme', ADM:'adm' };
+    const ALL = 'ABCDEFGHIJKLMNOPQ'.split('');
+    const styleRow = (row, kind) => {
+      ALL.forEach(c => {
+        const x = F(row, c);
+        const isPct = 'EHKN'.indexOf(c) >= 0, isQ = c === 'Q', isMeta = 'CFILO'.indexOf(c) >= 0;
+        const b = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') };
+        if (c === 'A') b.left = ln('thick', NAVY);
+        if (c === 'C') b.left = ln('medium', NAVY);
+        if (isPct) b.right = ln('medium', NAVY);
+        if (isQ) b.right = ln('thick', NAVY);
+        if (kind === 'total' || kind === 'obsTotal') b.bottom = ln('medium', NAVY);
+        if (kind === 'dir') { b.bottom = ln('thick', NAVY); }
+        x.border = b;
+        x.alignment = (c === 'A' && kind === 'dir') ? { vertical:'middle' } : { horizontal:'center', vertical:'middle', wrapText: c === 'A' };
+        if (c === 'A' && kind !== 'dir') { x.fill = solid(FILIAL_FILL); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; return; }
+        if (kind === 'total' || kind === 'dir' || (c === 'B' && (kind === 'obs' || kind === 'obsTotal'))) { x.fill = solid(NAVY); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; }
+        else if (kind === 'member' && (isPct || isQ)) { x.fill = solid(PCT_FILL); x.font = { name:'Calibri', size:11, bold:true }; }
+        else x.font = { name:'Calibri', size:11, bold: isQ };
+        if (isPct) x.numFmt = '0%';
+        else if (isQ) x.numFmt = '0.0%';
+        else if (isMeta || 'DGJMP'.indexOf(c) >= 0) x.numFmt = (kind === 'member') ? (isMeta ? '0' : 'General') : '#,##0';
+      });
+    };
+    // título + cabeçalho
+    const t1 = ws.getRow(1); t1.height = 30;
+    F(t1, 'A').value = 'HAPVIDA - NDI SP'; ws.mergeCells('A1:Q1');
+    F(t1, 'A').font = { name:'Calibri', size:18, bold:true, color:{ argb:'FF003DA5' } }; F(t1, 'A').alignment = center;
+    F(t1, 'A').border = { top:ln('thick', NAVY), left:ln('thick', NAVY), right:ln('thick', NAVY) };
+    const hdr = ws.getRow(3); hdr.height = 30;
+    ['FILIAL','GESTOR','META IND','INTEGRADO IND','% META IND','META SS','INTEGRADO SS','% META SS','META PME','INTEGRADO PME','% META PME','META ADM','INTEGRADO ADM','% META ADM','META TOTAL','INTEGRADO TOTAL','% META'].forEach((v, i) => { hdr.getCell(i + 1).value = v; });
+    ALL.forEach(c => { const x = F(hdr, c); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; x.fill = solid(NAVY); x.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+      x.border = { top:ln('thin'), left: c === 'A' ? ln('thick', NAVY) : (c === 'C' ? ln('medium', NAVY) : ln('thin')), bottom:ln('thin'), right: c === 'Q' ? ln('thick', NAVY) : ('EHKN'.indexOf(c) >= 0 ? ln('medium', NAVY) : ln('thin')) }; });
+    const pct = (a, b) => b ? a / b : 0;
+    const writeLine = (rr, vals) => {   // vals: {meta:{IND..}, int:{IND..}} já resolvidos + fórmulas
+      const row = ws.getRow(rr);
+      CATS.forEach(k => {
+        const [cm, ci, cp] = COLS[k];
+        set(F(row, cm), vals.fMeta[k], vals.meta[k]);
+        set(F(row, ci), vals.fInt[k], vals.int[k]);
+        set(F(row, cp), `=IFERROR(${ci}${rr}/${cm}${rr},0)`, pct(vals.int[k], vals.meta[k]));
+      });
+      const metaTot = CATS.reduce((s, k) => s + vals.meta[k], 0), intTot = vals.int.IND + vals.int.SS + vals.int.PME;
+      set(F(row, 'O'), vals.fMetaTot || `=SUM(C${rr},F${rr},I${rr},L${rr})`, metaTot);
+      set(F(row, 'P'), vals.fIntTot || `=SUM(D${rr},G${rr},J${rr})`, intTot);
+      set(F(row, 'Q'), `=IFERROR(P${rr}/O${rr},0)`, pct(intTot, metaTot));
+      return { meta: vals.meta, int: vals.int, metaTot, intTot };
+    };
+    let rr = 4;
+    const teamTotalRows = [], memberRanges = [];
+    const dirAcc = { meta:{IND:0,SS:0,PME:0,ADM:0}, int:{IND:0,SS:0,PME:0,ADM:0} };
+    teamList.forEach(t => {
+      const first = rr;
+      const acc = { meta:{IND:0,SS:0,PME:0,ADM:0}, int:{IND:0,SS:0,PME:0,ADM:0} };
+      t.td.members.forEach(m => {
+        const raw = rawOf(m.nome), row = ws.getRow(rr); row.height = 18;
+        F(row, 'B').value = raw;
+        const meta = {}, intv = {}, fMeta = {}, fInt = {};
+        CATS.forEach(k => {
+          meta[k] = metaVal[m.nome + '|' + k] || 0;
+          intv[k] = sumExp(raw, CAT_KEY[k]);
+          fMeta[k] = `=IFERROR(VLOOKUP($B${rr},'${abaMeta}'!$A:$H,${META_IDX[k]},FALSE),0)`;
+          fInt[k] = `=SUMIF(EXPORT!$D:$D,$B${rr},EXPORT!$${EXP_COL[k]}:$${EXP_COL[k]})`;
+          acc.meta[k] += meta[k]; acc.int[k] += intv[k];
+        });
+        writeLine(rr, { meta, int: intv, fMeta, fInt });
+        styleRow(row, 'member');
+        rr++;
+      });
+      const last = rr - 1, trow = ws.getRow(rr); trow.height = 18;
+      F(trow, 'B').value = 'TOTAL ' + t.senior;
+      const fSum = c => `=SUM(${c}${first}:${c}${last})`;
+      const fMeta = {}, fInt = {};
+      CATS.forEach(k => { fMeta[k] = fSum(COLS[k][0]); fInt[k] = fSum(COLS[k][1]); dirAcc.meta[k] += acc.meta[k]; dirAcc.int[k] += acc.int[k]; });
+      writeLine(rr, { meta: acc.meta, int: acc.int, fMeta, fInt, fMetaTot: fSum('O'), fIntTot: fSum('P') });
+      styleRow(trow, 'total');
+      F(ws.getRow(first), 'A').value = t.filial;
+      ws.mergeCells(`A${first}:A${rr}`);
+      teamTotalRows.push(rr); memberRanges.push([first, last]);
+      rr++;
+    });
+    // observações (não atribuído)
+    const obsRow = rr, obsTot = rr + 1;
+    const naoInt = {}; CATS.forEach(k => { naoInt[k] = sumExp('SEM EXECUTIVO', CAT_KEY[k]); });
+    const zeros = { IND:0, SS:0, PME:0, ADM:0 };
+    F(ws.getRow(obsRow), 'B').value = 'CORRETORAS SEM EXECUTIVO';
+    const fObs = {}; CATS.forEach(k => { fObs[k] = `=SUMIF(EXPORT!$D:$D,"SEM EXECUTIVO",EXPORT!$${EXP_COL[k]}:$${EXP_COL[k]})`; });
+    writeLine(obsRow, { meta: zeros, int: naoInt, fMeta: { IND:0, SS:0, PME:0, ADM:0 }, fInt: fObs });
+    styleRow(ws.getRow(obsRow), 'obs');
+    F(ws.getRow(obsTot), 'B').value = 'TOTAL';
+    const fObsT = {}, fObsTm = {}; CATS.forEach(k => { fObsT[k] = `=${COLS[k][1]}${obsRow}`; fObsTm[k] = `=${COLS[k][0]}${obsRow}`; });
+    writeLine(obsTot, { meta: zeros, int: naoInt, fMeta: fObsTm, fInt: fObsT, fMetaTot: `=O${obsRow}`, fIntTot: `=P${obsRow}` });
+    styleRow(ws.getRow(obsTot), 'obsTotal');
+    F(ws.getRow(obsRow), 'A').value = 'OBSERVAÇÕES'; ws.mergeCells(`A${obsRow}:A${obsTot}`);
+    // total da diretora
+    const dRowN = obsTot + 2, drow = ws.getRow(dRowN);
+    F(drow, 'A').value = 'TOTAL FABYANNA BOAVENTURA - NDI SP';
+    const lst = (c, extra) => `=SUM(${teamTotalRows.map(x => c + x).concat(extra ? [c + obsTot] : []).join(',')})`;
+    const fDm = {}, fDi = {}; CATS.forEach(k => { fDm[k] = lst(COLS[k][0], false); fDi[k] = lst(COLS[k][1], true); });
+    const dirInt = {}; CATS.forEach(k => { dirInt[k] = dirAcc.int[k] + naoInt[k]; });
+    writeLine(dRowN, { meta: dirAcc.meta, int: dirInt, fMeta: fDm, fInt: fDi, fMetaTot: lst('O', false), fIntTot: lst('P', true) });
+    styleRow(drow, 'dir');
+    // escala de cor do % (por bloco de executivos, igual ao arquivo)
+    memberRanges.forEach(([a, b]) => ws.addConditionalFormatting({ ref: `Q${a}:Q${b}`, rules: [{ type:'colorScale', priority:1,
+      cfvo: [{ type:'num', value:0.7 }, { type:'num', value:0.8 }, { type:'num', value:1 }], color: [{ argb:'FFF8696B' }, { argb:'FF63BE7B' }, { argb:'FF1E7A34' }] }] }));
+    const buf = await wb.xlsx.writeBuffer();
+    const hoje = new Date();
+    const dataBR = String(hoje.getDate()).padStart(2, '0') + '.' + String(hoje.getMonth() + 1).padStart(2, '0') + '.' + hoje.getFullYear();
+    const fileName = `NDI SP - POR GESTOR - ${mesNome} ${dataBR}.xlsx`;
+    window.downloadBlobFile(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
+    return { fileName, ajustes, corretoras: expRows.length };
+  };
+  document.getElementById('btnExportDesempenho').addEventListener('click', async () => {
+    const btn = document.getElementById('btnExportDesempenho');
+    if (btn.disabled) return;
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'Gerando .xlsx…';
+    try { await window.exportDesempenhoXlsx(currentMonth); }
+    catch (e){ console.error(e); alert('Não consegui gerar o arquivo: ' + (e && e.message ? e.message : e)); }
+    finally { btn.disabled = false; btn.innerHTML = original; }
+  });
   // Re-renderiza a tela do Desempenho Comercial (usado pelo módulo de trimestre ao voltar pra visão mensal).
   window.mjRerender = function(){ renderMetaJunho(); };
   window.updateMetaJunhoData = function(newData){
@@ -5040,6 +5353,9 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   }
+  // Usados também pelo export do Desempenho Comercial (outra IIFE).
+  window.loadExcelJS = loadExcelJS;
+  window.downloadBlobFile = downloadBlob;
   async function buildEligXlsxStyled(L){
     const ExcelJS = await loadExcelJS();
     const wb = new ExcelJS.Workbook();
@@ -6097,14 +6413,14 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         if (!gestorRaw || !rawToFriendly[gestorRaw]) continue;
         const friendly = rawToFriendly[gestorRaw];
         const key = friendly + '|' + codigo;
-        if (!agg[key]) agg[key] = {nome: nomeCorretora, ind:0, ss:0, pme:0, total:0, filiais:new Set(), gestor:friendly, codigo:String(codigo)};
-        agg[key].ind += num(row[4]); agg[key].ss += num(row[5]); agg[key].pme += num(row[6]);
+        if (!agg[key]) agg[key] = {nome: nomeCorretora, ind:0, ss:0, pme:0, adm:0, total:0, filiais:new Set(), gestor:friendly, codigo:String(codigo)};
+        agg[key].ind += num(row[4]); agg[key].ss += num(row[5]); agg[key].pme += num(row[6]); agg[key].adm += num(row[7]);
         agg[key].total += num(row[4]) + num(row[5]) + num(row[6]);
         if (filial) agg[key].filiais.add(filial);
       }
       Object.values(agg).forEach(c => {
         const filialLabel = c.filiais.size > 1 ? `Diversas (${c.filiais.size} filiais)` : ([...c.filiais][0] || '');
-        const entry = {c: c.codigo, n: c.nome ? String(c.nome).trim() : '', ind: c.ind, ss: c.ss, pme: c.pme, total: c.total, filial: filialLabel};
+        const entry = {c: c.codigo, n: c.nome ? String(c.nome).trim() : '', ind: c.ind, ss: c.ss, pme: c.pme, adm: c.adm, total: c.total, filial: filialLabel};
         (corretoras[c.gestor] = corretoras[c.gestor] || []).push(entry);
       });
       Object.keys(corretoras).forEach(g => corretoras[g].sort((a,b)=>b.total-a.total));
@@ -6112,7 +6428,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
     return {teams, benchmark, corretoras, naoAtribuido, detectedMonth};
   }
-
   function parseEligibilidadeWorkbook(workbook){
     const eligSheet = findSheet(workbook, 'ELEGIBILIDADE');
     const baseSheet = findSheet(workbook, 'BASE DE DADOS');
@@ -6664,7 +6979,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (!byGestor[friendly]) byGestor[friendly] = { ind:0, ss:0, pme:0, adm:0, total:0, corretoras:[] };
       byGestor[friendly].ind += c.ind; byGestor[friendly].ss += c.ss; byGestor[friendly].pme += c.pme; byGestor[friendly].adm += c.adm; byGestor[friendly].total += c.total;
       const filialLabel = c.filiais.size > 1 ? `Diversas (${c.filiais.size})` : ([...c.filiais][0]||'');
-      byGestor[friendly].corretoras.push({c: codigo, n: c.nome, ind:c.ind, ss:c.ss, pme:c.pme, total:c.total, filial: filialLabel});
+      // adm por corretora (2026-10-07): usado pelo export do Desempenho Comercial (coluna 07-ADMINISTRADORA).
+      byGestor[friendly].corretoras.push({c: codigo, n: c.nome, ind:c.ind, ss:c.ss, pme:c.pme, adm:c.adm, total:c.total, filial: filialLabel});
     });
     Object.values(byGestor).forEach(g => g.corretoras.sort((a,b)=>b.total-a.total));
 
@@ -6923,6 +7239,14 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   window.getGestorFriendlyName = function(raw){
     const key = String(raw||'').trim().toUpperCase();
     return FULL_19_GESTOR_RAW_MAP[key] || ABREV_GESTOR_MAP[key] || raw;
+  };
+  // Caminho inverso (nome bonito → nome cru da planilha), usado pelo export do Desempenho Comercial
+  // pra escrever "PABLO SERGIO RIBEIRO AMORA" como no arquivo real. Sem mapeamento: maiúsculas
+  // (os nomes bonitos dos outros executivos são o nome cru em "título", então volta igual).
+  const RAW_BY_FRIENDLY = {};
+  Object.entries(FULL_19_GESTOR_RAW_MAP).forEach(([raw, friendly]) => { if (!RAW_BY_FRIENDLY[friendly]) RAW_BY_FRIENDLY[friendly] = raw; });
+  window.getGestorRawName = function(friendly){
+    return RAW_BY_FRIENDLY[friendly] || String(friendly || '').trim().toUpperCase();
   };
 
   function parsePfPendenciasWorkbook(workbook){
