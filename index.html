@@ -703,40 +703,138 @@
   .status-chip.active .status-chip-count{opacity:.85;}
   .status-chip-group{display:inline-flex; align-items:center; font-size:9.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); opacity:.65; padding:5px 0; margin-left:6px;}
   .status-chip-group:first-child{margin-left:0;}
-  /* Filtro de status das Pendências num botão + painel por área (2026-10-07) */
-  .pst-btn{display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; min-height:42px; padding:9px 14px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--text); font:inherit; font-size:13px; font-weight:700; cursor:pointer;}
-  .pst-btn:hover, .pst-btn[aria-expanded="true"]{border-color:var(--blue);}
+  /* ===== Filtro de status das Pendências — botão + painel por área (V1 2026-10-07; V2 repaginado 2026-10-09:
+     painel abre/fecha animado, caixinhas próprias, barrinha de proporção atrás de cada status, área
+     "Implanta amanhã" em destaque, etiquetas que entram com animação, modal vira "folha" no celular). */
+  .pst-btn{display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; min-height:40px; padding:8px 14px; border-radius:11px; border:1.5px solid var(--line); background:var(--card); color:var(--text); font:inherit; font-size:13px; font-weight:700; cursor:pointer; transition:border-color .18s, background-color .18s, color .18s, box-shadow .18s;}
+  .pst-btn:hover{border-color:var(--blue);}
+  .pst-btn[aria-expanded="true"]{border-color:var(--blue); box-shadow:0 0 0 3px rgba(46,82,212,.14);}
   .pst-btn.on{border-color:var(--blue); background:rgba(46,82,212,.08); color:var(--blue);}
+  .pst-chev{width:9px; height:9px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:translateY(-2px) rotate(45deg); transition:transform .25s ease; opacity:.7; flex:0 0 auto;}
+  .pst-btn[aria-expanded="true"] .pst-chev{transform:translateY(2px) rotate(-135deg);}
   .pst-ativos{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;}
   .pst-ativos:empty{display:none;}
   .pst-tag{display:inline-flex; align-items:center; gap:4px; padding:3px 4px 3px 10px; border-radius:999px; background:rgba(46,82,212,.10); color:var(--text); font-size:11.5px; font-weight:700;}
+  .pst-tag.new{animation:pstPop .22s ease both;}
+  .pst-tag.amanha{background:rgba(22,184,122,.14);}
   .pst-tag-area{color:var(--muted); font-weight:600;}
-  .pst-tag button{border:0; background:transparent; color:var(--muted); cursor:pointer; font-size:14px; line-height:1; width:20px; height:20px; border-radius:50%;}
-  .pst-tag button:hover{background:rgba(46,82,212,.15); color:var(--text);}
-  .pst-panel{margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:14px; background:rgba(46,82,212,.04); display:grid; gap:10px;}
-  .pst-panel[hidden]{display:none;}
+  .pst-tag button{border:0; background:transparent; color:var(--muted); cursor:pointer; font-size:14px; line-height:1; width:20px; height:20px; border-radius:50%; transition:background-color .15s, color .15s;}
+  .pst-tag button:hover{background:rgba(46,82,212,.16); color:var(--text);}
+  @keyframes pstPop{from{opacity:0; transform:scale(.88);} to{opacity:1; transform:none;}}
+  /* abre/fecha: grid 0fr→1fr anima a altura real do conteúdo, sem número mágico */
+  .pst-panel-wrap{display:grid; grid-template-rows:0fr; opacity:0; transition:grid-template-rows .3s cubic-bezier(.2,.7,.2,1), opacity .2s ease, margin-top .3s ease; margin-top:0;}
+  .pst-panel-wrap.open{grid-template-rows:1fr; opacity:1; margin-top:10px;}
+  .pst-panel-in{min-height:0; overflow:hidden;}
+  .pst-panel-wrap:not(.open) .pst-panel-in{visibility:hidden; transition:visibility 0s .3s;}
+  .pst-panel{padding:12px; border:1px solid var(--line); border-radius:16px; background:linear-gradient(180deg, rgba(46,82,212,.06), rgba(46,82,212,.02)); display:grid; gap:10px;}
   .pst-top{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;}
   .pst-hint{font-size:11.5px; color:var(--muted);}
-  .pst-clear{font-size:12px; font-weight:700; color:var(--blue); cursor:pointer;}
+  .pst-clear{border:0; background:none; padding:4px 8px; border-radius:8px; font:inherit; font-size:12px; font-weight:700; color:var(--blue); cursor:pointer; transition:background-color .15s;}
+  .pst-clear:hover{background:rgba(46,82,212,.08);}
   .pst-flow{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px;}
   .pst-flow.pst-simple{grid-template-columns:1fr;}
-  .pst-flow.pst-simple .pst-area .pst-item{display:inline-flex; margin-right:6px;}
-  @media (max-width:860px){ .pst-flow{grid-template-columns:repeat(2,minmax(0,1fr));} }
-  @media (max-width:520px){ .pst-flow{grid-template-columns:1fr;} }
-  .pst-area{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:11px; display:grid; gap:6px; align-content:start; min-width:0;}
+  .pst-flow.pst-simple .pst-opts{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
+  @media (max-width:1100px){ .pst-flow{grid-template-columns:repeat(2,minmax(0,1fr));} }
+  @media (max-width:560px){ .pst-flow{grid-template-columns:1fr;} .pst-area.amanha{order:-1;} }
+  .pst-area{background:var(--card); border:1px solid var(--line); border-radius:13px; padding:12px; display:grid; gap:7px; align-content:start; min-width:0; box-shadow:0 1px 2px rgba(16,30,99,.04);}
+  .pst-panel-wrap.just-opened .pst-area{animation:pstRise .3s ease both;}
+  .pst-panel-wrap.just-opened .pst-area:nth-child(2){animation-delay:.04s;} .pst-panel-wrap.just-opened .pst-area:nth-child(3){animation-delay:.08s;} .pst-panel-wrap.just-opened .pst-area:nth-child(4){animation-delay:.12s;}
+  @keyframes pstRise{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
   .pst-step{display:flex; align-items:center; gap:8px;}
-  .pst-step h4{margin:0; font-size:13.5px; font-weight:800; color:var(--text);}
-  .pst-num{width:21px; height:21px; border-radius:50%; background:var(--navy); color:#fff; font-size:11px; font-weight:800; display:grid; place-items:center; flex:0 0 auto;}
+  .pst-step h4{margin:0; font-size:13.5px; font-weight:800; color:var(--text); flex:1; min-width:0;}
+  .pst-step-n{font-size:11px; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums;}
+  .pst-num{width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff; font-size:11px; font-weight:800; display:grid; place-items:center; flex:0 0 auto;}
+  [data-theme="dark"] .pst-num{background:var(--primary-mid);}
   .pst-desc{margin:0; font-size:11px; line-height:1.45; color:var(--muted);}
-  .pst-opts{display:grid; gap:2px;}
-  .pst-item{display:flex; align-items:center; gap:7px; padding:4px 6px; border-radius:7px; font-size:12px; cursor:pointer; color:var(--text); min-width:0;}
+  .pst-opts{display:grid; gap:3px;}
+  .pst-item{--p:0; position:relative; display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px; font-size:12px; cursor:pointer; color:var(--text); min-width:0; isolation:isolate; transition:background-color .15s;}
+  /* barrinha fina no rodapé de cada status = peso dele na área */
+  .pst-item::after{content:""; position:absolute; left:8px; right:8px; bottom:1px; height:2px; border-radius:2px; background:rgba(46,82,212,.07); z-index:-1;}
+  .pst-item::before{content:""; position:absolute; left:8px; bottom:1px; height:2px; width:calc((100% - 16px) * var(--p) / 100); border-radius:2px; background:rgba(46,82,212,.45); z-index:0; transition:width .4s ease;}
+  .pst-item.rare::before, .pst-item.rare::after{display:none;}
   .pst-item span:first-of-type{overflow-wrap:anywhere;}
-  .pst-item:hover{background:rgba(46,82,212,.07);}
-  .pst-item input{accent-color:var(--blue); margin:0; flex:0 0 auto;}
+  .pst-item:hover{background:rgba(46,82,212,.06);}
+  .pst-item input{appearance:none; -webkit-appearance:none; width:16px; height:16px; margin:0; flex:0 0 auto; border:1.5px solid var(--line); border-radius:5px; background:var(--card) center/11px no-repeat; cursor:pointer; transition:background-color .15s, border-color .15s, transform .15s;}
+  .pst-item:hover input{border-color:var(--blue);}
+  .pst-item input:checked{background-color:var(--blue); border-color:var(--blue); background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.3 2.3 4.7-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); transform:scale(1.05);}
+  .pst-item input:focus-visible{outline:2px solid var(--blue); outline-offset:2px;}
+  .pst-item:has(input:checked){background:rgba(46,82,212,.10); font-weight:700;}
   .pst-item.rare{color:var(--muted);}
-  .pst-n{margin-left:auto; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;}
-  .pst-outros{font-size:9.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); margin-top:4px;}
-  .pst-all{justify-self:start; border:0; background:none; padding:0; color:var(--blue); font:inherit; font-size:11.5px; font-weight:700; cursor:pointer;}
+  .pst-n{margin-left:auto; font-size:10.5px; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums; background:rgba(46,82,212,.07); padding:1px 7px; border-radius:999px;}
+  .pst-outros{font-size:9.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); margin-top:6px; padding-top:6px; border-top:1px dashed var(--line);}
+  .pst-fin{border-top:1px dashed var(--line); padding-top:6px;}
+  .pst-fin summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; padding:3px 2px; font-size:10.5px; font-weight:800; letter-spacing:.4px; text-transform:uppercase; color:var(--muted); border-radius:6px;}
+  .pst-fin summary::-webkit-details-marker{display:none;}
+  .pst-fin summary::before{content:""; width:6px; height:6px; border-right:1.8px solid currentColor; border-bottom:1.8px solid currentColor; transform:rotate(-45deg); transition:transform .2s ease;}
+  .pst-fin[open] summary::before{transform:rotate(45deg);}
+  .pst-fin summary:hover{color:var(--blue);}
+  .pst-fin-sub{font-weight:600; text-transform:none; letter-spacing:0;}
+  .pst-fin[open] .pst-opts{margin-top:4px; animation:pstRise .2s ease both;}
+  .pst-all{justify-self:start; border:0; background:none; padding:2px 0; color:var(--blue); font:inherit; font-size:11.5px; font-weight:700; cursor:pointer;}
+  .pst-all:hover{text-decoration:underline;}
+  /* área "Implanta amanhã" */
+  .pst-area.amanha{border-color:rgba(22,184,122,.45); background:linear-gradient(160deg, rgba(22,184,122,.12), rgba(22,184,122,.02) 60%), var(--card);}
+  .pst-area.amanha .pst-num{background:var(--green);}
+  .pst-big{display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;}
+  .pst-big b{font-size:28px; line-height:1.1; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; letter-spacing:-.02em;}
+  .pst-big span{font-size:12px; color:var(--muted); font-weight:600;}
+  .pst-switch{display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px; background:var(--card); border:1px solid var(--line); cursor:pointer; font-size:12px; font-weight:700; color:var(--text); transition:border-color .15s;}
+  .pst-switch:hover{border-color:var(--green);}
+  .pst-switch input{appearance:none; -webkit-appearance:none; position:relative; width:34px; height:20px; margin:0; flex:0 0 auto; border-radius:999px; background:var(--line); cursor:pointer; transition:background-color .2s;}
+  .pst-switch input::after{content:""; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25); transition:transform .22s cubic-bezier(.3,1.4,.5,1);}
+  .pst-switch input:checked{background:var(--green);}
+  .pst-switch input:checked::after{transform:translateX(14px);}
+  .pst-switch input:focus-visible{outline:2px solid var(--green); outline-offset:2px;}
+  .pst-switch input:disabled{opacity:.5; cursor:default;}
+  .pst-switch:has(input:disabled){cursor:default; color:var(--muted);}
+  /* selo na linha da tabela */
+  .pend-amanha{display:inline-flex; align-items:center; gap:4px; margin-left:6px; padding:1px 8px; border-radius:999px; background:rgba(22,184,122,.14); color:var(--green); font-size:10.5px; font-weight:800; white-space:nowrap; vertical-align:1px;}
+  .pend-amanha::before{content:""; width:6px; height:6px; border-radius:50%; background:currentColor;}
+  /* botão "Baixar .xlsx" do funil PME */
+  .pend-xlsx-btn{display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:8px; border:1.5px solid var(--green); background:rgba(22,184,122,.08); color:var(--text); font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; transition:background-color .15s, transform .15s, box-shadow .15s;}
+  .pend-xlsx-btn:hover:not(:disabled){background:rgba(22,184,122,.16); transform:translateY(-1px); box-shadow:0 6px 14px rgba(22,184,122,.18);}
+  .pend-xlsx-btn:disabled{opacity:.5; cursor:default;}
+  .pend-xlsx-btn:focus-visible{outline:2px solid var(--green); outline-offset:2px;}
+  .pend-xlsx-ic{width:14px; height:16px; border-radius:2px; background:var(--green); position:relative; flex:0 0 auto;}
+  .pend-xlsx-ic::after{content:""; position:absolute; left:3px; right:3px; top:4px; height:8px; background:linear-gradient(#fff 0 0) 0 0/100% 1.5px no-repeat, linear-gradient(#fff 0 0) 0 3px/100% 1.5px no-repeat, linear-gradient(#fff 0 0) 0 6px/100% 1.5px no-repeat;}
+  @media (prefers-reduced-motion:reduce){ .pend-xlsx-btn{transition:none;} }
+  /* tabela das Pendências: corretora com espaço, demais células quebram linha (igual V1) */
+  #pendModal td.name{min-width:200px;}
+  #pendModal td{white-space:normal;}
+  #pendModal td:last-child, #pendModal td:nth-last-child(2){white-space:nowrap;}
+  /* entrada dos modais de Pendências / Resumo (display none→flex reinicia a animação) */
+  #pendModal, #resumoModal{animation:modalIn .26s cubic-bezier(.2,.7,.2,1) both;}
+  #pendModalOverlay, #resumoModalOverlay{animation:overlayIn .2s ease both;}
+  @keyframes modalIn{from{opacity:0; transform:translateY(14px) scale(.985);} to{opacity:1; transform:none;}}
+  @keyframes overlayIn{from{opacity:0;} to{opacity:1;}}
+  /* celular: modal vira folha que sobe do rodapé, filtros ocupam a largura toda */
+  @media (max-width:640px){
+    #pendModalOverlay, #resumoModalOverlay{padding:0 !important; align-items:flex-end !important;}
+    #pendModal, #resumoModal{border-radius:18px 18px 0 0 !important; padding:18px 16px 22px !important; max-height:94dvh !important; animation-name:sheetIn;}
+    #pendModal .f-group{max-width:none !important; flex:1 1 100%;}
+    #pendModal .subtabs{margin-top:12px !important;}
+    #pendModal td.name{min-width:150px;}
+    .pst-big b{font-size:24px;}
+  }
+  @keyframes sheetIn{from{transform:translateY(40px); opacity:.4;} to{transform:none; opacity:1;}}
+  @media (min-width:641px) and (max-width:900px){ #pendModal .f-group{flex:1 1 200px; max-width:none !important;} }
+  /* cartão "Implanta amanhã" do Resumo do Dia */
+  .rs-amanha{margin-top:10px; width:100%; display:flex; align-items:center; gap:12px; text-align:left; padding:12px 16px; border-radius:12px; cursor:pointer; font:inherit; color:var(--text); border:1.5px solid rgba(22,184,122,.45); background:linear-gradient(120deg, rgba(22,184,122,.14), rgba(22,184,122,.03) 70%), var(--card); transition:transform .18s ease, box-shadow .18s ease, border-color .18s;}
+  .rs-amanha:hover{transform:translateY(-1px); box-shadow:0 8px 20px rgba(22,184,122,.18); border-color:var(--green);}
+  .rs-amanha:focus-visible{outline:2px solid var(--green); outline-offset:2px;}
+  .rs-amanha-ic{width:30px; height:30px; border-radius:8px; background:var(--green); flex:0 0 auto; position:relative;}
+  .rs-amanha-ic::before{content:""; position:absolute; inset:7px; border:2px solid #fff; border-radius:3px; border-top-width:4px;}
+  .rs-amanha-ic::after{content:""; position:absolute; left:11px; top:14px; width:7px; height:4px; border-left:2px solid #fff; border-bottom:2px solid #fff; transform:rotate(-45deg);}
+  .rs-amanha-txt{display:flex; flex-direction:column; gap:1px; flex:1; min-width:0;}
+  .rs-amanha-t{font-size:13px; font-weight:800; color:var(--navy);}
+  .rs-amanha-s{font-size:11px; color:var(--muted);}
+  .rs-amanha-num{display:flex; flex-direction:column; align-items:flex-end; line-height:1.05;}
+  .rs-amanha-num b{font-size:24px; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums;}
+  .rs-amanha-num small{font-size:10.5px; color:var(--muted); font-weight:700;}
+  @media (prefers-reduced-motion:reduce){
+    .pst-panel-wrap, .pst-chev, .pst-item::before, .pst-switch input::after, .rs-amanha{transition:none !important;}
+    .pst-tag, .pst-area, #pendModal, #resumoModal, #pendModalOverlay, #resumoModalOverlay{animation:none !important;}
+  }
   /* Tabela das Pendências: nome da corretora com espaço pra não quebrar em 4 linhas */
   #pendModal td.name{min-width:200px;}
   /* Detalhe do status (Cadastro/Ditec/Bitix) quebra linha em vez de empurrar Recebimento/Vigência pra fora */
@@ -2071,8 +2169,8 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
             <div class="upload-card-icon"><i class=ic-doc></i></div>
             <div class="upload-card-title">Funil PME</div>
           </div>
-          <p class="upload-card-hint">Pendências detalhadas por status + SLA (aba Conversão).</p>
-          <div class="file-field"><input type="file" id="filePendPme" accept=".xlsx"></div>
+          <p class="upload-card-hint">Pendências detalhadas por status + SLA (aba Conversão). Solte os 2 extratos da Planium (mês atual + anterior) + o extrato do T6140B — ou, se preferir, a planilha PME AUTOMATIZADO já pronta, como antes.</p>
+          <div class="file-field"><input type="file" id="filePendPme" accept=".xlsx,.csv" multiple></div>
         </div>
         <div class="upload-card">
           <button type="button" class="upload-card-check file-clear" data-target="filePendPf" title="Remover arquivo">✕</button>
@@ -2080,8 +2178,8 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
             <div class="upload-card-icon"><i class=ic-cart></i></div>
             <div class="upload-card-title">Funil PF</div>
           </div>
-          <p class="upload-card-hint">Orçamentos por status + SLA (aba Conversão).</p>
-          <div class="file-field"><input type="file" id="filePendPf" accept=".xlsx"></div>
+          <p class="upload-card-hint">Orçamentos por status + SLA (aba Conversão). Solte o extrato do sistema (2026_ORCAMENTOS_T221ORCAM.CSV) — o painel acha o gestor pela Carteira — ou, se preferir, a planilha já pronta, como antes.</p>
+          <div class="file-field"><input type="file" id="filePendPf" accept=".xlsx,.csv"></div>
         </div>
         <div class="upload-card">
           <button type="button" class="upload-card-check file-clear" data-target="fileCrescimentoGeral" title="Remover arquivo">✕</button>
@@ -2195,17 +2293,26 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
              metade do modal. O painel abaixo mostra as áreas na ordem da esteira, com explicação. -->
         <div class="f-group" style="max-width:260px;">
           <label>Filtrar por Status</label>
-          <button type="button" id="pendStatusBtn" class="pst-btn" aria-expanded="false" aria-controls="pendStatusPanel"><span id="pendStatusResumo">Todos os status</span><span aria-hidden="true">▾</span></button>
+          <button type="button" id="pendStatusBtn" class="pst-btn" aria-expanded="false" aria-controls="pendStatusPanel"><span id="pendStatusResumo">Todos os status</span><span class="pst-chev" aria-hidden="true"></span></button>
         </div>
       </div>
       <div id="pendStatusAtivos" class="pst-ativos" aria-live="polite"></div>
-      <div id="pendStatusPanel" class="pst-panel" hidden>
-        <div class="pst-top"><span class="pst-hint" id="pendStatusHint">Marque o que quer ver. Os números mostram quantas propostas estão em cada situação.</span><span id="pendStatusClear" class="pst-clear" role="button" tabindex="0" style="display:none;">Limpar status</span></div>
-        <div id="pendStatusChips" class="pst-flow"></div>
+      <div id="pendStatusPanel" class="pst-panel-wrap">
+        <div class="pst-panel-in">
+          <div class="pst-panel">
+            <div class="pst-top"><span class="pst-hint" id="pendStatusHint">Marque o que quer ver. Os números mostram quantas propostas estão em cada situação.</span><span id="pendStatusClear" class="pst-clear" role="button" tabindex="0" style="display:none;">Limpar status</span></div>
+            <div id="pendStatusChips" class="pst-flow"></div>
+          </div>
+        </div>
       </div>
       <div style="margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
         <div id="pendBeneficiariosTotal" style="font-size:13px; color:var(--navy); font-weight:700;"></div>
-        <button id="pendPdfBtn" class="btn-reset" style="background:var(--navy); color:#fff; border-color:var(--navy); padding:8px 14px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px;"><i class=ic-doc></i> Baixar relatório</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <!-- Planilha do funil PME (pedido do Victor, 2026-10-09): o que está na tela, no layout da aba RESULTADO FINAL
+               do "RELATORIO PME AUTOMATIZADO" + aba DINÂMICA por gestor (fórmulas). Liberado pra todos os perfis. -->
+          <button id="pendXlsxBtn" type="button" class="pend-xlsx-btn"><span class="pend-xlsx-ic" aria-hidden="true"></span> Baixar .xlsx</button>
+          <button id="pendPdfBtn" class="btn-reset" style="background:var(--navy); color:#fff; border-color:var(--navy); padding:8px 14px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px;"><i class=ic-doc></i> Baixar relatório</button>
+        </div>
       </div>
       <div id="pendPmeSection">
         <div class="table-wrap pend-scroll" style="margin-top:12px;">
@@ -2241,6 +2348,16 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
           <span style="font-size:13px; font-weight:800; color:var(--navy);">Consultar Funil</span>
           <span style="font-size:11px; color:var(--muted); font-weight:400;">Todas as equipes juntas, com filtro de gestor lá dentro</span>
         </span>
+      </button>
+      <!-- Implanta amanhã (pedido do sênior via Victor, 2026-10-09): proposta liberada em Cadastro + Ditec + Bitix
+           implanta no dia seguinte. Segue os filtros de Equipe/Gestor abaixo; clique abre o funil já filtrado. -->
+      <button type="button" id="btnImplantaAmanha" class="rs-amanha">
+        <span class="rs-amanha-ic" aria-hidden="true"></span>
+        <span class="rs-amanha-txt">
+          <span class="rs-amanha-t">Implanta amanhã</span>
+          <span class="rs-amanha-s" id="rsAmanhaSub">Liberadas em todas as áreas (PME)</span>
+        </span>
+        <span class="rs-amanha-num"><b id="rsAmanhaVidas">0</b><small>vidas</small></span>
       </button>
       <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; align-items:flex-end;">
         <div class="f-group" style="flex:1; min-width:180px;">

@@ -1372,7 +1372,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         proposta: p.p, corretora: p.co,
         // DITEC/CADASTRO o Planium já traz (ver parsePlaniumWorkbook) — só BITIX fica em
         // branco mesmo, porque essa coluna só existe na Planilha1, não no Planium.
-        status: { planium: p.st, cadastro: p.ca || '', ditec: p.di || '', bitix: '' },
+        status: { planium: p.st, cadastro: p.ca || '', ditec: p.di || '', bitix: p.bi || '' },
         dataReceb: p.dr || '', dataVigencia: p.vg, beneficiarios: p.bn,
       });
       adicionadas++;
@@ -1414,6 +1414,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let pendCurrentGestor = null;
   let pendActiveTab = 'pme';
   let pendSelectedStatuses = new Set();
+  let pendFinAberto = false; // grupo "Finalizadas" do painel de status aberto/fechado (sobrevive aos redesenhos)
   // Nome de exibição de cada "esteira" (campo de status.{campo}) — usado nos chips de filtro
   // de Pendências PME, ver renderPendencias().
   const PEND_STATUS_FIELD_LABELS = {planium:'Planium', cadastro:'Cadastro', ditec:'Ditec', bitix:'Bitix'};
@@ -1425,6 +1426,51 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     if (sep < 0) return k;
     const field = k.slice(0, sep), value = k.slice(sep+2);
     return `${value} · ${PEND_STATUS_FIELD_LABELS[field]||field}`;
+  }
+  // Planium = Bitix (pedido do Victor, 2026-10-09): os dois contam o mesmo andamento, o Bitix mais detalhado
+  // (conferido no extrato de 09/10: pendencia = DEVOLVIDA; analise = EM ANALISE / EM DIGITACAO / REANALISE /
+  // LIBERADO...; implantada = PROCESSADO; cancelada = CANCELADO). A área continua com o nome "Planium" (é o que
+  // a tabela dinâmica usa), mas o filtro mostra o status do Bitix. Os totais Em Análise / Em Pendência do
+  // Resumo continuam pelo status do Planium — só o filtro ficou mais fino.
+  //  - proposta em aberto sem Bitix = não achada no T6140B → "FORA DO T6140B";
+  //  - finalizada (só aparece se marcar) leva o status do Planium junto ("PROCESSADO · implantada"), pra não
+  //    se misturar com as 8 em aberto que já estão PROCESSADO no Bitix.
+  // Cadastro/Ditec em branco = "SEM STATUS"; "INICIADO ANÁLISE:EC625813" (login do analista colado na origem)
+  // vira um status só, "INICIADO ANÁLISE".
+  PEND_STATUS_FIELD_LABELS.amanha = 'Implanta amanhã';
+  const PEND_AMANHA_VALOR = 'Liberada em todas as áreas';
+  // (declarações de função, não const: o Resumo do Dia chama pendImplantaAmanha já na carga da página,
+  // antes desta linha rodar — function é "içada" pro topo da IIFE, const não.)
+  function pendTxt(v){ const s = String(v == null ? '' : v).trim(); return s === '0' ? '' : s; }
+  function pendSemLogin(v){ return pendTxt(v).replace(/:\s*[A-Z0-9]{5,}\s*$/i, ''); }
+  // "Implanta amanhã": Cadastro CONCLUIDO + Ditec LIBERADA + Bitix LIBERADO. Regra do sênior conferida nos
+  // extratos: das 326 assim em 07/10, 325 estavam implantadas (PROCESSADO) em 09/10.
+  function pendImplantaAmanha(p){
+    if (!p || p._extra || !p.status || typeof p.status !== 'object' || Array.isArray(p.status)) return false;
+    const s = p.status;
+    return /^CONCLU[IÍ]DO$/i.test(pendTxt(s.cadastro)) && /^LIBERADA$/i.test(pendTxt(s.ditec)) && /^LIBERADO$/i.test(pendTxt(s.bitix));
+  }
+  function pendPlaniumView(p){
+    const bi = pendTxt(p.status.bitix).toUpperCase();
+    // Finalizadas: o Planium manda (no Bitix elas se espalham — cancelada aparecia como CANCELADO, PROCESSADO,
+    // EM DIGITACAO... — e viravam 8 opções com 1 ou 2 propostas). Ficam 3, no nome do Bitix.
+    if (p._extra){
+      const pl = pendTxt(p.status.planium).toLowerCase();
+      if (pl === 'implantada') return 'PROCESSADO · implantada';
+      if (pl === 'cancelada') return 'CANCELADO · cancelada';
+      if (pl === 'devolvida') return 'DEVOLVIDA · encerrada';
+      return `${bi || 'SEM STATUS NO BITIX'} · ${pl}`;
+    }
+    return bi || 'FORA DO T6140B';
+  }
+  function pendPmeStatuses(p){
+    const out = [
+      { field:'planium', value: pendPlaniumView(p) },
+      { field:'cadastro', value: pendSemLogin(p.status.cadastro) || 'SEM STATUS' },
+      { field:'ditec', value: pendSemLogin(p.status.ditec) || 'SEM STATUS' },
+    ];
+    if (pendImplantaAmanha(p)) out.push({ field:'amanha', value: PEND_AMANHA_VALOR });
+    return out;
   }
   // Guarda o resultado filtrado do último render — "Baixar relatório" usa exatamente o que
   // está na tela (gestor + mês + corretora + status já aplicados), sem recalcular nada.
@@ -1471,15 +1517,32 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const gestorNome = pendCurrentGestor;
     const pme = pendenciasDoGestor(PENDENCIAS_PME, gestorNome, 'proposta');
     const pf = pendenciasDoGestor(PENDENCIAS_PF, gestorNome, 'orcamento');
+    // Filtro "mais livre" (pedido do Victor, 2026-10-07): propostas que NÃO estão em análise/pendência
+    // (devolvida, implantada, cancelada...) vêm da lista completa do Planium (PROPOSTAS) e aparecem como
+    // opção no status do Planium — só entram na tabela quando esse status é marcado. Sem filtro, o modal e
+    // todos os totais do funil continuam mostrando só o que está em aberto (PENDENCIAS_PME), como sempre.
+    const pmeExtras = (() => {
+      const props = window.getPropostasData ? window.getPropostasData() : [];
+      const toFriendly = g => window.getGestorFriendlyName ? window.getGestorFriendlyName(g) : g;
+      const alvo = gestorNome ? toFriendly(gestorNome) : null;
+      const jaTem = new Set(pme.map(p => String(p.proposta)));
+      return props
+        // só gestores conhecidos (nome cru com tradução pra um executivo — igual às pendências)
+        .filter(p => p.st && !/pend|analis/i.test(p.st) && p.g && toFriendly(p.g) !== p.g && !jaTem.has(String(p.p)))
+        .map(p => ({ proposta: p.p, corretora: p.co, status: { planium: p.st, cadastro: p.ca || '', ditec: p.di || '', bitix: p.bi || '' },
+                     dataReceb: p.dr || '', dataVigencia: p.vg, beneficiarios: p.bn, _extra: true, _gestor: toFriendly(p.g) }))
+        .filter(p => !alvo || p._gestor === alvo);
+    })();
+    const pmeComExtras = pme.concat(pmeExtras);
     document.getElementById('pendFilterLabel').textContent = pendActiveTab === 'pme' ? 'Filtrar por Data Vigência' : 'Filtrar por Data Status';
     document.getElementById('pendPropostaLabel').textContent = pendActiveTab === 'pme' ? 'Buscar por Nº da Proposta' : 'Buscar por Nº do Orçamento';
     document.getElementById('pendPropostaSearch').placeholder = pendActiveTab === 'pme' ? 'Ex.: 12345' : 'Ex.: 67890';
     document.getElementById('pendModalGestor').textContent = gestorNome || 'Todas as equipes';
 
-    // "Consultar Funil" (pedido do Victor, 2026-09-29, portado do V2) — o dropdown de Gestor
-    // DENTRO do popup troca pendCurrentGestor e re-renderiza, igual mês/corretora já faziam;
-    // nulo = todos os gestores juntos. A coluna Gestor da tabela só aparece nesse caso (sozinho
-    // ela é óbvia/redundante — sempre a mesma pessoa).
+    // "Consultar Funil" (pedido do Victor, 2026-09-29) — o dropdown de Gestor DENTRO do popup
+    // troca pendCurrentGestor e re-renderiza, igual mês/corretora já faziam; nulo = todos os
+    // gestores juntos. A coluna Gestor da tabela só aparece nesse caso (sozinho ela é óbvia/
+    // redundante — sempre a mesma pessoa).
     const gestorSel = document.getElementById('pendGestorFilter');
     if (document.activeElement !== gestorSel){
       const todosGestores = [...new Set(Object.keys(Object.assign({}, PENDENCIAS_PME, PENDENCIAS_PF)).map(k => window.getGestorFriendlyName ? window.getGestorFriendlyName(k) : k))].sort();
@@ -1505,82 +1568,99 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     corSel.value = corretoras.includes(prevCor) ? prevCor : '';
     const activeCorretora = corSel.value;
 
-    // Pedido do Victor, 2026-09-29: "PENDENTE" (Ditec) e "pendencia" (Planium) pareciam
-    // duplicados nos chips de filtro, mas são status de esteiras DIFERENTES dentro da mesma
-    // proposta — cada campo de status.{planium,cadastro,ditec,bitix} é uma etapa separada do
-    // fluxo. Antes só mostrava o valor cru ("PENDENTE"/"pendencia" soltos), sem deixar claro
-    // de qual esteira cada um vinha. Agora cada chip carrega o par {campo, valor} e mostra os
-    // dois ("Pendente · Ditec"), tanto pra exibir quanto pra filtrar — dois status com o mesmo
-    // texto mas de campos diferentes viram chips distintos, nunca fundidos num só sem querer.
+    // Cada chip carrega o par {campo, valor} — dois status com o mesmo texto mas de campos
+    // diferentes (ex.: REANALISE no Ditec e no Bitix) viram chips distintos, nunca fundidos.
     const statusesOf = p => {
       if (Array.isArray(p.status)) return p.status.filter(v=>v && v!=='0').map(v => ({field:null, value:v}));
-      if (p.status && typeof p.status === 'object'){
-        return Object.entries(p.status).filter(([k,v])=>v && v!=='0').map(([field,value]) => ({field, value}));
-      }
+      if (p.status && typeof p.status === 'object') return pendPmeStatuses(p); // PME: Planium(Bitix)/Cadastro/Ditec/Implanta amanhã
       return (p.status && p.status !== '0') ? [{field:null, value:p.status}] : [];
     };
     const statusKey = o => (o.field ? o.field+'::' : '') + o.value;
-    const statusLabel = o => pendStatusKeyToLabel(statusKey(o));
 
     // Quantas vezes cada status aparece no recorte atual — usada pra ordenar por relevância
     // (mais frequente primeiro, dentro de cada esteira) e, no modo "todos os gestores", pra
-    // esconder valores que aparecem 1 única vez: amostragem real em 2026-09-29 (no V2, mesma
-    // lógica) mostrou que os casos com exatamente 1 ocorrência tinham um ID de registro colado
-    // no próprio texto do status (ex. "INICIADO ANÁLISE:EC625813") — glitch de digitação na
-    // origem (Ditec/SIGO), não categoria real do funil. Com um gestor específico selecionado a
-    // lista já é curta, então não filtra nada ali — só no agregado de todos os gestores é que
-    // esse ruído aparece.
+    // esconder valores que aparecem 1 única vez: amostragem real em 2026-09-29 mostrou que os
+    // 3 casos com exatamente 1 ocorrência tinham um ID de registro colado no próprio texto do
+    // status (ex. "INICIADO ANÁLISE:EC625813") — glitch de digitação na origem (Ditec/SIGO), não
+    // categoria real do funil. Com um gestor específico selecionado a lista já é curta, então
+    // não filtra nada ali — só no agregado de ~19 gestores é que esse ruído aparece.
+    // As propostas extras (devolvida/implantada/cancelada) só contam pro status do PLANIUM — os status de
+    // Cadastro/Ditec/Bitix delas não entram nas opções (senão as implantadas inflavam essas contagens).
+    const chipList = pendActiveTab === 'pme' ? pmeComExtras : pf;
+    const statusesForChips = p => p._extra ? statusesOf(p).filter(o => o.field === 'planium') : statusesOf(p);
     const statusCounts = {};
-    list.flatMap(statusesOf).forEach(o => { const k = statusKey(o); statusCounts[k] = (statusCounts[k]||0) + 1; });
+    chipList.flatMap(statusesForChips).forEach(o => { const k = statusKey(o); statusCounts[k] = (statusCounts[k]||0) + 1; });
 
     const seenKeys = new Set();
     const statuses = [];
-    list.flatMap(statusesOf).forEach(o => { const k = statusKey(o); if (!seenKeys.has(k)){ seenKeys.add(k); statuses.push(o); } });
+    chipList.flatMap(statusesForChips).forEach(o => { const k = statusKey(o); if (!seenKeys.has(k)){ seenKeys.add(k); statuses.push(o); } });
     pendSelectedStatuses.forEach(k => { if (!seenKeys.has(k)) pendSelectedStatuses.delete(k); });
 
-    const FIELD_ORDER = ['planium','cadastro','ditec','bitix'];
+    // "Implanta amanhã" nunca some do painel (mesmo com 0 ou 1 proposta) — por isso não passa pelo corte de
+    // "aparece 1 vez só" abaixo; ela tem área própria, desenhada à parte.
+    const amanhaKey = 'amanha::' + PEND_AMANHA_VALOR;
+    const amanhaRows = pendActiveTab === 'pme' ? pme.filter(pendImplantaAmanha) : [];
+    const amanhaVidas = amanhaRows.reduce((s,p)=>s+(p.beneficiarios||0),0);
+    const isFinalizada = o => o.field === 'planium' && o.value.indexOf(' · ') >= 0; // só existe nas extras
+    const FIELD_ORDER = ['planium','cadastro','ditec'];
     const visibleStatuses = statuses
-      .filter(o => gestorNome || statusCounts[statusKey(o)] > 1)
+      // (o corte de "aparece 1 vez só" era por causa do login colado no status — no PME isso agora é limpo
+      // em pendSemLogin, então lá mostra tudo; continua valendo pro PF)
+      .filter(o => o.field !== 'amanha' && (gestorNome || o.field || statusCounts[statusKey(o)] > 1))
       .sort((a,b) => {
         const fa = FIELD_ORDER.indexOf(a.field), fb = FIELD_ORDER.indexOf(b.field);
         if (fa !== fb) return fa - fb;
+        // "SEM STATUS"/"FORA DO T6140B" vão pro fim da área
+        const sa = /^(SEM STATUS|FORA DO T6140B)$/.test(a.value) ? 1 : 0, sb = /^(SEM STATUS|FORA DO T6140B)$/.test(b.value) ? 1 : 0;
+        if (sa !== sb) return sa - sb;
         return statusCounts[statusKey(b)] - statusCounts[statusKey(a)];
       });
-    // Filtro de status num painel (pedido do Victor, 2026-10-07 — demonstrativo aprovado): em vez de ~18
-    // "pílulas" soltas, um botão "Status" abre as áreas lado a lado NA ORDEM DA ESTEIRA (Planium → Cadastro →
-    // Ditec → Bitix), cada uma com uma frase explicando o que é (texto provisório — Victor vai revisar), status
-    // com caixinha + quantidade de propostas. Marcados viram etiquetas removíveis abaixo dos filtros. Status com
-    // código colado no texto ("INICIADO ANÁLISE:FF69051", glitch da origem) vão pra "Outros" no fim da área.
-    // A lógica do filtro NÃO mudou: qualquer status marcado (OU), igual antes.
+    // Painel por área (V1, 2026-10-07; V2 2026-10-09): áreas lado a lado na ordem da esteira, cada uma com uma
+    // frase explicando (texto provisório — Victor revisa), caixinha + quantidade de propostas e uma barrinha
+    // atrás mostrando o peso de cada status na área. No Planium, as finalizadas (devolvida, implantada,
+    // cancelada) ficam num grupo à parte — só entram na tabela quando marcadas. Lógica do filtro: OU, como antes.
     const PEND_AREA_TEXTO = {
-      planium: 'Plataforma onde a proposta é digitada, enviada e assinada. Mostra a situação geral (implantada = concluída).',
+      planium: 'Andamento da proposta até a implantação (status do Bitix).',
       cadastro: 'Conferência dos dados e documentos da empresa e dos beneficiários.',
       ditec: 'Análise da área médica/técnica (declarações de saúde).',
-      bitix: 'Processamento da proposta no sistema até a implantação.',
     };
     const escHtml = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    const isGlitch = o => /:\s*[A-Z0-9]{5,}\s*$/i.test(String(o.value));
     const areaNome = f => f ? (PEND_STATUS_FIELD_LABELS[f] || f) : '';
-    const itemHtml = o => { const k = statusKey(o); return `<label class="pst-item${isGlitch(o)?' rare':''}"><input type="checkbox" data-status="${escHtml(k)}"${pendSelectedStatuses.has(k)?' checked':''}><span>${escHtml(o.value)}</span><span class="pst-n">${statusCounts[k]}</span></label>`; };
+    const itemHtml = (o, areaTot) => {
+      const k = statusKey(o), n = statusCounts[k] || 0;
+      const pct = areaTot ? Math.max(2, Math.round(n / areaTot * 100)) : 0;
+      const txt = o.value;
+      return `<label class="pst-item${/^(SEM STATUS|FORA DO T6140B)$/.test(o.value) || isFinalizada(o) ? ' rare' : ''}" style="--p:${isFinalizada(o) ? 0 : pct}"><input type="checkbox" data-status="${escHtml(k)}"${pendSelectedStatuses.has(k)?' checked':''}><span>${escHtml(txt)}</span><span class="pst-n">${n.toLocaleString('pt-BR')}</span></label>`;
+    };
     const chipsWrap = document.getElementById('pendStatusChips');
     const campos = [...new Set(visibleStatuses.map(o => o.field))];
     if (!visibleStatuses.length){
-      chipsWrap.className = 'pst-flow';
+      chipsWrap.className = 'pst-flow pst-simple';
       chipsWrap.innerHTML = '<p class="pst-hint" style="margin:0">Nenhum status nesse recorte.</p>';
     } else if (campos.length === 1 && campos[0] === null){
       // PF: um status só por orçamento, sem áreas — lista simples.
+      const tot = visibleStatuses.reduce((s,o)=>s+(statusCounts[statusKey(o)]||0),0);
       chipsWrap.className = 'pst-flow pst-simple';
-      chipsWrap.innerHTML = `<div class="pst-area">${visibleStatuses.map(itemHtml).join('')}</div>`;
+      chipsWrap.innerHTML = `<div class="pst-area"><div class="pst-opts">${visibleStatuses.map(o => itemHtml(o, tot)).join('')}</div></div>`;
     } else {
       chipsWrap.className = 'pst-flow';
-      chipsWrap.innerHTML = campos.map((f, i) => {
+      const areas = FIELD_ORDER.filter(f => campos.includes(f)).map((f, i) => {
         const dela = visibleStatuses.filter(o => o.field === f);
-        const normais = dela.filter(o => !isGlitch(o)), raros = dela.filter(isGlitch);
-        return `<div class="pst-area"><div class="pst-step"><span class="pst-num">${i + 1}</span><h4>${escHtml(areaNome(f) || 'Status')}</h4></div>
+        const normais = dela.filter(o => !isFinalizada(o)), finais = dela.filter(isFinalizada);
+        const tot = normais.reduce((s,o)=>s+(statusCounts[statusKey(o)]||0),0);
+        return `<div class="pst-area"><div class="pst-step"><span class="pst-num">${i + 1}</span><h4>${escHtml(areaNome(f))}</h4><span class="pst-step-n">${tot.toLocaleString('pt-BR')}</span></div>
           ${PEND_AREA_TEXTO[f] ? `<p class="pst-desc">${PEND_AREA_TEXTO[f]}</p>` : ''}
-          <div class="pst-opts">${normais.map(itemHtml).join('')}${raros.length ? '<span class="pst-outros">Outros</span>' + raros.map(itemHtml).join('') : ''}</div>
+          <div class="pst-opts">${normais.map(o => itemHtml(o, tot)).join('')}</div>
+          ${finais.length ? `<details class="pst-fin"${pendFinAberto || finais.some(o => pendSelectedStatuses.has(statusKey(o))) ? ' open' : ''}><summary>Finalizadas <span class="pst-fin-sub">· só aparecem se marcar</span></summary><div class="pst-opts">${finais.map(o => itemHtml(o, 0)).join('')}</div></details>` : ''}
           ${normais.length > 1 ? `<button type="button" class="pst-all" data-field="${escHtml(f)}">Marcar todos de ${escHtml(areaNome(f))}</button>` : ''}</div>`;
-      }).join('');
+      });
+      if (pendActiveTab === 'pme'){
+        areas.push(`<div class="pst-area amanha"><div class="pst-step"><span class="pst-num">${areas.length + 1}</span><h4>Implanta amanhã</h4></div>
+          <p class="pst-desc">Liberada em todas as áreas — Cadastro CONCLUIDO, Ditec LIBERADA e Planium LIBERADO. Implanta no dia seguinte.</p>
+          <div class="pst-big"><b>${amanhaVidas.toLocaleString('pt-BR')}</b><span>${amanhaVidas === 1 ? 'vida' : 'vidas'} em ${amanhaRows.length} ${amanhaRows.length === 1 ? 'proposta' : 'propostas'}</span></div>
+          <label class="pst-switch"><input type="checkbox" data-status="${escHtml(amanhaKey)}"${pendSelectedStatuses.has(amanhaKey)?' checked':''}${amanhaRows.length ? '' : ' disabled'}><span>${amanhaRows.length ? 'Mostrar só essas propostas' : 'Nenhuma neste recorte'}</span></label></div>`);
+      }
+      chipsWrap.innerHTML = areas.join('');
     }
     chipsWrap.querySelectorAll('input[type=checkbox]').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -1589,35 +1669,51 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         renderPendencias();
       });
     });
+    chipsWrap.querySelectorAll('details.pst-fin').forEach(d => d.addEventListener('toggle', () => { pendFinAberto = d.open; }));
     chipsWrap.querySelectorAll('.pst-all').forEach(btn => {
       btn.addEventListener('click', () => {
-        visibleStatuses.filter(o => o.field === btn.dataset.field && !isGlitch(o)).forEach(o => pendSelectedStatuses.add(statusKey(o)));
+        visibleStatuses.filter(o => o.field === btn.dataset.field && !isFinalizada(o)).forEach(o => pendSelectedStatuses.add(statusKey(o)));
         renderPendencias();
       });
     });
-    // Etiquetas dos status marcados + resumo no botão
+    // Etiquetas dos status marcados (só a que acabou de entrar anima) + resumo no botão
     const ativos = document.getElementById('pendStatusAtivos');
+    const keysAntes = new Set([...ativos.querySelectorAll('button[data-status]')].map(b => b.dataset.status));
     ativos.innerHTML = [...pendSelectedStatuses].map(k => {
       const sep = k.indexOf('::'), f = sep >= 0 ? k.slice(0, sep) : null, v = sep >= 0 ? k.slice(sep + 2) : k;
-      return `<span class="pst-tag">${f ? `<span class="pst-tag-area">${escHtml(areaNome(f))} ·</span> ` : ''}${escHtml(v)}<button type="button" aria-label="Tirar o status ${escHtml(v)}" data-status="${escHtml(k)}">×</button></span>`;
+      return `<span class="pst-tag${f === 'amanha' ? ' amanha' : ''}${keysAntes.has(k) ? '' : ' new'}">${f ? `<span class="pst-tag-area">${escHtml(areaNome(f))} ·</span> ` : ''}${escHtml(v)}<button type="button" aria-label="Tirar o status ${escHtml(v)}" data-status="${escHtml(k)}">×</button></span>`;
     }).join('');
     ativos.querySelectorAll('button[data-status]').forEach(b => b.addEventListener('click', () => { pendSelectedStatuses.delete(b.dataset.status); renderPendencias(); }));
-    const n = pendSelectedStatuses.size;
-    document.getElementById('pendStatusResumo').textContent = n ? (n === 1 ? '1 status marcado' : n + ' status marcados') : 'Todos os status';
-    document.getElementById('pendStatusBtn').classList.toggle('on', n > 0);
+    const nSel = pendSelectedStatuses.size;
+    document.getElementById('pendStatusResumo').textContent = nSel ? (nSel === 1 ? '1 status marcado' : nSel + ' status marcados') : 'Todos os status';
+    document.getElementById('pendStatusBtn').classList.toggle('on', nSel > 0);
     document.getElementById('pendStatusHint').textContent = pendActiveTab === 'pme'
-      ? 'A proposta passa pelas áreas nessa ordem. Marque o que quer ver; os números mostram quantas propostas estão em cada situação.'
+      ? 'A proposta passa pelas áreas nessa ordem. Na mesma área, vale qualquer status marcado; marcando em áreas diferentes, a proposta precisa bater em todas. Os números mostram quantas propostas estão em cada situação.'
       : 'Marque o que quer ver; os números mostram quantos orçamentos estão em cada situação.';
-    document.getElementById('pendStatusClear').style.display = n ? '' : 'none';
+    document.getElementById('pendStatusClear').style.display = nSel ? '' : 'none';
 
     // Busca por número — texto livre, casa parcialmente (contém), ignora espaços nas pontas.
     // Proposta (PME) e Orçamento (PF) são campos diferentes, mas o mesmo campo de busca serve
     // pros dois: cada aba já sabe qual número procurar (dataVigencia/dataStatus segue o mesmo padrão).
     const searchRaw = document.getElementById('pendPropostaSearch').value.trim().toLowerCase();
 
-    const pmeFiltered = pme.filter(p => (!activeMonth || pendMonthOf(p.dataVigencia) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pme' || pendSelectedStatuses.size === 0 || statusesOf(p).some(o=>pendSelectedStatuses.has(statusKey(o)))) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
+    // Extras só entram quando o status do Planium delas está marcado; as em aberto seguem a regra de sempre.
+    // (busca por nº sem status marcado também acha as extras — ex.: "essa proposta já foi implantada?")
+    // Regra do filtro (corrigida em 09/10/2026, Victor achou: marcou Planium LIBERADO + Cadastro CONCLUIDO + Ditec LIBERADA
+    // e vinham DEVOLVIDAS — o filtro era "OU" geral, bastava bater numa área). Agora: dentro da MESMA área vale qualquer
+    // status marcado (OU); entre áreas DIFERENTES a proposta tem que bater em todas (E).
+    const selPorArea = {};
+    pendSelectedStatuses.forEach(k => { const sep = k.indexOf('::'), f = sep >= 0 ? k.slice(0, sep) : ''; (selPorArea[f] = selPorArea[f] || new Set()).add(k); });
+    const bateFiltro = p => {
+      const keys = statusesOf(p).map(statusKey);
+      return Object.values(selPorArea).every(set => keys.some(k => set.has(k)));
+    };
+    const pmeStatusOk = p => p._extra
+      ? (pendActiveTab === 'pme' && ((!!selPorArea.planium && bateFiltro(p)) || (!!searchRaw && pendSelectedStatuses.size === 0)))
+      : (pendActiveTab !== 'pme' || pendSelectedStatuses.size === 0 || bateFiltro(p));
+    const pmeFiltered = pmeComExtras.filter(p => (!activeMonth || pendMonthOf(p.dataVigencia) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && pmeStatusOk(p) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.beneficiarios||0) - (b.beneficiarios||0)));
-    const pfFiltered = pf.filter(p => (!activeMonth || pendMonthOf(p.dataStatus) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || statusesOf(p).some(o=>pendSelectedStatuses.has(statusKey(o)))) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
+    const pfFiltered = pf.filter(p => (!activeMonth || pendMonthOf(p.dataStatus) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || bateFiltro(p)) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.vidas||0) - (b.vidas||0)));
     pendLastPmeFiltered = pmeFiltered;
     pendLastPfFiltered = pfFiltered;
@@ -1627,6 +1723,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('pendPdfBtn').style.opacity = document.getElementById('pendPdfBtn').disabled ? '.5' : '';
     document.getElementById('pendPdfBtn').style.cursor = document.getElementById('pendPdfBtn').disabled ? 'default' : 'pointer';
     document.getElementById('pendPdfBtn').title = gestorNome ? '' : 'Selecione um gestor específico pra baixar o relatório';
+    // Planilha .xlsx: só PME, com qualquer gestor (inclusive "todos")
+    const xlsxBtn = document.getElementById('pendXlsxBtn');
+    xlsxBtn.style.display = pendActiveTab === 'pme' ? '' : 'none';
+    xlsxBtn.disabled = !pmeFiltered.length;
+    xlsxBtn.title = `Baixa as ${pmeFiltered.length} propostas da tela (com os filtros aplicados) + aba DINÂMICA por gestor`;
 
     document.getElementById('pendCountPme').textContent = pmeFiltered.reduce((s,p)=>s+(p.beneficiarios||0),0);
     document.getElementById('pendCountPf').textContent = pfFiltered.reduce((s,p)=>s+(p.vidas||0),0);
@@ -1653,8 +1754,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       </div></td></tr>`;
     document.getElementById('pendPmeBody').innerHTML = pmeFiltered.length ? pmeFiltered.map(p => `
       <tr><td>${p.proposta}</td><td class="num">${p.beneficiarios}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td>
-        ${p.status.planium ? `<span class="tag ${p.status.planium==='pendencia'?'react':'noelig'}">${p.status.planium}</span>` : ''}
-        <div style="font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.6;">${['cadastro','ditec','bitix'].filter(k=>p.status[k] && p.status[k]!=='0').map(k=>`${k.charAt(0).toUpperCase()+k.slice(1)}: <b>${p.status[k]}</b>`).join(' · ')}</div>
+        <span class="tag ${p.status.planium==='pendencia'?'react':'noelig'}" title="Planium: ${p.status.planium||'—'}">${pendPlaniumView(p)}</span>${pendImplantaAmanha(p) ? '<span class="pend-amanha">Implanta amanhã</span>' : ''}
+        <div style="font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.6;">${['cadastro','ditec'].filter(k=>pendTxt(p.status[k])).map(k=>`${k.charAt(0).toUpperCase()+k.slice(1)}: <b>${pendSemLogin(p.status[k])}</b>`).join(' · ')}</div>
       </td><td>${p.dataReceb}</td><td>${p.dataVigencia}</td></tr>
     `).join('') : pendEmptyRow(showGestorCol?7:6, 'pendência PME/SS');
     document.getElementById('pendPfBody').innerHTML = pfFiltered.length ? pfFiltered.map(p => `
@@ -1671,7 +1772,17 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     });
   }
 
-  window.showPendenciasModal = function(gestorNome){
+  // Painel de status: abre/fecha animado (classe .open; .just-opened só na abertura, pra as áreas entrarem
+  // uma vez — os cliques nas caixinhas redesenham o conteúdo e não devem reanimar nada).
+  function pendStatusPanelSet(abrir){
+    const wrap = document.getElementById('pendStatusPanel'), btn = document.getElementById('pendStatusBtn');
+    wrap.classList.toggle('open', abrir);
+    btn.setAttribute('aria-expanded', String(abrir));
+    if (abrir){ wrap.classList.add('just-opened'); clearTimeout(pendStatusPanelSet._t); pendStatusPanelSet._t = setTimeout(() => wrap.classList.remove('just-opened'), 500); }
+  }
+  document.getElementById('pendStatusBtn').addEventListener('click', () => pendStatusPanelSet(!document.getElementById('pendStatusPanel').classList.contains('open')));
+
+  window.showPendenciasModal = function(gestorNome, opts){
     // Aceita tanto o nome "bonito" (ex.: "Pablo Amora", como vem do Desempenho Comercial)
     // quanto o nome cru da planilha (ex.: "PABLO SERGIO RIBEIRO AMORA", como a aba Conversão
     // usa, vindo do PLANIUM) — quem normaliza/junta as duas variantes é pendenciasDoGestor(),
@@ -1687,19 +1798,15 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('pendCorretoraFilter').value = '';
     document.getElementById('pendPropostaSearch').value = '';
     pendSelectedStatuses.clear();
+    // opts.amanha: veio do cartão "Implanta amanhã" do Resumo do Dia — já abre filtrado nisso.
+    if (opts && opts.amanha) pendSelectedStatuses.add('amanha::' + PEND_AMANHA_VALOR);
+    pendStatusPanelSet(false);
     renderPendencias();
     document.getElementById('pendModalOverlay').style.display = 'flex';
   };
   document.getElementById('btnClosePend').addEventListener('click', () => { document.getElementById('pendModalOverlay').style.display = 'none'; });
   document.getElementById('pendModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'pendModalOverlay') document.getElementById('pendModalOverlay').style.display = 'none'; });
   window.__kb(document.getElementById('pendStatusClear')).addEventListener('click', () => { pendSelectedStatuses.clear(); renderPendencias(); });
-  // Botão "Status" abre/fecha o painel das áreas (o painel fica fora do que renderPendencias redesenha, então
-  // continua aberto enquanto a pessoa marca e desmarca).
-  document.getElementById('pendStatusBtn').addEventListener('click', () => {
-    const p = document.getElementById('pendStatusPanel'), b = document.getElementById('pendStatusBtn');
-    p.hidden = !p.hidden;
-    b.setAttribute('aria-expanded', String(!p.hidden));
-  });
   document.getElementById('pendMonthFilter').addEventListener('change', renderPendencias);
   document.getElementById('pendCorretoraFilter').addEventListener('change', renderPendencias);
   document.getElementById('pendPropostaSearch').addEventListener('input', renderPendencias);
@@ -1754,10 +1861,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       <td>${esc(p.corretora)}</td>
       <td class="c">${dataBR(p.dataReceb)}</td>
       <td class="c">${dataBR(p.dataVigencia)}</td>
-      <td class="c"><span class="st" style="color:${stColor(p.status.planium)};border-color:${stColor(p.status.planium)}33;background:${stColor(p.status.planium)}14;">${esc(p.status.planium)||'—'}</span></td>
-      <td class="c">${esc(p.status.cadastro) || '—'}</td>
-      <td class="c">${esc(p.status.ditec) || '—'}</td>
-      <td class="c">${esc(p.status.bitix) || '—'}</td>
+      <td class="c"><span class="st" style="color:${stColor(pendPlaniumView(p))};border-color:${stColor(pendPlaniumView(p))}33;background:${stColor(pendPlaniumView(p))}14;">${esc(pendPlaniumView(p))}</span>${pendImplantaAmanha(p) ? '<div class="am">Implanta amanhã</div>' : ''}</td>
+      <td class="c">${esc(pendSemLogin(p.status.cadastro)) || '—'}</td>
+      <td class="c">${esc(pendSemLogin(p.status.ditec)) || '—'}</td>
       <td class="c b">${p.beneficiarios||0}</td>
     </tr>`).join('') : rows.map(p => `<tr>
       <td>${esc(p.orcamento)}</td>
@@ -1767,9 +1873,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       <td class="c b">${p.vidas||0}</td>
     </tr>`).join('');
     const headers = isPme
-      ? `<th style="width:10%">Proposta</th><th style="width:23%">Corretora</th><th style="width:10%;text-align:center">Recebido</th><th style="width:10%;text-align:center">Vigência</th><th style="width:14%;text-align:center">Planium</th><th style="width:12%;text-align:center">Cadastro</th><th style="width:8%;text-align:center">DITEC</th><th style="width:8%;text-align:center">BITIX</th><th style="width:5%;text-align:center">Vidas</th>`
+      ? `<th style="width:10%">Proposta</th><th style="width:25%">Corretora</th><th style="width:10%;text-align:center">Recebido</th><th style="width:10%;text-align:center">Vigência</th><th style="width:17%;text-align:center">Planium</th><th style="width:13%;text-align:center">Cadastro</th><th style="width:10%;text-align:center">DITEC</th><th style="width:5%;text-align:center">Vidas</th>`
       : `<th style="width:13%">Orçamento</th><th style="width:32%">Corretora</th><th style="width:17%;text-align:center">Data Status</th><th style="width:20%;text-align:center">Status</th><th style="width:8%;text-align:center">Vidas</th>`;
-    const colspanTotal = isPme ? 8 : 4;
+    const colspanTotal = isPme ? 7 : 4;
 
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatório de Pendências ${isPme?'PME':'PF'} — ${esc(pendCurrentGestor)}</title>
 <style>
@@ -1790,6 +1896,7 @@ th{background:#101E63;color:#fff;font-size:7px;text-transform:uppercase;letter-s
 td{padding:4px;border-bottom:1px solid #E8EDF7;font-size:8px;overflow-wrap:break-word}
 tr:nth-child(even) td{background:#F8FAFF}
 td.c{text-align:center}td.b{font-weight:700}
+.am{margin-top:2px;font-size:6.5px;font-weight:800;color:#16B87A;text-transform:uppercase;letter-spacing:.3px}
 .st{display:inline-block;padding:1px 5px;border-radius:20px;border:1px solid;font-size:7px;font-weight:700;text-transform:capitalize;white-space:nowrap}
 tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #1D33A8}
 .ft{margin-top:12px;font-size:7.5px;color:#8B93B8;border-top:1px solid #E3E9F8;padding-top:6px;display:flex;justify-content:space-between}
@@ -1826,6 +1933,261 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   }
   document.getElementById('pendPdfBtn').addEventListener('click', pendGerarPDF);
 
+  // ===== "Baixar .xlsx" do funil PME (pedido do Victor, 2026-10-09) =====
+  // Decisões: (1) exporta EXATAMENTE o que está na tela (gestor/mês/corretora/status/busca — pendLastPmeFiltered);
+  // (2) liberado pra todos os perfis (ele já manda a planilha manual no grupo geral); (3) duas abas:
+  //  - RESULTADO FINAL: mesmas colunas da aba de mesmo nome do "RELATORIO PME AUTOMATIZADO" (menos OPERADORA, que o
+  //    painel não guarda) + IMPLANTA AMANHÃ + EMPRESA;
+  //  - DINÂMICA e ESTEIRA DITEC: tabelas dinâmicas de verdade (2ª versão, 09/10 — a 1ª era com fórmulas e o duplo
+  //    clique não abria os detalhes), montadas igual à planilha original — ver pendAddPivots;
+  //  - PLANIUM e T6140B: os campos que o painel guarda de cada extrato (base inteira).
+  let pendExcelJsPromise = null;
+  function pendLoadExcelJS(){
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    if (!pendExcelJsPromise){
+      pendExcelJsPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+        s.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('ExcelJS não carregou'));
+        s.onerror = () => { pendExcelJsPromise = null; reject(new Error('Falha ao baixar a biblioteca de planilhas')); };
+        document.head.appendChild(s);
+      });
+    }
+    return pendExcelJsPromise;
+  }
+  // Tabelas dinâmicas REAIS no .xlsx (o ExcelJS 4.4.0 do cdnjs não cria): abre o arquivo gerado (zip), acrescenta
+  // um "cache" que aponta pra aba de origem + uma definição de tabela dinâmica por aba, com refreshOnLoad — o Excel
+  // monta as tabelas ao abrir (ou ao clicar em "Habilitar Edição", se o arquivo abrir no Modo de Exibição Protegido).
+  // Duplo clique num valor abre os detalhes, como numa dinâmica feita à mão. Testado no Excel em 09/10/2026.
+  //   opt = { sourceSheet, headers:[...], rows:[[...]] (datas como 'aaaa-mm-dd'),
+  //           pivots:[{ sheetIndex (nº do arquivo sheetN.xml), name, row, col, pages:[...], data, dataName, rowCaption }] }
+  let pendJsZipPromise = null;
+  function pendLoadJsZip(){
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    if (!pendJsZipPromise){
+      pendJsZipPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        s.onload = () => window.JSZip ? resolve(window.JSZip) : reject(new Error('JSZip não carregou'));
+        s.onerror = () => { pendJsZipPromise = null; reject(new Error('Falha ao baixar a biblioteca de compactação')); };
+        document.head.appendChild(s);
+      });
+    }
+    return pendJsZipPromise;
+  }
+  async function pendAddPivots(buf, opt){
+    const JSZip = await pendLoadJsZip();
+    const esc = v => String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const colL = n => { let s=''; while (n > 0){ const m = (n-1) % 26; s = String.fromCharCode(65+m) + s; n = Math.floor((n-1)/26); } return s; };
+    const zip = await JSZip.loadAsync(buf);
+    const H = opt.headers, R = opt.rows, nCols = H.length;
+    const usados = new Set();
+    opt.pivots.forEach(p => { usados.add(p.row); usados.add(p.col); (p.pages||[]).forEach(f => usados.add(f)); });
+    const itens = {};
+    const cacheFields = H.map((h, i) => {
+      const vals = R.map(r => r[i]);
+      if (usados.has(h)){
+        const temVazio = vals.some(v => v === '' || v == null);
+        itens[h] = [...new Set(vals.filter(v => v !== '' && v != null).map(String))].sort().concat(temVazio ? [null] : []);
+        return `<cacheField name="${esc(h)}" numFmtId="0"><sharedItems${temVazio ? ' containsBlank="1"' : ''} count="${itens[h].length}">${itens[h].map(v => v === null ? '<m/>' : `<s v="${esc(v)}"/>`).join('')}</sharedItems></cacheField>`;
+      }
+      const nums = vals.filter(v => typeof v === 'number');
+      if (nums.length && nums.length === vals.length){
+        let mn = Infinity, mx = -Infinity; nums.forEach(v => { if (v < mn) mn = v; if (v > mx) mx = v; });
+        return `<cacheField name="${esc(h)}" numFmtId="0"><sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1" containsInteger="1" minValue="${mn}" maxValue="${mx}"/></cacheField>`;
+      }
+      return `<cacheField name="${esc(h)}" numFmtId="0"><sharedItems/></cacheField>`;
+    });
+    const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+    const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+    const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    zip.file('xl/pivotCache/pivotCacheDefinition1.xml', `${XML}<pivotCacheDefinition ${NS} xmlns:r="${REL}" saveData="0" refreshOnLoad="1" createdVersion="6" refreshedVersion="6" minRefreshableVersion="3" recordCount="0"><cacheSource type="worksheet"><worksheetSource ref="A1:${colL(nCols)}${R.length + 1}" sheet="${esc(opt.sourceSheet)}"/></cacheSource><cacheFields count="${nCols}">${cacheFields.join('')}</cacheFields></pivotCacheDefinition>`);
+    let ct = await zip.file('[Content_Types].xml').async('string');
+    let wbx = await zip.file('xl/workbook.xml').async('string');
+    let wbr = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+    ct = ct.replace('</Types>', '<Override PartName="/xl/pivotCache/pivotCacheDefinition1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml"/></Types>');
+    wbr = wbr.replace('</Relationships>', `<Relationship Id="rIdPivotCache1" Type="${REL}/pivotCacheDefinition" Target="pivotCache/pivotCacheDefinition1.xml"/></Relationships>`);
+    if (!/<workbook[^>]*xmlns:r=/.test(wbx)) wbx = wbx.replace('<workbook ', `<workbook xmlns:r="${REL}" `);
+    wbx = wbx.replace('</workbook>', '<pivotCaches><pivotCache cacheId="1" r:id="rIdPivotCache1"/></pivotCaches></workbook>');
+    for (let k = 0; k < opt.pivots.length; k++){
+      const p = opt.pivots[k], n = k + 1, pages = p.pages || [];
+      const idx = h => H.indexOf(h);
+      const fields = H.map(h => {
+        const its = itens[h];
+        const itemsXml = its ? `<items count="${its.length + 1}">${its.map((_, i) => `<item x="${i}"/>`).join('')}<item t="default"/></items>` : '';
+        if (h === p.row) return `<pivotField axis="axisRow" showAll="0">${itemsXml}</pivotField>`;
+        if (h === p.col) return `<pivotField axis="axisCol" showAll="0">${itemsXml}</pivotField>`;
+        if (pages.includes(h)) return `<pivotField axis="axisPage" showAll="0">${itemsXml}</pivotField>`;
+        if (h === p.data) return '<pivotField dataField="1" showAll="0"/>';
+        return its ? `<pivotField showAll="0">${itemsXml}</pivotField>` : '<pivotField showAll="0"/>';
+      });
+      const r0 = pages.length ? pages.length + 2 : 1;
+      zip.file(`xl/pivotTables/pivotTable${n}.xml`, `${XML}<pivotTableDefinition ${NS} name="${esc(p.name)}" cacheId="1" applyNumberFormats="0" applyBorderFormats="0" applyFontFormats="0" applyPatternFormats="0" applyAlignmentFormats="0" applyWidthHeightFormats="1" dataCaption="Valores" updatedVersion="6" minRefreshableVersion="3" useAutoFormatting="1" itemPrintTitles="1" createdVersion="6" indent="0" outline="1" outlineData="1" multipleFieldFilters="0" rowHeaderCaption="${esc(p.rowCaption || p.row)}"><location ref="A${r0}:B${r0 + 2}" firstHeaderRow="1" firstDataRow="2" firstDataCol="1"${pages.length ? ` rowPageCount="${pages.length}" colPageCount="1"` : ''}/><pivotFields count="${nCols}">${fields.join('')}</pivotFields><rowFields count="1"><field x="${idx(p.row)}"/></rowFields><colFields count="1"><field x="${idx(p.col)}"/></colFields>${pages.length ? `<pageFields count="${pages.length}">${pages.map(h => `<pageField fld="${idx(h)}" hier="-1"/>`).join('')}</pageFields>` : ''}<dataFields count="1"><dataField name="${esc(p.dataName)}" fld="${idx(p.data)}" baseField="0" baseItem="0" numFmtId="3"/></dataFields><pivotTableStyleInfo name="PivotStyleMedium2" showRowHeaders="1" showColHeaders="1" showRowStripes="0" showColStripes="0" showLastColumn="1"/></pivotTableDefinition>`);
+      zip.file(`xl/pivotTables/_rels/pivotTable${n}.xml.rels`, `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/pivotCacheDefinition" Target="../pivotCache/pivotCacheDefinition1.xml"/></Relationships>`);
+      ct = ct.replace('</Types>', `<Override PartName="/xl/pivotTables/pivotTable${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml"/></Types>`);
+      const relPath = `xl/worksheets/_rels/sheet${p.sheetIndex}.xml.rels`;
+      const rel = `<Relationship Id="rIdPivot${n}" Type="${REL}/pivotTable" Target="../pivotTables/pivotTable${n}.xml"/>`;
+      zip.file(relPath, zip.file(relPath)
+        ? (await zip.file(relPath).async('string')).replace('</Relationships>', rel + '</Relationships>')
+        : `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rel}</Relationships>`);
+    }
+    zip.file('[Content_Types].xml', ct);
+    zip.file('xl/workbook.xml', wbx);
+    zip.file('xl/_rels/workbook.xml.rels', wbr);
+    return zip.generateAsync({ type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression:'DEFLATE' });
+  }
+
+  // Extrato completo do T6140B: o desta aba (import recente) ou o publicado no Firestore (seção T6140B_EXTRATO, fora
+  // do login — só é buscado aqui, no clique). Sem nenhum → null (a aba T6140B sai resumida).
+  async function pendObterT6140bExtrato(){
+    if (window.__T6140B_EXTRATO && window.__T6140B_EXTRATO.texto) return window.__T6140B_EXTRATO;
+    if (!window.fsReadSection) return null;
+    try {
+      const v = await window.fsReadSection('T6140B_EXTRATO');
+      if (v && v.texto){ window.__T6140B_EXTRATO = v; return v; }
+    } catch(e){ console.warn('T6140B completo indisponível:', e && e.message); }
+    return null;
+  }
+
+  async function pendBaixarXlsx(){
+    const rows = pendLastPmeFiltered.slice();
+    if (!rows.length) return;
+    const btn = document.getElementById('pendXlsxBtn');
+    const txtOrig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando...';
+    try {
+      const ExcelJS = await pendLoadExcelJS();
+      // Vendedor, empresa e nome cru do gestor vêm da lista completa do Planium (mesma proposta)
+      const porNum = {};
+      (window.getPropostasData ? window.getPropostasData() : []).forEach(p => { porNum[String(p.p)] = p; });
+      const dataXl = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); return m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : null; };
+      const gestorDe = p => { const x = porNum[String(p.proposta)]; return (x && x.g) ? String(x.g).toUpperCase() : String(p._gestor || pendCurrentGestor || '').toUpperCase(); };
+      rows.sort((a,b) => gestorDe(a).localeCompare(gestorDe(b)) || (b.beneficiarios||0) - (a.beneficiarios||0));
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Painel Comercial — Cauda Longa NDI SP';
+      const NAVY = 'FF101E63', VERDE = 'FF16B87A', CINZA = 'FFE3E9F8';
+      const borda = { top:{style:'thin',color:{argb:CINZA}}, bottom:{style:'thin',color:{argb:CINZA}}, left:{style:'thin',color:{argb:CINZA}}, right:{style:'thin',color:{argb:CINZA}} };
+      const estiloCab = cell => { cell.font = { bold:true, color:{argb:'FFFFFFFF'}, size:10 }; cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} }; cell.alignment = { vertical:'middle', horizontal:'center', wrapText:true }; cell.border = borda; };
+
+      // As duas tabelas dinâmicas vêm primeiro — viram os arquivos sheet1/sheet2 do .xlsx, onde pendAddPivots as liga.
+      const wd = wb.addWorksheet('DINÂMICA');
+      const we = wb.addWorksheet('ESTEIRA DITEC');
+
+      // ---- aba RESULTADO FINAL ----
+      const ws = wb.addWorksheet('RESULTADO FINAL', { views:[{ state:'frozen', ySplit:1 }] });
+      const COLS = [
+        ['PROPOSTA',12], ['GESTOR',34], ['BENEFICIARIOS',14], ['DATA RECEBIMENTO',15], ['DATA VIGÊNCIA',14], ['CADASTRO',20],
+        ['DITEC',16], ['BITIX',24], ['PLANIUM',13], ['CORRETORA',42], ['VENDEDOR',34], ['EMPRESA',42], ['IMPLANTA AMANHÃ',14],
+      ];
+      ws.columns = COLS.map(([h,w]) => ({ header:h, width:w }));
+      ws.getRow(1).height = 30;
+      ws.getRow(1).eachCell(estiloCab);
+      rows.forEach(p => {
+        const x = porNum[String(p.proposta)] || {};
+        const num = /^\d+$/.test(String(p.proposta)) ? Number(p.proposta) : p.proposta;
+        const r = ws.addRow([
+          num, gestorDe(p), p.beneficiarios || 0, dataXl(p.dataReceb), dataXl(p.dataVigencia),
+          pendSemLogin(p.status.cadastro) || '', pendSemLogin(p.status.ditec) || '', pendTxt(p.status.bitix) || '',
+          pendTxt(p.status.planium) || '', p.corretora || '', x.vd || '', x.em || '', pendImplantaAmanha(p) ? 'SIM' : '',
+        ]);
+        r.getCell(4).numFmt = 'dd/mm/yyyy'; r.getCell(5).numFmt = 'dd/mm/yyyy';
+        [1,3,4,5,9,13].forEach(c => { r.getCell(c).alignment = { horizontal:'center' }; });
+        if (pendImplantaAmanha(p)) r.getCell(13).font = { bold:true, color:{ argb:VERDE } };
+        r.eachCell({ includeEmpty:true }, c => { c.border = borda; });
+      });
+      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:COLS.length } };
+      const nBase = rows.length + 1; // última linha de dados
+
+      // ---- DINÂMICA / ESTEIRA DITEC: tabelas dinâmicas DE VERDADE (pedido do Victor, 09/10: com fórmulas o duplo
+      // clique não abria os detalhes). Mesma montagem da planilha original: DINÂMICA = GESTOR × PLANIUM, soma de
+      // BENEFICIARIOS (+ filtros IMPLANTA AMANHÃ e BITIX); ESTEIRA DITEC = GESTOR × DITEC com filtros DATA VIGÊNCIA,
+      // CADASTRO e BITIX. As duas leem a aba RESULTADO FINAL e o Excel as monta ao abrir (pendAddPivots).
+      const filtros = [
+        document.getElementById('pendGestorFilter').value || 'Todos os gestores',
+        document.getElementById('pendMonthFilter').value ? 'vigência ' + document.getElementById('pendMonthFilter').value : 'todos os meses',
+        document.getElementById('pendCorretoraFilter').value || 'todas as corretoras',
+        pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'todos os status',
+      ];
+      const nota = (sh, col) => {
+        sh.getCell(1, col).value = 'Filtro do painel: ' + filtros.join(' · ');
+        sh.getCell(2, col).value = 'Gerado em ' + new Date().toLocaleString('pt-BR') + '. Se a tabela aparecer vazia, clique em "Habilitar Edição".';
+        [1,2].forEach(r => { sh.getCell(r, col).font = { italic:true, size:9, color:{ argb:'FF56608F' } }; });
+      };
+      wd.getColumn(1).width = 36; we.getColumn(1).width = 36;
+      nota(wd, 10); nota(we, 12);
+
+      // ---- abas PLANIUM e T6140B: os campos que o painel guarda de cada extrato (o extrato cru não fica guardado —
+      // decisão do Victor 09/10, pra não deixar login/download mais lentos). Base inteira guardada, não só o filtro.
+      const props = (window.getPropostasData ? window.getPropostasData() : []).slice()
+        .sort((a,b) => String(a.g||'').localeCompare(String(b.g||'')) || String(a.p).localeCompare(String(b.p)));
+      const numOuTxt = v => /^\d+$/.test(String(v)) ? Number(v) : (v || '');
+      const montaAba = (nome, cols, linhas, datas) => {
+        const sh = wb.addWorksheet(nome, { views:[{ state:'frozen', ySplit:1 }] });
+        sh.columns = cols.map(([h,w]) => ({ header:h, width:w }));
+        sh.getRow(1).height = 28; sh.getRow(1).eachCell(estiloCab);
+        linhas.forEach(l => { const r = sh.addRow(l); datas.forEach(c => { r.getCell(c).numFmt = 'dd/mm/yyyy'; }); });
+        sh.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:cols.length } };
+        return sh;
+      };
+      montaAba('PLANIUM', [['oper_propnum',13], ['contratante_nome',42], ['contratante_cnpj',20], ['data_notificada',14], ['date_vigencia',13],
+        ['beneficiarios',12], ['status',12], ['corretora_nome',42], ['vendedor_nome',34], ['GESTOR',34], ['DATA RECEBIMENTO',15], ['DITEC',16], ['CADASTRO',20]],
+        props.map(p => [numOuTxt(p.p), p.em || '', p.cn || '', dataXl(p.dn), dataXl(p.vg), p.bn || 0, p.st || '', p.co || '', p.vd || '',
+                         String(p.g || '').toUpperCase(), dataXl(p.dr), p.di || '', p.ca || '']), [4,5,11]);
+      // T6140B: o extrato INTEIRO quando o painel tem (importado nesta aba, ou publicado — lido do Firestore só agora);
+      // senão, os campos resumidos de antes.
+      const extratoT6 = await pendObterT6140bExtrato();
+      let notaT6;
+      if (extratoT6){
+        const shT = XLSX.read(extratoT6.texto, { type:'string', raw:true });
+        const linhasT = XLSX.utils.sheet_to_json(shT.Sheets[shT.SheetNames[0]], { header:1, raw:true, defval:'' })
+          .filter(l => l.some(v => String(v).trim() !== ''));
+        const cabT = (linhasT.shift() || []).map(h => String(h).trim());
+        const ehData = cabT.map(h => /^DT_/i.test(h));
+        const manterTexto = cabT.map(h => /CGC|CPF/i.test(h)); // CNPJ/CPF: texto, senão o Excel mostra em notação científica
+        const conv = (v, i) => {
+          const s = String(v == null ? '' : v).trim();
+          if (!s) return '';
+          if (ehData[i]){ const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s); if (m) return new Date(Date.UTC(+m[3], +m[2]-1, +m[1])); }
+          if (!manterTexto[i] && /^\d{1,12}$/.test(s)) return Number(s);
+          return s;
+        };
+        montaAba('T6140B', cabT.map(h => [h, Math.max(12, Math.min(40, h.length + 4))]),
+          linhasT.map(l => cabT.map((_, i) => conv(l[i], i))), ehData.map((d, i) => d ? i + 1 : 0).filter(Boolean));
+        notaT6 = `Aba T6140B: extrato completo "${extratoT6.nome}" (importado em ${extratoT6.importadoEm}), ${linhasT.length} linhas.`;
+      } else {
+        montaAba('T6140B', [['NU_CONTROLE',13], ['DT_RECEBIMENTO',15], ['STATUS_AREA_MÉDICA',20], ['STATUS_CADASTRO',22], ['STATUS_PROPOSTA_BITIX',26]],
+          props.filter(p => p.dr || p.di || p.ca || p.bi).map(p => [numOuTxt(p.p), dataXl(p.dr), p.di || '', p.ca || '', p.bi || '']), [2]);
+        notaT6 = 'Aba T6140B: resumida (o extrato completo ainda não foi publicado no painel).';
+      }
+      [wd, we].forEach(sh => { const c = sh === wd ? 10 : 12; sh.getCell(3, c).value = notaT6; sh.getCell(3, c).font = { italic:true, size:9, color:{ argb:'FF56608F' } }; });
+
+      wb.views = [{ activeTab: 0 }];
+      wb.worksheets.forEach(s => { s.properties.tabColor = { argb: /DINÂMICA|ESTEIRA/.test(s.name) ? VERDE : NAVY }; });
+
+      const buf = await wb.xlsx.writeBuffer();
+      const cabRF = COLS.map(c => c[0]);
+      const linhasRF = [];
+      ws.eachRow((r, i) => { if (i > 1) linhasRF.push(cabRF.map((_, c) => { const v = r.getCell(c + 1).value; return v instanceof Date ? v.toISOString().slice(0,10) : (v == null ? '' : v); })); });
+      const blob = await pendAddPivots(buf, { sourceSheet:'RESULTADO FINAL', headers:cabRF, rows:linhasRF, pivots:[
+        { sheetIndex:1, name:'Tabela dinâmica1', row:'GESTOR', col:'PLANIUM', pages:['IMPLANTA AMANHÃ','BITIX'], data:'BENEFICIARIOS', dataName:'Soma de BENEFICIARIOS' },
+        { sheetIndex:2, name:'Tabela dinâmica3', row:'GESTOR', col:'DITEC', pages:['DATA VIGÊNCIA','CADASTRO','BITIX'], data:'BENEFICIARIOS', dataName:'Vidas', rowCaption:'EXECUTIVO' },
+      ]});
+      const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g,'.');
+      const quem = pendCurrentGestor ? String(pendCurrentGestor).replace(/[\\/:*?"<>|]+/g,' ').trim() : 'Todas as equipes';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Funil PME - ${quem} - ${hoje}.xlsx`;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    } catch(err){
+      alert('Não consegui gerar a planilha: ' + err.message);
+    } finally {
+      btn.innerHTML = txtOrig; btn.disabled = !pendLastPmeFiltered.length;
+    }
+  }
+  document.getElementById('pendXlsxBtn').addEventListener('click', pendBaixarXlsx);
+
   document.querySelectorAll('#pendModal thead th[data-k]').forEach(th => {
     window.__kb(th).addEventListener('click', () => {
       pendSortDir *= -1;
@@ -1857,19 +2219,22 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   /* ---- Resumo do Dia ---- */
   // Todos os gestores que aparecem nas Pendências PME/PF (não só Cauda Longa) — deriva direto
   // dos dados em vez de lista fixa, então acompanha sozinho se algum gestor entrar/sair.
-  const RESUMO_GESTORES = [...new Set([...Object.keys(PENDENCIAS_PME), ...Object.keys(PENDENCIAS_PF)])].sort();
+  // Montada NA HORA (2026-10-13): antes era uma constante calculada só quando a página abria — depois de importar o
+  // funil, quem não estava nos dados da abertura (ex.: Agatha Amaral, Bianca, Fabio, Carlos Eduardo, VENDA INTERNA)
+  // ficava fora de todo o Resumo do Dia (cartões, "Total pra Atuar" e "Implanta amanhã"; achado no V2 em 13/10).
+  const resumoGestores = () => [...new Set([...Object.keys(PENDENCIAS_PME || {}), ...Object.keys(PENDENCIAS_PF || {})])].sort();
   // Mapa gestor → equipe, mesmo critério já usado em outras partes do painel (Conquista
   // Premiada). Fica duplicado aqui (em vez de compartilhado) porque vive num <script> isolado —
   // mesmo padrão já usado antes nesta base de código pra esse tipo de mapa pequeno e estável.
   const RESUMO_GESTOR_EQUIPE = {
     'Agatha Sakamoto':'CAUDA LONGA', 'Patricia Monks':'CAUDA LONGA', 'Jonathan Leal':'CAUDA LONGA', 'Pablo Amora':'CAUDA LONGA',
-    'Erika de Sousa Silva':'PLATAFORMA SP', 'Camila Alves Pertinhez':'PLATAFORMA SP', 'Lais dos Santos Martins':'PLATAFORMA SP', 'Wilder Coca Patzi':'PLATAFORMA SP',
+    'Erika de Sousa Silva':'PLATAFORMA SP', 'Camila Alves Pertinhez':'PLATAFORMA SP', 'Lais dos Santos Martins':'PLATAFORMA SP', 'Wilder Coca Patzi':'PLATAFORMA SP', 'Agatha Amaral Ribeiro':'PLATAFORMA SP',
     'Karollainny Rangel de Sousa Lopes':'DIGITAL', 'Daniela Novais dos Santos':'DIGITAL', 'Amanda dos Santos Sobral':'DIGITAL', 'Maxuel Pimentel Nobrega':'DIGITAL',
     'Vivian de Cassia Ambrosio':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Guilherme de Lima Musachi':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Izabele de Oliveira da Silva':'PLATAFORMA ABC/ALTO TIETÊ/BX',
     'Kaique Araujo da Silva':'INTERIOR SP', 'Daniela Frederico Martins (Campinas)':'INTERIOR SP', 'Daniela Frederico Martins (AM)':'INTERIOR SP', 'Flavia Auana Silva de Oliveira':'INTERIOR SP',
   };
   const resumoEquipeOf = g => RESUMO_GESTOR_EQUIPE[g] || 'Outras equipes';
-  const RESUMO_EQUIPES = [...new Set(RESUMO_GESTORES.map(resumoEquipeOf))].sort();
+  const resumoEquipes = () => [...new Set(resumoGestores().map(resumoEquipeOf))].sort();
   let resumoActiveTab = 'pme';
 
   function initialsOf(nome){
@@ -1882,20 +2247,22 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const gestorSel = document.getElementById('resumoGestorSel').value;
     if (gestorSel) return [gestorSel];
     const equipeSel = document.getElementById('resumoEquipeSel').value;
-    return equipeSel ? RESUMO_GESTORES.filter(g => resumoEquipeOf(g) === equipeSel) : RESUMO_GESTORES;
+    const todos = resumoGestores();
+    return equipeSel ? todos.filter(g => resumoEquipeOf(g) === equipeSel) : todos;
   }
 
   // Soma beneficiários por status.planium ('analise'/'pendencia') — mesma lógica binária
   // já usada na tabela de Pendências PME, só agregada por gestor em vez de listada linha a linha.
   function resumoPmeStats(gestorNome){
     const rows = PENDENCIAS_PME[gestorNome] || [];
-    let analise = 0, pendencia = 0;
+    let analise = 0, pendencia = 0, amanha = 0, amanhaProps = 0;
     rows.forEach(p => {
       const v = p.beneficiarios || 0;
       if (p.status && p.status.planium === 'analise') analise += v;
       else if (p.status && p.status.planium === 'pendencia') pendencia += v;
+      if (pendImplantaAmanha(p)){ amanha += v; amanhaProps++; }
     });
-    return { funil: analise + pendencia, analise, pendencia };
+    return { funil: analise + pendencia, analise, pendencia, amanha, amanhaProps };
   }
 
   // Soma PME (funil todo) + PF (só status ainda em andamento, ver PF_STATUS_PENDENTE) pro
@@ -1926,6 +2293,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           <div class="rc-stat"><div class="rc-label">Em Funil</div><div class="rc-value" style="color:var(--navy);">${s.funil}</div></div>
           <div class="rc-stat"><div class="rc-label">Em Análise</div><div class="rc-value" style="color:var(--primary-light);">${s.analise}</div></div>
           <div class="rc-stat"><div class="rc-label">Em Pendência</div><div class="rc-value" style="color:#FFB81C;">${s.pendencia}</div></div>
+          <div class="rc-stat"><div class="rc-label">Implanta amanhã</div><div class="rc-value" style="color:${s.amanha ? 'var(--green)' : 'var(--muted)'};">${s.amanha}</div></div>
         </div>
       </div>`;
     }).join('');
@@ -1949,7 +2317,19 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const gestores = resumoGestoresFiltrados();
     if (resumoActiveTab === 'pme') renderResumoPme(gestores); else renderResumoPf(gestores);
     renderResumoTotalBar(gestores);
+    // Cartão "Implanta amanhã" — soma dos gestores do filtro de Equipe/Gestor atual
+    let vidas = 0, props = 0;
+    gestores.forEach(g => { const s = resumoPmeStats(g); vidas += s.amanha; props += s.amanhaProps; });
+    document.getElementById('rsAmanhaVidas').textContent = fmt0(vidas);
+    document.getElementById('rsAmanhaSub').textContent = props
+      ? `${props} ${props === 1 ? 'proposta liberada' : 'propostas liberadas'} em todas as áreas (PME) · clique pra ver`
+      : 'Nenhuma proposta liberada em todas as áreas (PME)';
   }
+  document.getElementById('btnImplantaAmanha').addEventListener('click', () => {
+    const gestores = resumoGestoresFiltrados();
+    document.getElementById('resumoModalOverlay').style.display = 'none';
+    window.showPendenciasModal(gestores.length === 1 ? gestores[0] : null, { amanha: true });
+  });
 
   // Clique num card/linha do Resumo do Dia leva pro popup detalhado que já existe no Desempenho
   // Comercial (mesma tabela de propostas/orçamentos por gestor) — reaproveita window.showPendenciasModal
@@ -1968,16 +2348,19 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const equipeSel = document.getElementById('resumoEquipeSel').value;
     const gestorSelEl = document.getElementById('resumoGestorSel');
     const prevGestor = gestorSelEl.value;
-    const opcoes = equipeSel ? RESUMO_GESTORES.filter(g => resumoEquipeOf(g) === equipeSel) : RESUMO_GESTORES;
+    const todos = resumoGestores();
+    const opcoes = equipeSel ? todos.filter(g => resumoEquipeOf(g) === equipeSel) : todos;
     gestorSelEl.innerHTML = '<option value="">Todos os gestores</option>' + opcoes.map(g=>`<option value="${g}">${g}</option>`).join('');
     gestorSelEl.value = opcoes.includes(prevGestor) ? prevGestor : '';
   }
 
   window.showResumoModal = function(){
     const equipeSelEl = document.getElementById('resumoEquipeSel');
-    if (equipeSelEl.options.length <= 1) {
-      equipeSelEl.innerHTML = '<option value="">Todas as equipes</option>' + RESUMO_EQUIPES.map(eq=>`<option value="${eq}">${eq}</option>`).join('');
-    }
+    // Refeita a cada abertura (equipes podem mudar depois de um import) — mantém a equipe escolhida se ainda existir.
+    const equipeAntes = equipeSelEl.value;
+    const equipesAgora = resumoEquipes();
+    equipeSelEl.innerHTML = '<option value="">Todas as equipes</option>' + equipesAgora.map(eq=>`<option value="${eq}">${eq}</option>`).join('');
+    equipeSelEl.value = equipesAgora.includes(equipeAntes) ? equipeAntes : '';
     resumoAtualizarGestorSel();
     resumoActiveTab = 'pme';
     document.getElementById('resumoTabPme').classList.add('active');
@@ -6883,7 +7266,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     return html;
   }
 
-  let pendingMeta = null, pendingElig = null, pendingCarteira = null, pendingPendPme = null, pendingPendPf = null, pendingCorretorasRaw = null, pendingEligBridge = null, pendingPropostas = null, pendingAssinatura = null, pendingCrescimentoGeral = null;
+  let pendingMeta = null, pendingElig = null, pendingCarteira = null, pendingPendPme = null, pendingPendPf = null, pendingCorretorasRaw = null, pendingEligBridge = null, pendingPropostas = null, pendingAssinatura = null, pendingCrescimentoGeral = null, pendingT6140bRaw = null;
   let pendingRankCur = null, pendingRankPrev = null;
 
   // Gestores da equipe do Rio (excluídos do ranking de SP)
@@ -7044,11 +7427,24 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   }
   window.normalizeCodigo = normalizeCodigo;
 
+  function cnpjDigits(v){
+    if (v === null || v === undefined || v === '') return '';
+    return String(v).replace(/\D/g,'').padStart(14,'0');
+  }
+  window.cnpjDigits = cnpjDigits;
+
   function parseCarteiraWorkbook(workbook){
     const sheet = findSheet(workbook, 'COMERCIAL');
     if (!sheet) throw new Error('Não encontrei a aba "COMERCIAL" no arquivo da Carteira.');
     const rows = sheetRows(sheet);
-    const map = {}; const byCodigo = {};
+    // Coluna do CNPJ localizada pelo texto do cabeçalho (não por índice fixo) — achado
+    // 2026-09-23 conferindo um arquivo real: a posição das colunas desliza dependendo de como
+    // o arquivo foi baixado (uma cópia tinha uma coluna A em branco na frente de tudo, outra
+    // não). Usado só pro Funil PME (byCnpj) — não mexe em nada do motor código→gestor
+    // (byCodigo/map), que já é validado com índice fixo e não deve ser tocado.
+    const headerRow = (rows[0]||[]).map(h => String(h||'').trim().toUpperCase());
+    const iCnpj = headerRow.indexOf('CNPJ');
+    const map = {}; const byCodigo = {}; const byCnpj = {};
     let count = 0;
     for (let i = 1; i < rows.length; i++){
       const row = rows[i] || [];
@@ -7064,10 +7460,17 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const entry = { gestorRaw: gestorRaw ? String(gestorRaw).trim() : '', equipe: equipe ? String(equipe).trim() : '', senior: senior ? String(senior).trim() : '', filial: filial ? String(filial).trim() : '', razao: String(razao).trim(), codAss: codAssNorm, assessoria: (assessoria && String(assessoria).trim() !== '0') ? String(assessoria).trim() : '' };
       map[key] = entry;
       (byCodigo[codNorm] = byCodigo[codNorm] || []).push(entry);
+      if (iCnpj >= 0 && entry.gestorRaw){
+        const cnpjNorm = cnpjDigits(row[iCnpj]);
+        // Primeira ocorrência vence em caso de CNPJ duplicado — mesmo critério "não
+        // sobrescreve" usado em outros mapas deste arquivo, evita um conflito raro decidir
+        // silenciosamente pra qualquer lado.
+        if (cnpjNorm && cnpjNorm !== '00000000000000' && !byCnpj[cnpjNorm]) byCnpj[cnpjNorm] = entry.gestorRaw;
+      }
       count++;
     }
     if (count === 0) throw new Error('Nenhuma linha válida encontrada na aba COMERCIAL.');
-    return { map, byCodigo, totalRows: count };
+    return { map, byCodigo, byCnpj, totalRows: count };
   }
 
   function resolveGestorFromCarteira(record, carteira, preferTeam){
@@ -7341,6 +7744,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const d = new Date(Math.round((v - 25569) * 86400 * 1000));
       return d.toISOString().slice(0,10);
     }
+    // "dd/mm/aaaa" (T6140B do SIGO em CSV, 2026-10-07) → "aaaa-mm-dd", o mesmo formato do resto do painel.
+    const br = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(String(v).trim());
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
     return String(v).slice(0,10);
   }
 
@@ -7445,6 +7851,136 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     return html;
   }
 
+  // ===================== FUNIL PME — automação a partir dos 3 extratos brutos =====================
+  // Substitui o processo manual do "PME AUTOMATIZADO.xlsx" (2 extratos da Planium colados +
+  // dedup manual + T6140B colado + fórmulas de PROCV pra distribuir por gestor) — Victor sobe os
+  // 3 arquivos originais direto, sem montar planilha nenhuma. Ver conversa 2026-09-23: a aba
+  // RESULTADO FINAL daquele arquivo é PROCV(PLANIUM) + PROCV(T6140B), e a coluna GESTOR da
+  // PLANIUM vem de PROCV por CNPJ da corretora contra a mesma Carteira que já é usada aqui
+  // (parseCarteiraWorkbook/byCnpj) — não precisa de nenhum arquivo novo além do que já existia.
+  const stripAccentsUpper = s => String(s||'').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+
+  // Extrato bruto da Planium ("stats_export_gndi_XXXX.csv/.xlsx") — um por mês (Victor baixa
+  // mês atual + anterior). Aceita .csv direto (SheetJS já reconhece), sem precisar abrir no Excel.
+  function parsePmePlaniumRawWorkbook(workbook){
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = sheetRows(sheet);
+    const headerRowIdx = rows.findIndex(r => (r||[]).some(c => String(c||'').trim().toLowerCase() === 'propostaid'));
+    if (headerRowIdx < 0) return null; // não é um extrato da Planium — deixa o chamador tentar outro tipo
+    const header = rows[headerRowIdx].map(h => String(h||'').trim());
+    const idx = name => header.indexOf(name);
+    const iId = idx('propostaID'), iProp = idx('oper_propnum'), iCorrCnpj = idx('corretora_cnpj'),
+          iContrNome = idx('contratante_nome'), iContrCnpj = idx('contratante_cnpj'), iVg = idx('date_vigencia'),
+          iSt = idx('status'), iBn = idx('beneficiarios'), iVd = idx('vendedor_nome'), iCo = idx('corretora_nome'),
+          iDn = idx('data_notificada');
+    if ([iId,iProp,iCorrCnpj,iContrNome,iVg,iSt,iBn,iCo].some(i=>i<0)){
+      throw new Error('O extrato da Planium não tem todas as colunas esperadas (propostaID, oper_propnum, corretora_cnpj, contratante_nome, date_vigencia, status, beneficiarios, corretora_nome).');
+    }
+    const records = [];
+    for (let i = headerRowIdx+1; i < rows.length; i++){
+      const row = rows[i] || [];
+      const id = row[iId], p = row[iProp], co = row[iCo];
+      if (!id || !p || !co) continue;
+      records.push({
+        id: String(id), p: String(p), corrCnpj: cnpjDigits(row[iCorrCnpj]),
+        cn: fmtCnpjDisplay(row[iContrCnpj]), em: String(row[iContrNome]||''),
+        vg: excelDateToStr(row[iVg]), st: String(row[iSt]||'').trim(), bn: num(row[iBn]),
+        vd: String(row[iVd]||''), co: String(co).trim(),
+        // data de notificação (aaaa-mm-dd) — regra de quanto tempo guardar as finalizadas (buildPmeFromRawFiles)
+        dn: iDn >= 0 ? excelDateToStr(row[iDn]) : '',
+      });
+    }
+    if (!records.length) throw new Error('Nenhuma proposta reconhecida no extrato da Planium.');
+    return records;
+  }
+  function fmtCnpjDisplay(v){
+    const digits = cnpjDigits(v);
+    return digits.length===14 ? `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8,12)}-${digits.slice(12,14)}` : String(v||'');
+  }
+
+  // Extrato bruto do SIGO, tela T6140B ("CONFERENCIA_ORCAMENTO....csv/.xlsx") — cruza com a
+  // Planium por NU_CONTROLE = oper_propnum. Comparação de cabeçalho sem acento (stripAccentsUpper)
+  // porque esse export já veio com acentuação quebrada (encoding) em pelo menos um caso real.
+  function parseT6140bRawWorkbook(workbook){
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = sheetRows(sheet);
+    const headerRowIdx = rows.findIndex(r => (r||[]).some(c => stripAccentsUpper(c) === 'NU_CONTROLE'));
+    if (headerRowIdx < 0) return null; // não é um extrato do T6140B — deixa o chamador tentar outro tipo
+    const header = rows[headerRowIdx].map(h => stripAccentsUpper(h));
+    const idx = name => header.indexOf(name);
+    const iControle = idx('NU_CONTROLE'), iRecebimento = idx('DT_RECEBIMENTO'), iCadastro = idx('STATUS_CADASTRO'), iBitix = idx('STATUS_PROPOSTA_BITIX');
+    // "STATUS_AREA_MÉDICA" — aceita também o cabeçalho com o acento quebrado ("STATUS_AREA_M?DICA").
+    const iAreaMedica = header.findIndex(h => /^STATUS_AREA_M.{0,2}DICA$/.test(h));
+    const byControle = {};
+    for (let i = headerRowIdx+1; i < rows.length; i++){
+      const row = rows[i] || [];
+      const controle = row[iControle];
+      if (!controle) continue;
+      // Mesmo nº de controle repetido: vale a PRIMEIRA linha, igual ao PROCV do Excel (2026-10-07).
+      if (byControle[String(controle).trim()]) continue;
+      byControle[String(controle).trim()] = {
+        dtReceb: iRecebimento>=0 ? excelDateToStr(row[iRecebimento]) : '',
+        ditec: iAreaMedica>=0 ? String(row[iAreaMedica]||'').trim() : '',
+        cadastro: iCadastro>=0 ? String(row[iCadastro]||'').trim() : '',
+        bitix: iBitix>=0 ? String(row[iBitix]||'').trim() : '',
+      };
+    }
+    if (Object.keys(byControle).length === 0) throw new Error('Nenhuma linha reconhecida no extrato do T6140B.');
+    return byControle;
+  }
+
+  // Junta os extratos da Planium (dedup por propostaID mantendo a PRIMEIRA ocorrência — mesmo
+  // efeito do "Remover Duplicadas" do Excel que Victor já fazia na mão, sem olhar data) + T6140B
+  // (DATA RECEBIMENTO/DITEC/CADASTRO/BITIX) + Carteira (GESTOR, por CNPJ) pra reproduzir a aba
+  // RESULTADO FINAL sem montar a planilha. `planiumRecordsList` é um array de arrays (um por
+  // arquivo da Planium subido, na ordem em que foram lidos).
+  function buildPmeFromRawFiles(planiumRecordsList, t6140bByControle, carteira){
+    const seen = new Set();
+    const merged = [];
+    let totalBruto = 0;
+    planiumRecordsList.forEach(list => {
+      totalBruto += list.length;
+      list.forEach(rec => { if (!seen.has(rec.id)){ seen.add(rec.id); merged.push(rec); } });
+    });
+    const byCnpj = (carteira && carteira.byCnpj) || {};
+    const propostas = [];
+    const pendData = {};
+    const naoMapeados = {};
+    // O que guardar (decisão do Victor, 2026-10-07): o extrato pode ser de qualquer período (até o ano todo),
+    // mas o painel guarda as propostas EM ABERTO (análise, pendência, devolvida) de qualquer data e as
+    // FINALIZADAS (implantada, cancelada...) só com notificação nos últimos 3 meses — tudo isso é baixado
+    // por todo mundo no login, e o ano inteiro (~100 mil propostas) deixaria o painel pesado.
+    const corte = (() => { const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0,10); })();
+    const emAberto = st => /pend|analis|devolv/i.test(String(st||''));
+    let finalizadasAntigas = 0;
+    merged.forEach(rec => {
+      const t6 = (t6140bByControle && t6140bByControle[String(rec.p).trim()]) || null;
+      const gestorRaw = byCnpj[rec.corrCnpj] || '';
+      const dr = t6 ? t6.dtReceb : '', di = t6 ? t6.ditec : '', ca = t6 ? t6.cadastro : '', bi = t6 ? t6.bitix : '';
+      if (!emAberto(rec.st) && rec.dn && rec.dn < corte){ finalizadasAntigas++; return; }
+      propostas.push({ p: rec.p, cn: rec.cn, em: rec.em, vg: rec.vg, st: rec.st, bn: rec.bn, vd: rec.vd, co: rec.co, g: gestorRaw, dr, di, ca, bi, dn: rec.dn });
+      if (!/pend|analis/i.test(rec.st)) return;
+      const friendly = FULL_19_GESTOR_RAW_MAP[stripAccentsUpper(gestorRaw)] || ABREV_GESTOR_MAP[stripAccentsUpper(gestorRaw)];
+      if (!friendly){
+        const label = gestorRaw || '(CNPJ da corretora não encontrado na Carteira)';
+        naoMapeados[label] = (naoMapeados[label]||0)+1;
+        return;
+      }
+      (pendData[friendly] = pendData[friendly] || []).push({
+        proposta: rec.p, corretora: rec.co,
+        status: { planium: rec.st, cadastro: ca, ditec: di, bitix: bi },
+        dataReceb: dr, dataVigencia: rec.vg, beneficiarios: rec.bn,
+      });
+    });
+    return {
+      propostas,
+      pendData: { data: pendData, naoMapeados },
+      totalArquivos: planiumRecordsList.length, totalBruto, totalMerged: merged.length,
+      duplicatasRemovidas: totalBruto - merged.length,
+      finalizadasAntigas, corte,
+    };
+  }
+
   const FULL_19_GESTOR_RAW_MAP = {
     'AGATHA EIKO RODRIGUES SAKAMOTO':'Agatha Sakamoto','PATRICIA PESSOA MONKS':'Patricia Monks',
     'JONATHAN LEAL DOS SANTOS SILVA':'Jonathan Leal','PABLO SERGIO RIBEIRO AMORA':'Pablo Amora',
@@ -7474,34 +8010,83 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     return RAW_BY_FRIENDLY[friendly] || String(friendly || '').trim().toUpperCase();
   };
 
-  function parsePfPendenciasWorkbook(workbook){
-    const sheet = findSheet(workbook, '2026_ORCAMENTOS') || findSheet(workbook, 'ORCAMENTOS');
+  // Funil PF. Dois formatos (pedido do Victor, 2026-10-13):
+  //  - ANTIGO: planilha montada à mão, aba "2026_ORCAMENTOS" já com a coluna GESTOR (PROCV feito no Excel);
+  //  - CRU: o extrato do sistema "2026_ORCAMENTOS_T221ORCAM.CSV" (";", acentos do Windows), SEM GESTOR. O painel faz o
+  //    PROCV sozinho: código = texto antes do 1º "-" em CONCESSIONÁRIA ("02LW-D P WHITE..." → "02LW") → Carteira →
+  //    GESTOR, com o mesmo motor do extrato do BI (resolveGestorFromCarteira: 06GV→Vivian, 0834→Flavia). Entra quem
+  //    está na lista de gestores do painel (inclui Interior, como no formato antigo); Rio/desligados/VENDA INTERNA ficam
+  //    fora. Código fora da Carteira fica de fora e é listado no resumo (ex.: 435A ANOUK
+  //    CAPITAL, 1.919 orçamentos em 13/10 — Victor: "pode deixar de fora por enquanto").
+  function parsePfPendenciasWorkbook(workbook, carteira){
+    const sheet = findSheet(workbook, '2026_ORCAMENTOS') || findSheet(workbook, 'ORCAMENTOS') || workbook.Sheets[workbook.SheetNames[0]];
     if (!sheet) throw new Error('Não encontrei a aba de orçamentos no arquivo PF.');
     const rows = sheetRows(sheet);
     const header = (rows[0]||[]).map(h => String(h||'').trim().toUpperCase());
     const idx = name => header.indexOf(name);
     const iConc = idx('CONCESSIONÁRIA'), iGestor = idx('GESTOR'), iStatus = idx('STATUS ORÇAMENTO'),
-          iOrcamento = idx('Nº ORÇAMENTO'), iDataStatus = idx('DATA STATUS'), iVidas = idx('QTDE VIDAS');
-    if ([iConc,iGestor,iStatus,iOrcamento].some(i=>i<0)) throw new Error('A aba de orçamentos não tem as colunas esperadas.');
+          iOrcamento = idx('Nº ORÇAMENTO'), iDataStatus = idx('DATA STATUS'), iVidas = idx('QTDE VIDAS'), iControle = idx('Nº CONTROLE');
+    if ([iConc,iStatus,iOrcamento].some(i=>i<0)) throw new Error('O arquivo PF não tem as colunas esperadas (CONCESSIONÁRIA, Nº ORÇAMENTO, STATUS ORÇAMENTO).');
+    const cru = iGestor < 0;
+    if (cru && !(carteira && carteira.byCodigo && Object.keys(carteira.byCodigo).length)){
+      throw new Error('Funil PF: o extrato T221ORCAM não traz o gestor — o painel precisa da Carteira pra achar (código da corretora → GESTOR). Selecione também a Carteira (BANCO DE DADOS - COMERCIAL) nesta importação.');
+    }
+    // Nº ORÇAMENTO no CSV vem como ="4708493" (truque do sistema pro Excel não virar número)
+    const limpaNum = v => String(v == null ? '' : v).trim().replace(/^=?"?/, '').replace(/"$/, '').replace(/\.0$/, '');
 
     const data = {};
+    const info = { cru, linhas: 0, foraEscopo: 0, semCarteira: {}, naoMapeados: {} };
     for (let i = 1; i < rows.length; i++){
       const row = rows[i] || [];
       const status = row[iStatus];
-      if (!status) continue;
-      const gestorRaw = row[iGestor];
-      if (!gestorRaw) continue;
-      const friendly = FULL_19_GESTOR_RAW_MAP[String(gestorRaw).trim().toUpperCase()];
-      if (!friendly) continue;
+      if (!status || !String(status).trim()) continue;
+      info.linhas++;
       const concStr = String(row[iConc]||'');
-      const nomeLimpo = concStr.split('-').slice(1).join('-').trim();
+      const sep = concStr.indexOf('-');
+      const codigo = sep >= 0 ? concStr.slice(0, sep).trim() : '';
+      const nomeLimpo = sep >= 0 ? concStr.slice(sep + 1).trim() : concStr.trim();
+      let friendly;
+      if (!cru){
+        const gestorRaw = row[iGestor];
+        if (!gestorRaw) continue;
+        friendly = FULL_19_GESTOR_RAW_MAP[String(gestorRaw).trim().toUpperCase()];
+        if (!friendly) continue;
+      } else {
+        const r = codigo ? resolveGestorFromCarteira({ c: codigo, n: nomeLimpo }, carteira, 'CAUDA LONGA') : null;
+        if (!r || !r.gestorRaw){
+          // Mesma separação do extrato do BI (attributeCorretorasAgg): código existe mas todos os gestores dele são de
+          // fora do escopo (ex.: 03BL Kaique/Flavia, Interior; 01JI VENDA INTERNA) → fora do escopo; existe com mais de
+          // um gestor possível → ambíguo; não existe → fora da Carteira.
+          const k = (codigo || '?') + ' - ' + nomeLimpo;
+          const cands = codigo ? (carteira.byCodigo[normalizeCodigo(codigo)] || []) : [];
+          // "Fora" = nenhum candidato está na lista do painel (Interior ESTÁ na lista — entra, como no formato antigo)
+          const foraOuVazio = c => { const g = String(c.gestorRaw || '').trim().toUpperCase(); return !g || g === '0' || !(FULL_19_GESTOR_RAW_MAP[g] || ABREV_GESTOR_MAP[g]); };
+          if (cands.length && cands.every(foraOuVazio)) info.foraEscopo++;
+          else if (cands.length){ info.ambiguos = info.ambiguos || {}; info.ambiguos[k] = (info.ambiguos[k]||0) + 1; }
+          else info.semCarteira[k] = (info.semCarteira[k]||0) + 1;
+          continue;
+        }
+        // Mesma regra do formato antigo: entra quem está na lista do painel (inclui Interior); Rio/desligados/VENDA
+        // INTERNA não estão na lista → "fora do escopo"; outros (Bianca, Fabio, Carlos Eduardo...) → listados à parte.
+        const up = r.gestorRaw.trim().toUpperCase();
+        friendly = FULL_19_GESTOR_RAW_MAP[up] || ABREV_GESTOR_MAP[up];
+        if (!friendly){
+          if (isOutOfScopeGestor(up)) info.foraEscopo++;
+          else info.naoMapeados[up] = (info.naoMapeados[up]||0) + 1;
+          continue;
+        }
+      }
+      // Orçamento cancelado antes de ganhar número (Nº ORÇAMENTO vazio — 1.001 linhas em 13/10): identifica pelo
+      // Nº CONTROLE, senão a tela de Pendências juntava todos numa linha só (ela agrupa pelo nº do orçamento).
+      let orc = limpaNum(row[iOrcamento]);
+      if (!orc){ const ctl = iControle >= 0 ? limpaNum(row[iControle]) : ''; orc = 'sem nº' + (ctl ? ' · controle ' + ctl : ' · linha ' + (i + 1)); }
       (data[friendly] = data[friendly] || []).push({
-        orcamento: String(row[iOrcamento]||'').replace(/\.0$/,''), corretora: nomeLimpo,
+        orcamento: orc, corretora: nomeLimpo,
         status: String(status).trim(), dataStatus: excelDateToStr(row[iDataStatus]), vidas: num(row[iVidas]),
       });
     }
     if (Object.keys(data).length === 0) throw new Error('Nenhuma pendência PF reconhecida no arquivo.');
-    return { data };
+    return { data, info };
   }
 
   // "datacriacao" vem como texto "dd/mm/aaaa hh:mm" (não é data real do Excel, é string
@@ -7633,7 +8218,20 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   function diffPendPf(parsed){
     const totalPend = Object.values(parsed.data).reduce((s,arr)=>s+arr.length,0);
     let html = '<h3 style="font-size:14px;color:var(--navy);margin:14px 0 8px;"><i class=ic-clip></i> Pendências PF — Resumo</h3>';
-    html += `<div style="font-size:12.5px;line-height:1.8;"><div><b>${totalPend}</b> pendências carregadas, em <b>${Object.keys(parsed.data).length}</b> gestores.</div></div>`;
+    html += `<div style="font-size:12.5px;line-height:1.8;"><div><b>${totalPend}</b> pendências carregadas, em <b>${Object.keys(parsed.data).length}</b> gestores.</div>`;
+    const inf = parsed.info;
+    if (inf && inf.cru){
+      // Extrato cru T221ORCAM: mostra o que ficou de fora do PROCV com a Carteira
+      const lista = o => Object.entries(o).sort((a,b)=>b[1]-a[1]);
+      const sc = lista(inf.semCarteira), nm = lista(inf.naoMapeados);
+      const nSc = sc.reduce((s,[,n])=>s+n,0), nNm = nm.reduce((s,[,n])=>s+n,0);
+      html += `<div style="color:var(--muted);">Extrato T221ORCAM: ${inf.linhas} orçamentos lidos; gestor achado pelo código da corretora na Carteira. Fora do escopo (Rio, desligados, VENDA INTERNA): ${inf.foraEscopo}.</div>`;
+      if (nSc) html += `<div style="color:var(--amber);"><i class=ic-warn></i> <b>${nSc}</b> orçamento(s) de ${sc.length} código(s) que não estão na Carteira — ficaram de fora: ${sc.slice(0,6).map(([k,n])=>`${k} (${n})`).join(' · ')}${sc.length>6?' · …':''}</div>`;
+      const am = lista(inf.ambiguos || {}), nAm = am.reduce((s,[,n])=>s+n,0);
+      if (nAm) html += `<div style="color:var(--amber);"><i class=ic-warn></i> <b>${nAm}</b> orçamento(s) de código com mais de um gestor na Carteira — ficaram de fora: ${am.map(([k,n])=>`${k} (${n})`).join(' · ')}</div>`;
+      if (nNm) html += `<div style="color:var(--muted);">Gestores fora da lista do painel (${nNm} orçamentos): ${nm.map(([k,n])=>`${k} (${n})`).join(' · ')}</div>`;
+    }
+    html += '</div>';
     return html;
   }
 
@@ -7648,6 +8246,31 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       reader.readAsArrayBuffer(file);
     });
   }
+  // Extratos crus do Funil PME em CSV (Planium "stats_export_gndi_*.csv" e T6140B "CONFERENCIA_ORCAMENTO*.csv"):
+  // lidos como TEXTO e com os valores crus (raw). Sem isso (2026-10-07): o T6140B vem com acentuação do
+  // Windows (o cabeçalho "STATUS_AREA_MÉDICA" quebrava e o DITEC saía todo em branco) e a leitura padrão
+  // virava "05/10/2026" em 10 de maio (data americana). .xlsx continua pelo caminho de sempre.
+  function readPmeFileAsWorkbook(file){
+    if (!/\.csv$/i.test(file.name || '')) return readFileAsWorkbook(file);
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const bytes = new Uint8Array(e.target.result);
+          let text;
+          try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+          catch(_){ text = new TextDecoder('windows-1252').decode(bytes); }
+          if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+          const wb = XLSX.read(text, { type:'string', raw:true });
+          wb.__textoCru = text; // o T6140B guarda o arquivo inteiro pra aba T6140B do "Baixar .xlsx" (09/10/2026)
+          resolve(wb);
+        } catch(err){ reject(err); }
+      };
+      reader.onerror = () => reject(new Error('Falha ao ler o arquivo.'));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
 
   // Botões "remover" + estado visual dos campos de arquivo
   const IMPORT_FILE_IDS = ['fileMetaJunho','fileElegibilidade','fileCarteira','filePendPme','filePendPf','fileAssinatura','fileCrescimentoGeral','fileRankPrev'];
@@ -7710,7 +8333,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     document.getElementById('filePendPme').value = '';
     document.getElementById('filePendPf').value = '';
     IMPORT_FILE_IDS.forEach(id => { const f = document.getElementById(id).closest('.file-field'); if (f) f.classList.remove('has-file'); });
-    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null;
+    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null; pendingT6140bRaw = null;
   }
 
   document.getElementById('btnOpenImport').addEventListener('click', () => {
@@ -7729,12 +8352,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const metaFile = document.getElementById('fileMetaJunho').files[0];
     const eligFile = document.getElementById('fileElegibilidade').files[0];
     const carteiraFile = document.getElementById('fileCarteira').files[0];
-    const pendPmeFile = document.getElementById('filePendPme').files[0];
+    const pendPmeFiles = Array.from(document.getElementById('filePendPme').files);
     const pendPfFile = document.getElementById('filePendPf').files[0];
     const assinaturaFile = document.getElementById('fileAssinatura').files[0];
     const crescimentoGeralFile = document.getElementById('fileCrescimentoGeral').files[0];
     const rankPrevFile = document.getElementById('fileRankPrev').files[0];
-    if (!metaFile && !eligFile && !carteiraFile && !pendPmeFile && !pendPfFile && !assinaturaFile && !crescimentoGeralFile && !rankPrevFile){
+    if (!metaFile && !eligFile && !carteiraFile && !pendPmeFiles.length && !pendPfFile && !assinaturaFile && !crescimentoGeralFile && !rankPrevFile){
       statusEl.innerHTML = '<p style="color:var(--red);font-size:12.5px;">Selecione ao menos um arquivo.</p>';
       return;
     }
@@ -7744,7 +8367,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     btn.style.cursor = 'default';
     btn.innerHTML = '<span class="spinner"></span> Processando...';
     summaryEl.style.display = 'none';
-    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null;
+    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null; pendingT6140bRaw = null;
     let summaryHtml = '';
     try {
       // ---- AUTO-DETECÇÃO: roteia cada arquivo pelo conteúdo, não pelo campo ----
@@ -7840,24 +8463,76 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (pendingCarteira){
         summaryHtml += diffCarteira(pendingCarteira, pendingElig);
       }
-      if (pendPmeFile){
-        statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Pendências PME/SS...</p>';
-        const wb = await readFileAsWorkbook(pendPmeFile);
-        pendingPendPme = parsePmePendenciasWorkbook(wb);
-        summaryHtml += diffPendPme(pendingPendPme);
-        // Mesmo arquivo tem a aba "PLANIUM" (histórico completo de propostas) — atualiza junto
-        // a lista usada no Ranking de Vendas, sem precisar de um upload separado.
-        try {
-          pendingPropostas = parsePlaniumWorkbook(wb);
-          summaryHtml += diffPropostas(pendingPropostas);
-        } catch(e){
-          summaryHtml += `<div style="font-size:12px; margin-top:6px; color:var(--muted);">Propostas do Ranking não atualizadas: ${e.message}</div>`;
+      if (pendPmeFiles.length){
+        statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Funil PME...</p>';
+        // Auto-detecção igual ao bloco principal: cada arquivo solto no campo é classificado
+        // pelo conteúdo. Aceita tanto o jeito antigo (1 arquivo, PME AUTOMATIZADO.xlsx pronto,
+        // abas Planilha1 + PLANIUM) quanto o novo (extratos brutos soltos — 1-2 da Planium +
+        // opcional o T6140B), sem precisar de campo separado pra cada um.
+        let combinedWb = null;
+        const planiumRawList = [];
+        let t6140bByControle = null;
+        const pendNaoReconhecidos = [];
+        for (const file of pendPmeFiles){
+          const wb = await readPmeFileAsWorkbook(file);
+          if (!combinedWb && findSheet(wb, 'Planilha1') && findSheet(wb, 'PLANIUM')){
+            combinedWb = wb;
+            continue;
+          }
+          const planiumRecords = parsePmePlaniumRawWorkbook(wb);
+          if (planiumRecords){ planiumRawList.push(planiumRecords); continue; }
+          const t6 = parseT6140bRawWorkbook(wb);
+          if (t6){
+            t6140bByControle = t6;
+            // Extrato inteiro (18 colunas) pra aba T6140B da planilha do funil — pedido do Victor, 09/10/2026.
+            pendingT6140bRaw = { nome: file.name, texto: wb.__textoCru || XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS:';' }) };
+            continue;
+          }
+          pendNaoReconhecidos.push(file.name);
+        }
+        if (combinedWb){
+          pendingPendPme = parsePmePendenciasWorkbook(combinedWb);
+          summaryHtml += diffPendPme(pendingPendPme);
+          // Mesmo arquivo tem a aba "PLANIUM" (histórico completo de propostas) — atualiza junto
+          // a lista usada no Ranking de Vendas, sem precisar de um upload separado.
+          try {
+            pendingPropostas = parsePlaniumWorkbook(combinedWb);
+            summaryHtml += diffPropostas(pendingPropostas);
+          } catch(e){
+            summaryHtml += `<div style="font-size:12px; margin-top:6px; color:var(--muted);">Propostas do Ranking não atualizadas: ${e.message}</div>`;
+          }
+        } else if (planiumRawList.length){
+          const carteiraForPme = pendingCarteira || window.CARTEIRA_MAP || null;
+          if (!carteiraForPme){
+            summaryHtml += `<div style="color:var(--red);font-size:12.5px;"><i class=ic-warn></i> Funil PME: sem Carteira carregada ainda (nem nesta importação, nem de uma anterior) — não dá pra descobrir o gestor de cada corretora. Suba a Carteira pelo menos uma vez antes.</div>`;
+          } else if (!carteiraForPme.byCnpj || !Object.keys(carteiraForPme.byCnpj).length){
+            // A Carteira guardada no painel pode ser de antes de o painel guardar o CNPJ — aí NENHUMA proposta
+            // acha gestor e as pendências seriam trocadas por uma lista vazia (aconteceu no V2 em 09/10/2026).
+            summaryHtml += `<div style="color:var(--red);font-size:12.5px;"><i class=ic-warn></i> <b>Funil PME não importado:</b> a Carteira guardada no painel é antiga e não tem o CNPJ das corretoras (é pelo CNPJ que o painel acha o gestor de cada proposta). Selecione também a Carteira (BANCO DE DADOS - COMERCIAL) no campo "Carteira / Gestores" desta mesma importação e clique em Processar de novo.</div>`;
+          } else {
+            const result = buildPmeFromRawFiles(planiumRawList, t6140bByControle, carteiraForPme);
+            if (!Object.keys(result.pendData.data).length){
+              // Nunca troca as pendências atuais por uma lista vazia.
+              summaryHtml += `<div style="color:var(--red);font-size:12.5px;"><i class=ic-warn></i> <b>Funil PME não importado:</b> nenhuma proposta em aberto achou um executivo conhecido (${result.totalMerged} propostas lidas). Confira se a Carteira é a mais recente e se os arquivos são os extratos do Planium e do T6140B. As pendências atuais do painel foram mantidas.</div>`;
+            } else {
+            pendingPendPme = result.pendData;
+            pendingPropostas = result.propostas;
+            summaryHtml += diffPendPme(pendingPendPme);
+            summaryHtml += diffPropostas(pendingPropostas);
+            const corteBR = result.corte.split('-').reverse().join('/');
+            summaryHtml += `<div style="font-size:12.5px; margin-top:6px; color:var(--blue);">Funil PME — ${result.totalArquivos} extrato(s) da Planium, ${result.totalBruto} linhas, ${result.duplicatasRemovidas} duplicada(s) removida(s) → <b>${result.totalMerged}</b> propostas.${result.finalizadasAntigas ? ` ${result.finalizadasAntigas} finalizada(s) com notificação antes de ${corteBR} não foram guardadas (o painel guarda as em aberto de qualquer data e as finalizadas dos últimos 3 meses).` : ''}${t6140bByControle ? ` T6140B: ${Object.keys(t6140bByControle).length} propostas.` : ' <b>T6140B não incluído</b> — DATA RECEBIMENTO/DITEC/CADASTRO/BITIX ficam em branco.'}</div>`;
+            }
+          }
+        }
+        if (pendNaoReconhecidos.length){
+          summaryHtml += `<div style="color:var(--red);font-size:12.5px;"><i class=ic-warn></i> Funil PME: não reconheci ${pendNaoReconhecidos.join(', ')} — confira se é um extrato da Planium, do T6140B, ou a planilha PME AUTOMATIZADO já pronta.</div>`;
         }
       }
       if (pendPfFile){
         statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Pendências PF...</p>';
-        const wb = await readFileAsWorkbook(pendPfFile);
-        pendingPendPf = parsePfPendenciasWorkbook(wb);
+        // CSV cru (T221ORCAM) ou planilha antiga — readPmeFileAsWorkbook já trata CSV com acento do Windows
+        const wb = await readPmeFileAsWorkbook(pendPfFile);
+        pendingPendPf = parsePfPendenciasWorkbook(wb, pendingCarteira || window.CARTEIRA_MAP || null);
         summaryHtml += diffPendPf(pendingPendPf);
       }
       if (assinaturaFile){
@@ -7962,6 +8637,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (pendingAssinatura && window.updateAssinaturaData) window.updateAssinaturaData(pendingAssinatura.data);
     if (pendingCrescimentoGeral && window.updateConvOntemHoje) window.updateConvOntemHoje(pendingCrescimentoGeral.data);
     if ((pendingPropostas || pendingAssinatura) && window.saveDailySnapshot) window.saveDailySnapshot();
+    // T6140B inteiro: só quando o funil PME foi de fato importado junto. Fica na memória desta aba e é gravado no
+    // Firestore (seção T6140B_EXTRATO) no próximo "Publicar" — fora da lista do login, só é lido no "Baixar .xlsx".
+    if (pendingPendPme && pendingT6140bRaw){
+      window.__T6140B_EXTRATO = Object.assign({ importadoEm: new Date().toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'}) }, pendingT6140bRaw);
+      window.__T6140B_EXTRATO_PENDENTE = true;
+    }
     const ts = new Date().toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'});
     const el = document.getElementById('sidebarUpdatedAt'); if (el) el.textContent = ts;
     if (window.renderOverview) window.renderOverview();
@@ -8049,6 +8730,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         if (!payload[k] || !Object.keys(payload[k]).length) continue;
         try { await window.fsWriteSection(k, payload[k]); }
         catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: ' + rotulos[k] + ' importado(s) NÃO foi(ram) salvo(s) (' + e.message + ').</span>'; }
+      }
+      // T6140B inteiro (pedido do Victor, 09/10/2026; V1 em 13/10) — só quando um T6140B novo foi importado nesta aba; seção
+      // à parte, não lida no login. Falha aqui vira aviso: a aba T6140B da planilha só sai resumida, nada mais quebra.
+      if (window.__T6140B_EXTRATO_PENDENTE && window.__T6140B_EXTRATO){
+        try { await window.fsWriteSection('T6140B_EXTRATO', window.__T6140B_EXTRATO); window.__T6140B_EXTRATO_PENDENTE = false; }
+        catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: o extrato completo do T6140B NÃO foi salvo (' + e.message + ') — a aba T6140B do "Baixar .xlsx" vai sair resumida pra quem baixar de outro computador.</span>'; }
       }
       status.innerHTML = '<span style="color:#1b7a63; font-weight:700;">Publicado! Quem já estiver com o painel aberto vê a atualização só no próximo login/recarregamento.</span>' + avisoMeta;
     } catch(err){
