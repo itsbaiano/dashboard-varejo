@@ -2624,7 +2624,26 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   // d.u3 também aparece na tabela/detalhe e na ordenação — mantido igual a vendasUltimos3 (aqui na
   // carga, e de novo em applyCorretorasToEligibilidade/updateEligibilidadeData).
   (DATA || []).forEach(d => { d.u3 = vendasUltimos3(d); });
-  function isReactivation(d){ return vendasUltimos3(d) === 0 && d.tot >= 20; }
+  // Oportunidade de reativação — UMA regra só, seguindo o período do filtro (Victor, 2026-10-13: "quando eu filtro por
+  // tri ou mês, os dados não se adaptam"; antes banner/caixinha usavam sempre os 3 últimos meses e o cartão/Top 15
+  // outra regra, sem o corte). Corte de 20 vidas mantido (decisão do Victor).
+  //  - "Todos os meses": ≥ 20 vidas no histórico e zero nos 3 últimos meses (como sempre).
+  //  - Com período: ≥ 20 vidas ANTES do período e zero DENTRO dele. Potencial = o que vendeu antes do período;
+  //    tempo parado = meses entre a última venda e o fim do período.
+  function reactCtx(d, periodMonths){
+    const m = d.m || [];
+    if (!periodMonths || !periodMonths.length){
+      return { ok: vendasUltimos3(d) === 0 && d.tot >= 20, pot: d.tot || 0, parado: monthsSinceLastSale(d) };
+    }
+    const ini = Math.min.apply(null, periodMonths), fim = Math.max.apply(null, periodMonths);
+    let antes = 0, ult = -1;
+    for (let i = 0; i < ini; i++){ const v = m[i] || 0; antes += v; if (v > 0) ult = i; }
+    const noPeriodo = periodMonths.reduce((s, i) => s + (m[i] || 0), 0);
+    return { ok: antes >= 20 && noPeriodo === 0, pot: antes, parado: ult >= 0 ? fim - ult : fim + 1 };
+  }
+  function isReactivation(d){ return reactCtx(d, getPeriodMonths()).ok; }
+  const reactPot = d => reactCtx(d, getPeriodMonths()).pot;
+  const reactParado = d => reactCtx(d, getPeriodMonths()).parado;
 
   // Destaca visualmente (classe .is-filtered, ver CSS) os campos de filtro da Elegibilidade
   // que estão com valor diferente do padrão — mesmo critério de "fatia estreita" que
@@ -3198,23 +3217,25 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       document.getElementById('execEvolPanel').style.display = 'none';
       document.getElementById('reactTablePanel').style.display = '';
 
+      // Potencial e tempo parado seguem o período do filtro (reactCtx, 2026-10-13)
       const n = filtered.length;
-      const totalVidas = filtered.reduce((s,d)=>s+d.tot,0);
+      const totalVidas = filtered.reduce((s,d)=>s+reactPot(d),0);
       const media = n ? totalVidas / n : 0;
-      const maisPotencial = n ? filtered.reduce((a,b)=> a.tot > b.tot ? a : b) : null;
-      const mediaInativa = n ? filtered.reduce((s,d)=>s+monthsSinceLastSale(d),0) / n : 0;
+      const maisPotencial = n ? filtered.reduce((a,b)=> reactPot(a) > reactPot(b) ? a : b) : null;
+      const mediaInativa = n ? filtered.reduce((s,d)=>s+reactParado(d),0) / n : 0;
+      const periodoReact = getPeriodMonths();
 
       const kpiDefs = [
         { bar:'#F26B21', ico:'<i class=ic-target></i>', icoBg:'rgba(242,107,33,.12)', color:'#F26B21',
-          label:'Corretoras em Oportunidade', value: fmt0(n), pct:'histórico relevante, zero produção recente',
+          label:'Corretoras em Oportunidade', value: fmt0(n), pct: periodoReact ? 'vendiam antes, zero no período' : 'histórico relevante, zero produção recente',
           list: filtered, title:'Oportunidades de reativação' },
         { bar:'#1D33A8', ico:'<i class=ic-trend></i>', icoBg:'rgba(29,51,168,.10)', color:'#101E63',
-          label:'Vidas Históricas em Potencial', value: fmt0(totalVidas), pct: n?('média de '+fmt0(media)+' por corretora'):'0' },
+          label:'Vidas Históricas em Potencial', value: fmt0(totalVidas), pct: n?('média de '+fmt0(media)+' por corretora'+(periodoReact?' (antes do período)':'')):'0' },
         { bar:'#16B87A', ico:'<i class=ic-award></i>', icoBg:'rgba(22,184,122,.12)', color:'#16B87A',
-          label:'Maior Potencial Único', value: maisPotencial?fmt0(maisPotencial.tot):'—', pct: maisPotencial?maisPotencial.n:'—',
+          label:'Maior Potencial Único', value: maisPotencial?fmt0(reactPot(maisPotencial)):'—', pct: maisPotencial?maisPotencial.n:'—',
           list: maisPotencial ? [maisPotencial] : null, title: maisPotencial ? maisPotencial.n : '' },
         { bar:'#FFB81C', ico:'<i class=ic-alarm></i>', icoBg:'rgba(255,184,28,.16)', color:'#a5690f',
-          label:'Tempo Médio Inativo', value: mediaInativa.toFixed(1)+' meses', pct:'desde a última venda' },
+          label:'Tempo Médio Inativo', value: mediaInativa.toFixed(1)+' meses', pct: periodoReact ? 'da última venda até o fim do período' : 'desde a última venda' },
       ];
       document.getElementById('execKpiRow').innerHTML = kpiDefs.map((k,i)=>`
         <div class="exec-kpi ${k.list?'clickable':''}" data-i="${i}" style="--ek-bar:${k.bar}; --ek-ico-bg:${k.icoBg}; --ek-color:${k.color};" ${k.list?'title="Clique para ver as corretoras"':''}>
@@ -3248,23 +3269,25 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?'pointer':'default'; },
           plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
             const g = reactGestorNames[c.dataIndex]; const l = reactByGestor[g];
-            const potg = l.reduce((s,d)=>s+d.tot,0);
+            const potg = l.reduce((s,d)=>s+reactPot(d),0);
             return [`${l.length} oportunidade(s)`, `${fmt0(potg)} vidas em potencial`, 'Clique para filtrar'];
           }}}},
           scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{autoSkip:false, font:{size:11, weight:'600'}}} } }
       });
 
-      const sortedReact = [...filtered].sort((a,b)=>b.tot-a.tot);
+      const sortedReact = [...filtered].sort((a,b)=>reactPot(b)-reactPot(a));
       document.getElementById('reactTableBody').innerHTML = sortedReact.length ? sortedReact.map(d => `
         <tr class="clickable" data-c="${d.c}">
           <td class="name">${d.n}</td>
           <td>${shortGestor(d.g)}</td>
-          <td class="num">${fmt0(d.tot)}</td>
-          <td>${monthsSinceLastSale(d)} meses</td>
+          <td class="num">${fmt0(reactPot(d))}</td>
+          <td>${reactParado(d)} meses</td>
         </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma corretora encontrada com esses filtros.</td></tr>`;
       document.querySelectorAll('#reactTableBody tr[data-c]').forEach(tr => window.__kb(tr).addEventListener('click', () => showDetail(tr.dataset.c)));
 
-      window.__execInsights = n ? [{ico:'<i class=ic-target></i>', text:`<b>${fmt0(n)} corretoras</b> com histórico relevante estão sem vender há pelo menos 3 meses — <b>${fmt0(totalVidas)} vidas</b> em potencial de reativação.`}] : [];
+      window.__execInsights = n ? [{ico:'<i class=ic-target></i>', text: periodoReact
+        ? `<b>${fmt0(n)} corretoras</b> que vendiam antes (≥ 20 vidas) ficaram zeradas no período — <b>${fmt0(totalVidas)} vidas</b> de histórico em potencial de reativação.`
+        : `<b>${fmt0(n)} corretoras</b> com histórico relevante estão sem vender há pelo menos 3 meses — <b>${fmt0(totalVidas)} vidas</b> em potencial de reativação.`}] : [];
       return;
     }
     document.getElementById('heatmapPanel').style.display = '';
@@ -3723,15 +3746,21 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const filtersActive = isAnyFilterActive();
     document.getElementById('reactBanner').style.display = filtersActive ? 'none' : '';
     if (!filtersActive) {
-      // Texto do aviso calculado (era fixo: "17 meses" e "Abr–Jun/26").
-      const nMesesReact = MONTH_LABELS.length - eligDataStartIdx;
-      const ini3 = MONTH_LABELS[Math.max(0, MONTH_LABELS.length - 3)] || '', fim3 = MONTH_LABELS[MONTH_LABELS.length - 1] || '';
-      const janela3 = ini3.split('/')[1] === fim3.split('/')[1] ? (ini3.split('/')[0] + '–' + fim3) : (ini3 + '–' + fim3);
+      // Texto do aviso calculado (era fixo: "17 meses" e "Abr–Jun/26"). Segue o período do filtro (2026-10-13).
       const reactDescEl = document.getElementById('reactDesc');
-      if (reactDescEl) reactDescEl.textContent = `Corretoras com histórico relevante de produção (≥ 20 vidas em ${nMesesReact} meses) e zero vendas nos últimos 3 meses (${janela3}). Ponto de partida ideal para ações comerciais e visitas presenciais.`;
+      const pmBanner = getPeriodMonths();
+      const rotMes = i => MONTH_LABELS[i] || '';
+      const faixa = (a, b) => { const x = rotMes(a), y = rotMes(b); return a === b ? x : (x.split('/')[1] === y.split('/')[1] ? (x.split('/')[0] + '–' + y) : (x + '–' + y)); };
+      if (pmBanner){
+        const iniB = Math.min.apply(null, pmBanner), fimB = Math.max.apply(null, pmBanner);
+        if (reactDescEl) reactDescEl.textContent = `Corretoras que vendiam antes do período (≥ 20 vidas até ${rotMes(iniB - 1) || 'o início'}) e ficaram com zero vendas em ${faixa(iniB, fimB)}. Ponto de partida ideal para ações comerciais e visitas presenciais.`;
+      } else {
+        const nMesesReact = MONTH_LABELS.length - eligDataStartIdx;
+        if (reactDescEl) reactDescEl.textContent = `Corretoras com histórico relevante de produção (≥ 20 vidas em ${nMesesReact} meses) e zero vendas nos últimos 3 meses (${faixa(Math.max(0, MONTH_LABELS.length - 3), MONTH_LABELS.length - 1)}). Ponto de partida ideal para ações comerciais e visitas presenciais.`;
+      }
       document.getElementById('reactCount').textContent = reactList.length;
-      document.getElementById('reactPotential').textContent = fmt0(reactList.reduce((s,d)=>s+d.tot,0));
-      document.getElementById('reactPeak').textContent = reactList.length ? fmt0(Math.max(...reactList.map(d=>d.tot))) : '0';
+      document.getElementById('reactPotential').textContent = fmt0(reactList.reduce((s,d)=>s+reactPot(d),0));
+      document.getElementById('reactPeak').textContent = reactList.length ? fmt0(Math.max(...reactList.map(reactPot))) : '0';
     }
 
     // ===== Situação de Atividade da Carteira (distinto do flag "Elegível" da campanha) =====
@@ -3739,12 +3768,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     const periodType = document.getElementById('fPeriodType').value;
     const periodLabel = periodType === 'all' ? 'todos os meses' : (PERIOD_DEFS[periodType][Number(document.getElementById('fPeriodValue').value)] || {}).label || '';
     const showAbsoluteCharts = !periodMonths;
-    const reactListEffective = showAbsoluteCharts ? reactList : filtered.filter(d => {
-      const minMonthPeriod = Math.min.apply(null, periodMonths);
-      const hadHistoryBefore = d.m.slice(0, minMonthPeriod).some(v=>v>0);
-      const periodTotalReact = periodMonths.reduce((s,i)=>s+(d.m[i]||0),0);
-      return hadHistoryBefore && periodTotalReact === 0;
-    });
+    // Mesma regra do banner/caixinha (reactCtx, já segue o período) — antes aqui era outra, sem o corte de 20 vidas.
+    const reactListEffective = reactList;
     const gestorLabel = selectedGestores.size === 0 ? 'todos os gestores'
       : selectedGestores.size === 1 ? [...selectedGestores][0]
       : [...selectedGestores].map(shortGestor).join(', ');
@@ -3762,7 +3787,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       {icon:"<i class=ic-target></i>", label:periodLabelKpi, value: fmt0(t2Sum)+' / '+fmt0(metaSum), sub: t2Sum>=metaSum ? 'Meta batida' : 'Faltam '+fmt0(metaSum-t2Sum)+' vidas', cls: t2Sum>=metaSum?'pos':'neg'},
       {icon:"<i class=ic-cart></i>", label:`Sem Produção (${periodLabel})`, value: fmt0(semProducao.length), sub: filtered.length?((semProducao.length/filtered.length*100).toFixed(1)+'% da base'):'0%', cls:'warn', action:()=>showChartDrilldown(`Sem Produção — ${periodLabel}`, semProducao)},
       {icon:"<i class=ic-alarm></i>", label:'Inativas > 90 dias', value: fmt0(inativas90.length), sub:'Sem venda há mais de 3 meses', cls:'neg', action:()=>showChartDrilldown('Inativas há mais de 90 dias', inativas90)},
-      {icon:"<i class=ic-target></i>", label:'Oportunidades de Reativação', value: reactListEffective.length.toLocaleString('pt-BR'), sub: fmt0(reactListEffective.reduce((s,d)=>s+d.tot,0))+' vidas em potencial', cls:'warn'},
+      {icon:"<i class=ic-target></i>", label:'Oportunidades de Reativação', value: reactListEffective.length.toLocaleString('pt-BR'), sub: fmt0(reactListEffective.reduce((s,d)=>s+reactPot(d),0))+' vidas em potencial', cls:'warn'},
     ];
     document.getElementById('elKpiRow').innerHTML = kpis.map((k,i)=>`<div class="kpi" ${k.action?'style="cursor:pointer" title="Clique para ver as corretoras"':''} data-idx="${i}"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.cls}">${k.sub}</div></div>`).join('');
     document.querySelectorAll('#elKpiRow .kpi').forEach((el,i) => { if (kpis[i].action) window.__kb(el).addEventListener('click', kpis[i].action); });
@@ -3939,7 +3964,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           type:'bar',
           data:{ labels: gestorNames2, datasets:[{ label:'Corretoras', data: gestorNames2.map(g=>byGestor[g].length), backgroundColor: gestorNames2.map(g=>GESTOR_COLORS[g]||'#94a3b8'), borderRadius:5 }] },
           options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, onClick:(evt, els)=>{ if(!els || !els.length) return; const idx = els[0].index; setTimeout(()=>{ showChartDrilldown('Reativação — '+gestorNames2[idx], byGestor[gestorNames2[idx]]); }, 0); }, onHover:(evt,els)=>{ if(evt && evt.native && evt.native.target) evt.native.target.style.cursor = (els && els.length) ? 'pointer' : 'default'; }, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
-              const g = c.label; const vidas = fmt0((byGestor[g]||[]).reduce((s,d)=>s+d.tot,0));
+              const g = c.label; const vidas = fmt0((byGestor[g]||[]).reduce((s,d)=>s+reactPot(d),0));
               return [`${c.raw} corretora(s)`, `${vidas} vidas em potencial`, 'Clique para ver a lista'];
             }}}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{stepSize:1}}, y:{grid:{display:false}} } }
         });
@@ -3947,7 +3972,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         document.getElementById('reactChartTitle').textContent = 'Tempo desde a Última Venda';
         document.getElementById('reactSub').textContent = 'Quanto mais recente a queda, mais fácil a reativação — clique numa barra para ver as corretoras';
         const byDormancy = {}; DORMANCY_ORDER.forEach(b=>byDormancy[b]=[]);
-        filtered.forEach(d => { byDormancy[dormancyBucket(monthsSinceLastSale(d))].push(d); });
+        filtered.forEach(d => { byDormancy[dormancyBucket(reactParado(d))].push(d); }); // até o fim do período (2026-10-13)
         destroyChart('react');
         const reactCanvas = document.getElementById('chartReact');
         const reactEmpty = document.getElementById('reactEmptyState');
@@ -3957,7 +3982,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           type:'bar',
           data:{ labels: DORMANCY_ORDER, datasets:[{ label:'Corretoras', data: DORMANCY_ORDER.map(b=>byDormancy[b].length), backgroundColor: ['#FFB81C','#F26B21','#F5364A','#9a3412'], borderRadius:5 }] },
           options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, onClick:(evt, els)=>{ if(!els || !els.length) return; const idx = els[0].index; setTimeout(()=>{ const b = DORMANCY_ORDER[idx]; showChartDrilldown('Parado há '+b, byDormancy[b]); }, 0); }, onHover:(evt,els)=>{ if(evt && evt.native && evt.native.target) evt.native.target.style.cursor = (els && els.length) ? 'pointer' : 'default'; }, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
-              const b = c.label; const vidas = fmt0((byDormancy[b]||[]).reduce((s,d)=>s+d.tot,0));
+              const b = c.label; const vidas = fmt0((byDormancy[b]||[]).reduce((s,d)=>s+reactPot(d),0));
               return [`${c.raw} corretora(s)`, `${vidas} vidas em potencial`, 'Clique para ver a lista'];
             }}}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{stepSize:1}}, y:{grid:{display:false}} } }
         });
@@ -3984,9 +4009,9 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{font:{size:10}}} } }
         });
 
-        const topReact = [...reactListEffective].sort((a,b)=>b.tot-a.tot).slice(0,15);
+        const topReact = [...reactListEffective].sort((a,b)=>reactPot(b)-reactPot(a)).slice(0,15);
         document.getElementById('reactChartTitle').textContent = topReact.length ? `Top ${topReact.length} Oportunidades de Reativação` : 'Oportunidades de Reativação';
-        document.getElementById('reactSub').textContent = showAbsoluteCharts ? 'Maior potencial histórico, zero produção nos últimos 3 meses' : `Vendia antes, zerou em ${periodLabel} — ordenado pelo histórico total`;
+        document.getElementById('reactSub').textContent = showAbsoluteCharts ? 'Maior potencial histórico, zero produção nos últimos 3 meses' : `Vendia antes (≥ 20 vidas), zerou em ${periodLabel} — ordenado pelo histórico antes do período`;
         destroyChart('react');
         const reactCanvas = document.getElementById('chartReact');
         const reactEmpty = document.getElementById('reactEmptyState');
@@ -3999,7 +4024,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
           reactEmpty.style.display = 'none';
           charts.react = new Chart(reactCanvas, {
             type:'bar',
-            data:{ labels: topReact.map(d=>d.n.length>28?d.n.slice(0,28)+'…':d.n), datasets:[{ data: topReact.map(d=>d.tot), backgroundColor:'#F26B21', borderRadius:5 }] },
+            data:{ labels: topReact.map(d=>d.n.length>28?d.n.slice(0,28)+'…':d.n), datasets:[{ data: topReact.map(reactPot), backgroundColor:'#F26B21', borderRadius:5 }] },
             options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{font:{size:10}}} } }
           });
         }
