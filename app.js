@@ -1,3 +1,116 @@
+// ===== ASSESSORIAS — nomes unificados (pedido do Victor, 2026-10-13) =====
+// A mesma assessoria aparecia em mais de uma linha por diferença de grafia (ex.: "F8 ... BENEFIC LTDA" ×
+// "F8 ... BENEFICIOS LTDA"; "VIVA SAUDE ... SEGUROS" × "... LTDA" × "... LTDA ME"; "PADRAO OPIPARI ... DE SEG" ×
+// "... SEGUROS LTDA."). Regra combinada com Victor: SÓ juntar as grafias — cada corretora continua na assessoria
+// em que já está (nada é reatribuído pela Carteira, os integrados se distribuem igual). Duas grafias se juntam
+// quando dividem um código de assessoria (gravado na corretora, ou o da Carteira pra ela) E são o mesmo nome com
+// outra grafia (ver mesmaAssessoria). Continuam separadas: NBA/BRH "EIRELI" (outro código — decisão do Victor) e
+// nomes diferentes com código trocado na origem (ex.: INNOV × TATIANA, achado no teste de 13/10).
+// Nome exibido: o da Carteira atual pra aquele código (a mais usada); sem Carteira, a grafia mais comum.
+// Uso: window.assCanon(nome, codigo) → { key, nome } | null (sem assessoria). Nada é gravado — é só exibição.
+(function(){
+  const limpaCod = c => {
+    const s = String(c == null ? '' : c).trim();
+    if (!s || s === '0' || /ENCONTRAD/i.test(s)) return '';
+    return (window.normalizeCodigo ? String(window.normalizeCodigo(s)) : s).toUpperCase();
+  };
+  const limpaNome = n => { const s = String(n == null ? '' : n).trim(); return (s === '0' || /^-?\d{6,}$/.test(s)) ? '' : s.toUpperCase(); };
+  let cache = null, cacheAt = 0, cacheSig = '';
+  // "Mesma assessoria com outra grafia": igual sem LTDA/ME/S.A./pontuação, ou um é o começo do outro (nome cortado,
+  // ex.: "...BENEFIC" × "...BENEFICIOS", "...DE SEG" × "...DE SEGUROS"). "EIRELI" nunca casa com "LTDA".
+  const base = s => String(s).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/(\s(LTDA|ME|EPP|SA|S A|LIMITADA))+$/g, '').trim();
+  const mesmaAssessoria = (a, b) => {
+    const x = base(a), y = base(b);
+    if (!x || !y) return false;
+    if (x === y) return true;
+    const [curto, longo] = x.length <= y.length ? [x, y] : [y, x];
+    if (curto.length < 12 || !longo.startsWith(curto)) return false;
+    return !/EIRELI/.test(longo.slice(curto.length));
+  };
+  function montar(){
+    const elig = window.getEligibilidadeData ? (window.getEligibilidadeData() || []) : [];
+    const linhas = [].concat(elig, window.getRankData ? (window.getRankData() || []) : []);
+    const cart = window.CARTEIRA_MAP;
+    const pai = new Map();
+    const raiz = x => { if (!pai.has(x)) pai.set(x, x); let r = x; while (pai.get(r) !== r) r = pai.get(r); while (pai.get(x) !== r){ const n = pai.get(x); pai.set(x, r); x = n; } return r; };
+    const une = (a, b) => { const ra = raiz(a), rb = raiz(b); if (ra !== rb) pai.set(ra, rb); };
+    // 1) código → grafias ligadas a ele. O código é só PISTA: duas grafias só se juntam se, além de dividirem um
+    //    código, forem o mesmo nome (mesmaAssessoria). Achado no teste de 13/10: há corretoras gravadas com o nome
+    //    de uma assessoria e o código de outra (INNOV × TATIANA) — juntar só pelo código misturava as duas.
+    const nomesDoCod = {};
+    const liga = (cod, nome) => { (nomesDoCod[cod] = nomesDoCod[cod] || new Set()).add(nome); };
+    const contaNome = {};
+    linhas.forEach(d => {
+      const nome = limpaNome(d.ass), cod = limpaCod(d.acod);
+      if (nome){ raiz('N:' + nome); contaNome[nome] = (contaNome[nome] || 0) + 1; }
+      if (nome && cod) liga(cod, nome);
+    });
+    //    Corretora sem código gravado (ex.: Elegibilidade da Plataforma): o código que a Carteira dá pra ESSA
+    //    corretora entra como pista (a regra de nome continua valendo — quem a Carteira trocou de assessoria não junta).
+    if (cart && cart.byCodigo){
+      elig.forEach(d => {
+        const nome = limpaNome(d.ass); if (!nome || limpaCod(d.acod)) return;
+        const cod = window.normalizeCodigo ? window.normalizeCodigo(d.c) : d.c;
+        (cart.byCodigo[cod] || []).forEach(e => { const k = limpaCod(e.codAss); if (k) liga(k, nome); });
+      });
+    }
+    // 2) dentro de cada código, junta as grafias que são a mesma assessoria
+    Object.keys(nomesDoCod).forEach(cod => {
+      const ns = [...nomesDoCod[cod]];
+      for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++){
+        if (mesmaAssessoria(ns[i], ns[j])) une('N:' + ns[i], 'N:' + ns[j]);
+      }
+    });
+    // 3) nome exibido: o da Carteira atual pra algum código do grupo (se for a mesma assessoria); senão a grafia
+    //    mais comum guardada.
+    const nomeCart = {};
+    if (cart && cart.byCodigo){
+      const cont = {};
+      Object.values(cart.byCodigo).forEach(lista => (lista || []).forEach(e => {
+        const cod = limpaCod(e.codAss), nome = limpaNome(e.assessoria); if (!cod || !nome) return;
+        (cont[cod] = cont[cod] || {})[nome] = (cont[cod][nome] || 0) + 1;
+      }));
+      Object.keys(cont).forEach(cod => { nomeCart[cod] = Object.entries(cont[cod]).sort((a,b)=>b[1]-a[1])[0][0]; });
+    }
+    const membros = new Map(); // raiz → [grafias]
+    Object.keys(contaNome).forEach(n => { const r = raiz('N:' + n); (membros.get(r) || membros.set(r, []).get(r)).push(n); });
+    const nomePorRaiz = new Map();
+    const escolhe = r => {
+      if (nomePorRaiz.has(r)) return nomePorRaiz.get(r);
+      const ns = membros.get(r) || [];
+      const daCart = {};
+      Object.keys(nomesDoCod).forEach(cod => {
+        if (!nomeCart[cod] || ![...nomesDoCod[cod]].some(n => ns.includes(n))) return;
+        if (ns.some(n => mesmaAssessoria(n, nomeCart[cod]))) daCart[nomeCart[cod]] = (daCart[nomeCart[cod]] || 0) + 1;
+      });
+      let nome = Object.keys(daCart).sort((a,b)=>daCart[b]-daCart[a])[0];
+      if (!nome) nome = ns.slice().sort((a,b)=>contaNome[b]-contaNome[a])[0] || '';
+      nomePorRaiz.set(r, nome);
+      return nome;
+    };
+    // corretora só com código (sem nome): vai pro grupo da grafia mais comum daquele código
+    const raizDoCod = cod => {
+      const ns = [...(nomesDoCod[cod] || [])].sort((a,b)=>contaNome[b]-contaNome[a]);
+      return ns.length ? raiz('N:' + ns[0]) : null;
+    };
+    return { raiz, escolhe, pai, raizDoCod };
+  }
+  window.assCanon = function(nome, cod){
+    const n = limpaNome(nome), c = limpaCod(cod);
+    if (!n && !c) return null;
+    const elig = window.getEligibilidadeData ? (window.getEligibilidadeData() || []) : [];
+    const rank = window.getRankData ? (window.getRankData() || []) : [];
+    const sig = elig.length + '|' + rank.length + '|' + (window.CARTEIRA_MAP ? 1 : 0);
+    if (!cache || sig !== cacheSig || Date.now() - cacheAt > 2000){ cache = montar(); cacheSig = sig; cacheAt = Date.now(); }
+    let r = null;
+    if (n) r = cache.pai.has('N:' + n) ? cache.raiz('N:' + n) : null;
+    else r = cache.raizDoCod(c);
+    if (!r) return { key: n ? 'N:' + n : 'C:' + c, nome: n || ('Assessoria ' + c) };
+    return { key: r, nome: cache.escolhe(r) };
+  };
+})();
+
 // ===== extraído de index.html linhas 1453-1470 =====
 // Liga o botão de tema — troca o atributo + salva a escolha + recarrega a página (mais simples
 // e seguro do que tentar recriar na mão todo gráfico já desenhado nas 5 abas; recarregar é rápido
@@ -2694,8 +2807,13 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   function aggregateAssessorias(filtered){
     const periodMonths = getPeriodMonths();
     const groups = {};
+    // Agrupa pela assessoria UNIFICADA (window.assCanon, 2026-10-13): grafias diferentes da mesma assessoria
+    // viram uma linha só; cada corretora continua na assessoria gravada nela.
+    const nomeGrupo = {};
     filtered.forEach(d => {
-      const key = d.ass || '__SEM__';
+      const can = window.assCanon ? window.assCanon(d.ass, d.acod) : (d.ass ? { key: d.ass, nome: d.ass } : null);
+      const key = can ? can.key : '__SEM__';
+      if (can) nomeGrupo[key] = can.nome;
       (groups[key] = groups[key] || []).push({ d, ctx: assCtx(d, periodMonths) });
     });
     let aggs = Object.entries(groups).map(([key, rows]) => {
@@ -2703,9 +2821,11 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       const eleg = rows.filter(r=>r.ctx.el===1).length;
       const vidas = rows.reduce((s,r)=>s+r.ctx.periodTotal,0);
       const meta = rows.reduce((s,r)=>s+(r.ctx.meta||0),0);
-      // código da assessoria: pega o mais comum entre as corretoras do grupo
-      const acod = key==='__SEM__' ? '' : (rows.map(r=>r.d.acod).find(x=>x && String(x).trim() !== '0') || '');
-      return { key, acod, name: key==='__SEM__'?'Sem assessoria vinculada':key, rows, n, eleg,
+      // código da assessoria: o mais comum entre as corretoras do grupo
+      const contCod = {};
+      if (key !== '__SEM__') rows.forEach(r => { const c = String(r.d.acod||'').trim(); if (c && c !== '0') contCod[c] = (contCod[c]||0) + 1; });
+      const acod = Object.keys(contCod).sort((a,b)=>contCod[b]-contCod[a])[0] || '';
+      return { key, acod, name: key==='__SEM__'?'Sem assessoria vinculada':(nomeGrupo[key] || key), rows, n, eleg,
         vidas, meta, pctEl: n?eleg/n*100:0, ating: meta>0?vidas/meta*100:0 };
     });
     // Busca por nome ou código da assessoria (só no modo assessorias)
@@ -4012,7 +4132,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     // "esta corretora" com "o agregado da assessoria" existe nos dois casos.
     const noteEl = document.getElementById('detailAssessoriaNote');
     const nomeUp = String(d.n).trim().toUpperCase();
-    const membrosAssessoria = scopedData().filter(x => x.ass && String(x.ass).trim().toUpperCase() === nomeUp);
+    const membrosAssessoria = scopedData().filter(x => { if (!x.ass && !x.acod) return false; const can = window.assCanon ? window.assCanon(x.ass, x.acod) : { nome: String(x.ass||'') }; return can && String(can.nome).trim().toUpperCase() === nomeUp; });
     if (membrosAssessoria.length){
       const totalMembros = membrosAssessoria.reduce((s,x)=>s+(x.tot||0),0);
       noteEl.style.display = '';
@@ -5357,7 +5477,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     single('CÓDIGO', 'info', 12, d => String(d.c), {numFmt:'@'});
     single('NOME CORRETOR', 'info', 60, d => d.n);
     single('GRADE DE COMISSÃO', 'info', 22, d => team === 'CAUDA LONGA' ? (d.gr || '') : '');
-    single('ASSESSORIA', 'info', 45, d => d.ass || '');
+    single('ASSESSORIA', 'info', 45, d => { const can = window.assCanon ? window.assCanon(d.ass, d.acod) : null; return can ? can.nome : (d.ass || ''); }); // nome unificado (2026-10-13)
     single('GERENTE', 'info', 28, d => d.g);
     for (let i = start; i <= lastIdx; i++){
       cat4(globalIdxToMonthHeader(i), [i], 'mes');
@@ -5948,12 +6068,19 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
   function cmpAggregateAssessorias(){
     const data = window.getRankData ? window.getRankData() : [];
     const groups = {};
+    const nomeGrupo = {};
     data.forEach(r => {
       if (!r.ass) return; // sem assessoria vinculada não faz sentido como entidade pra comparar
-      (groups[r.ass] = groups[r.ass] || []).push(r);
+      // Assessoria unificada (window.assCanon, 2026-10-13) — grafias da mesma assessoria numa entrada só.
+      const can = window.assCanon ? window.assCanon(r.ass, r.acod) : { key: r.ass, nome: r.ass };
+      nomeGrupo[can.key] = can.nome;
+      (groups[can.key] = groups[can.key] || []).push(r);
     });
-    return Object.entries(groups).map(([name, rows]) => {
-      const acod = rows.map(r=>r.acod).find(Boolean) || '';
+    return Object.entries(groups).map(([key, rows]) => {
+      const name = nomeGrupo[key];
+      const contCod = {};
+      rows.forEach(r => { if (r.acod) contCod[r.acod] = (contCod[r.acod]||0) + 1; });
+      const acod = Object.keys(contCod).sort((a,b)=>contCod[b]-contCod[a])[0] || '';
       const n = rows.length;
       const cat = {
         IND: {meta:0, int: rows.reduce((s,r)=>s + (r.ind||0), 0)},
