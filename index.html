@@ -165,19 +165,7 @@
     .sidebar-month-wrap{margin-top:0 !important; padding:0; flex:1; min-width:130px;}
     .sidebar-month-label{display:none;}
     .sidebar-bottom{gap:8px;}
-    /* Os botões "Resumo do Dia"/"Atualizar Dados" flutuam fixos no canto inferior direito —
-       numa tela larga sobra espaço em branco ao lado do último gráfico, mas no celular os
-       dois juntos (com texto) tomavam ~40% da largura e ficavam tampando texto/gráfico atrás
-       (achado testando responsividade em 2026-09-03). Mesmo padrão já usado no menu lateral:
-       vira botão redondo só com ícone (aria-label mantém acessível), bem menor. A página
-       também ganha uma reserva de espaço embaixo pra sempre ter uma área livre onde os
-       botões podem "pousar" sem cobrir conteúdo. */
-    #btnOpenResumo, #btnOpenImport{padding:0; width:46px; height:46px; border-radius:50%; justify-content:center;}
-    #btnOpenResumo .fab-label, #btnOpenImport .fab-label{display:none;}
-    /* O ícone encolhia pra 6px de largura dentro do botão redondo (achado 2026-10-07) — tamanho fixo. */
-    #btnOpenResumo i, #btnOpenImport i{flex:0 0 auto; width:20px; height:20px;}
-    #btnOpenResumo{bottom:66px; right:14px;}
-    #btnOpenImport{bottom:14px; right:14px;}
+    /* Reserva de espaço embaixo pro botão de ações (#fabWrap) "pousar" sem cobrir conteúdo. */
     .main-area{padding-bottom:76px;}
   }
 
@@ -994,8 +982,6 @@
   thead th{background:#EFF3FE; color:#5A66A3;}
   tbody tr:hover td{background:#F6F9FF;}
   .f-group select:focus, .f-group input[type=text]:focus{border-color:var(--primary-light); box-shadow:0 0 0 3px rgba(46,82,212,.14); background-color:#fff; outline:none;}
-  #btnOpenImport{background:linear-gradient(120deg,var(--accent-coral),var(--accent-red)) !important; box-shadow:0 6px 20px rgba(242,107,33,.4) !important; transition:transform .15s ease, box-shadow .15s ease;}
-  #btnOpenImport:hover{transform:translateY(-2px); box-shadow:0 10px 26px rgba(242,107,33,.5) !important;}
   ::-webkit-scrollbar-thumb{background:#B9C6E8;}
   ::-webkit-scrollbar-thumb:hover{background:var(--primary-light);}
   /* =========================================================
@@ -1452,6 +1438,27 @@
      fundo claro) — virava quase invisível sobre o fundo escuro do card. */
   [data-theme="dark"] .chev{ color:var(--muted) !important; }
   #btnToggleTheme{ transition:background .15s ease; }
+
+  /* ===== Botão de ações + animações (14/10/2026, aprovado no V2 e trazido pro V1) ===== */
+  .fab-wrap{position:fixed; right:20px; bottom:20px; z-index:60; display:flex; flex-direction:column; align-items:flex-end; gap:10px;}
+  .fab-toggle{width:52px; height:52px; border-radius:50%; border:0; background:var(--primary-dark); color:#fff; font-size:27px; line-height:1; cursor:pointer;
+    box-shadow:0 8px 22px rgba(16,30,99,.35); transition:transform .2s ease, background .2s ease; display:grid; place-items:center;}
+  .fab-toggle:hover{background:var(--primary-mid);}
+  .fab-toggle[aria-expanded="true"]{transform:rotate(45deg); background:var(--primary-mid);}
+  .fab-menu{background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:0 14px 34px rgba(16,30,99,.22); padding:6px; display:grid; gap:2px; min-width:200px; animation:fadeInUp .16s ease-out both;}
+  .fab-menu[hidden]{display:none;}
+  .fab-item{display:flex; align-items:center; gap:10px; border:0; background:transparent; padding:9px 10px; border-radius:9px; font:inherit; font-size:13px; font-weight:600; color:var(--text); cursor:pointer; text-align:left;}
+  .fab-item:hover, .fab-item:focus-visible{background:rgba(46,82,212,.09);}
+  .fab-ic{width:28px; height:28px; border-radius:8px; display:grid; place-items:center; color:#fff; font-size:13px; flex:none;}
+  .fab-ic i{width:15px; height:15px; flex:0 0 auto;}
+  [data-theme="dark"] .fab-toggle{background:#33489E;}
+  @media (max-width:640px){ .fab-wrap{right:14px; bottom:14px;} .fab-toggle{width:48px; height:48px;} }
+  /* Esqueleto enquanto os dados do painel carregam (só aparece com a fileira de cartões ainda vazia) */
+  .kpi-row:empty{min-height:112px; border-radius:16px; background:linear-gradient(90deg, var(--line) 0%, rgba(255,255,255,.65) 50%, var(--line) 100%);
+    background-size:200% 100%; animation:kpiSkeleton 1.2s linear infinite;}
+  [data-theme="dark"] .kpi-row:empty{background:linear-gradient(90deg, rgba(255,255,255,.05) 0%, rgba(255,255,255,.12) 50%, rgba(255,255,255,.05) 100%); background-size:200% 100%;}
+  @keyframes kpiSkeleton{ from{background-position:200% 0;} to{background-position:-200% 0;} }
+  @media (prefers-reduced-motion:reduce){ .kpi-row:empty{animation:none;} .fab-toggle{transition:none;} .fab-menu{animation:none;} }
 </style>
 </head>
 <body>
@@ -2182,8 +2189,65 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   </header>
 
 
-  <button id="btnOpenResumo" aria-label="Resumo do Dia" style="position:fixed; bottom:84px; right:20px; z-index:50; padding:13px 20px; border-radius:50px; border:none; background:#16B87A; color:#fff; font-weight:700; font-size:13px; cursor:pointer; box-shadow:0 4px 14px rgba(15,23,42,.25); display:flex; align-items:center; gap:8px;"><i class=ic-clip></i><span class="fab-label">Resumo do Dia</span></button>
-  <button id="btnOpenImport" aria-label="Atualizar Dados" style="position:fixed; bottom:20px; right:20px; z-index:50; padding:13px 20px; border-radius:50px; border:none; background:var(--navy); color:#fff; font-weight:700; font-size:13px; cursor:pointer; box-shadow:0 4px 14px rgba(15,23,42,.25); display:flex; align-items:center; gap:8px;"><i class=ic-refresh></i><span class="fab-label">Atualizar Dados</span></button>
+  <!-- Botão de ações (14/10/2026, aprovado no V2 e trazido pro V1 a pedido do Victor): os dois botões flutuantes que
+       cobriam conteúdo viraram UM botão redondo que abre "Resumo do Dia" e "Atualizar Dados". Os ids continuam os mesmos —
+       os listeners do app.js (showResumoModal / abrir importação) não mudam. -->
+  <div class="fab-wrap" id="fabWrap">
+    <div class="fab-menu" id="fabMenu" hidden>
+      <button type="button" id="btnOpenResumo" class="fab-item"><span class="fab-ic" style="background:var(--accent-mint)"><i class=ic-clip></i></span>Resumo do Dia</button>
+      <button type="button" id="btnOpenImport" class="fab-item"><span class="fab-ic" style="background:linear-gradient(120deg,var(--accent-coral),var(--accent-red))"><i class=ic-refresh></i></span>Atualizar Dados</button>
+    </div>
+    <button type="button" id="fabToggle" class="fab-toggle" aria-expanded="false" aria-controls="fabMenu" aria-label="Ações: Resumo do Dia e Atualizar Dados"><span aria-hidden="true">+</span></button>
+  </div>
+  <script>
+  (function(){
+    var t = document.getElementById('fabToggle'), m = document.getElementById('fabMenu');
+    function fecha(){ m.hidden = true; t.setAttribute('aria-expanded','false'); }
+    t.addEventListener('click', function(e){ e.stopPropagation(); m.hidden = !m.hidden; t.setAttribute('aria-expanded', String(!m.hidden)); if (!m.hidden) m.querySelector('button').focus(); });
+    m.addEventListener('click', function(e){ if (e.target.closest('.fab-item')) fecha(); });
+    document.addEventListener('click', function(e){ if (!e.target.closest('#fabWrap')) fecha(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !m.hidden){ fecha(); t.focus(); } });
+  })();
+  // Número dos cartões (.kpi .value) sobe de 0 até o valor quando o cartão é desenhado (14/10/2026, igual ao V2). Só mexe
+  // em valor que é texto puro com um número ("4.261 vidas", "74,1%", "18.5", "+1d"); mantém o formato original (milhar
+  // com ponto, decimal com vírgula ou ponto) e termina exatamente no texto que o painel escreveu.
+  (function(){
+    if (!window.MutationObserver || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    var RE = /^(\D*?)(\d{1,3}(?:\.\d{3})+|\d+)(?:([.,])(\d+))?(\D*)$/;
+    function anima(el){
+      if (el.__contou || el.children.length) return;
+      var txt = el.textContent.trim(), m = RE.exec(txt);
+      if (!m) return;
+      el.__contou = true;
+      var inteiro = m[2].replace(/\./g, ''), sep = m[3] || '', dec = m[4] || '';
+      var milhar = m[2].indexOf('.') >= 0 || sep === ',';
+      var alvo = parseFloat(inteiro + (dec ? '.' + dec : ''));
+      if (!isFinite(alvo) || alvo === 0) return;
+      var casas = dec.length;
+      function fmt(v){
+        if (milhar) return v.toLocaleString('pt-BR', {minimumFractionDigits:casas, maximumFractionDigits:casas});
+        return casas ? v.toFixed(casas) : String(Math.round(v));
+      }
+      var t0 = null, dur = 750;
+      function passo(t){
+        if (t0 === null) t0 = t;
+        var k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+        el.textContent = k < 1 ? m[1] + fmt(alvo * e) + m[5] : txt;
+        if (k < 1) requestAnimationFrame(passo);
+      }
+      requestAnimationFrame(passo);
+    }
+    new MutationObserver(function(muts){
+      muts.forEach(function(mu){
+        mu.addedNodes.forEach(function(n){
+          if (n.nodeType !== 1) return;
+          if (n.matches && n.matches('.kpi .value')) anima(n);
+          if (n.querySelectorAll) n.querySelectorAll('.kpi .value').forEach(anima);
+        });
+      });
+    }).observe(document.body, {childList:true, subtree:true});
+  })();
+  </script>
 
   <div id="importModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100; align-items:center; justify-content:center; padding:20px;">
     <div id="importModal" style="background:#fff; border-radius:16px; padding:28px; max-width:600px; width:100%; max-height:85vh; overflow-y:auto; overflow-x:hidden; box-sizing:border-box;">
