@@ -172,7 +172,6 @@ window.markSourceUpdated = function(key){ LAST_UPDATED_BY_SOURCE[key] = new Date
 // devolver a entrada nesta lista, sem precisar mexer em mais nada.
 const SOURCE_LABELS = [
   {key:'corretoras', name:'Desempenho Comercial', sub:'Extrato do BI · Corretoras'},
-  {key:'crescimentoGeral', name:'Crescimento Geral', sub:'Conversão — ontem × hoje'},
   {key:'funilPf', name:'Funil PF', sub:'Pendências · SLA'},
   {key:'funilPme', name:'Funil PME', sub:'Pendências · SLA'},
 ];
@@ -3050,33 +3049,66 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // que raramente batiam com o que a planilha do sênior mostrava. Aqui os dois lados
   // (ontem E hoje) vêm sempre da mesma importação, então nunca desencontram.
   let CONV_ONTEM_HOJE = window.__DASH_DATA__.CONV_ONTEM_HOJE || {};
-  function computeGestorSnapshotNow(){
-    const assinaturaData = (window.getPendenciasData ? window.getPendenciasData().assinatura : {}) || {};
-    const rankByGestor = {};
-    (RANKDATA||[]).forEach(r => { if (r.g) rankByGestor[r.g] = (rankByGestor[r.g]||0) + (r.cur||0); });
-    const gestores = [...new Set(PROPOSTAS.map(p=>p.g).filter(Boolean).concat(Object.keys(assinaturaData)).concat(Object.keys(rankByGestor)))];
-    const snap = {};
-    gestores.forEach(g => {
-      const ps = PROPOSTAS.filter(p=>p.g===g);
-      const funilAtivo = ps.filter(p=>/pend|analis/i.test(p.st)).reduce((s,p)=>s+(p.bn||0),0);
-      const assinatura = (assinaturaData[g]||[]).reduce((s,r)=>s+(r.beneficiarios||0),0);
-      const implantadas = ps.filter(p=>/implant/i.test(p.st)).length;
-      snap[g] = { funilAtivo, assinatura, ranking: rankByGestor[g]||0, implantadas, totalPropostas: ps.length };
-    });
-    return snap;
+  // ── Retrato do dia (v2, 14/10/2026 — pedido do Victor: "com o que eu já importo diariamente, já é possível guardar
+  // os dados", sem a planilha Crescimento Geral). Um retrato por DIA (data local), por gestor (nome cru da Carteira),
+  // com as 3 colunas que a Crescimento compara ontem × hoje — mesmas regras dela, conferidas número a número com a
+  // planilha de 24/09/2026:
+  //  - f (Funil): vidas em análise + pendência (status da Planium) com VIGÊNCIA no mês do retrato ou no anterior — é a
+  //    Planilha1 do "Relatório PME automatizado" (24/09: 3.650 = extratos crus Ago+Set, exato);
+  //  - a (Assinatura): vidas do extrato de notificadas (aguardando assinatura), gestor pelo CNPJ da corretora na Carteira;
+  //  - r (Ranking): vendas novas do mês no extrato "Corretoras" do BI, IND+SS+PME+ADM ("Total" do BI) — só muda quando o
+  //    extrato vem nessa importação; senão repete o do retrato anterior (ver rk).
+  // Importar de novo no mesmo dia só refaz o retrato de hoje (sempre com o estado atual do painel). "Ontem" = o último
+  // retrato de um dia ANTERIOR (segunda compara com sexta). Vai pro Firestore no Publicar (seção DAILY_SNAPSHOTS).
+  // Retratos do formato antigo (sem v:2, outra regra de funil) são descartados — nunca se misturam com os novos.
+  const RETRATO_V = 2;
+  const dataLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  Object.keys(DAILY_SNAPSHOTS).forEach(k => { if (!DAILY_SNAPSHOTS[k] || DAILY_SNAPSHOTS[k].v !== RETRATO_V) delete DAILY_SNAPSHOTS[k]; });
+  // Ponto de partida: retrato de 13/10/2026 montado dos extratos crus daquele dia (Planium 9601+9603, notificadas 9681,
+  // Corretoras 13/10 13:49, Carteira 18) — assim a 1ª importação com o painel novo (14/10) já mostra ontem → hoje.
+  // Conferido: assinatura = dinâmica do relatório de notificadas de 13/10 nos 22 gestores; funil = dinâmica do Relatório
+  // PME automatizado de 13/10 em 19 de 20 (Guilherme +4: proposta 743139 LIBERTY SAUDE, #N/D no relatório, na Carteira 18).
+  const RETRATO_SEED = {"2026-10-13":{"v":2,"em":"2026-10-13T20:00:00.000Z","meses":["2026-09","2026-10"],"rk":"2026-10-13","g":{"AGATHA AMARAL RIBEIRO":{"f":304,"a":96,"r":572},"AGATHA EIKO RODRIGUES SAKAMOTO":{"f":71,"a":62,"r":402},"AMANDA DOS SANTOS SOBRAL":{"f":28,"a":31,"r":212},"BIANCA PEIXOTO LEITE":{"f":155,"a":43,"r":0},"CAMILA ALVES PERTINHEZ":{"f":301,"a":99,"r":845},"CARLOS EDUARDO FARIAS DA SILVA":{"f":139,"a":24,"r":0},"DANIELA FREDERICO MARTINS AM":{"f":56,"a":0,"r":0},"DANIELA FREDERICO MARTINS CAMPINAS":{"f":176,"a":45,"r":0},"DANIELA NOVAIS DOS SANTOS":{"f":143,"a":8,"r":304},"ERIKA DE SOUSA SILVA":{"f":436,"a":148,"r":891},"FABIO FERREIRA DE AVELLAR":{"f":234,"a":114,"r":0},"FLAVIA AUANA SILVA DE OLIVEIRA":{"f":68,"a":14,"r":0},"GUILHERME DE LIMA MUSACHI":{"f":73,"a":23,"r":243},"IZABELE DE OLIVEIRA DA SILVA":{"f":232,"a":106,"r":682},"JONATHAN LEAL DOS SANTOS SILVA":{"f":152,"a":47,"r":457},"KAIQUE ARAUJO DA SILVA":{"f":48,"a":19,"r":0},"KAROLLAINNY RANGEL DE SOUSA LOPES":{"f":128,"a":43,"r":299},"LAIS DOS SANTOS MARTINS":{"f":237,"a":89,"r":681},"PABLO SERGIO RIBEIRO AMORA":{"f":152,"a":78,"r":531},"PATRICIA PESSOA MONKS":{"f":139,"a":55,"r":195},"VENDA INTERNA":{"f":376,"a":30,"r":0},"VIVIAN DE CASSIA AMBROSIO":{"f":321,"a":63,"r":809},"WILDER COCA PATZI":{"f":199,"a":92,"r":432}}}};
+  Object.keys(RETRATO_SEED).forEach(k => { if (!DAILY_SNAPSHOTS[k]) DAILY_SNAPSHOTS[k] = RETRATO_SEED[k]; });
+  function retratoMesesFunil(dataISO){
+    const [y, m] = dataISO.split('-').map(Number);
+    const ant = m === 1 ? `${y-1}-12` : `${y}-${String(m-1).padStart(2,'0')}`;
+    return [ant, `${y}-${String(m).padStart(2,'0')}`];
   }
-  function saveDailySnapshot(){
-    const hoje = new Date().toISOString().slice(0,10);
-    DAILY_SNAPSHOTS[hoje] = computeGestorSnapshotNow();
+  function computeGestorSnapshotNow(dataISO, rankByRaw){
+    const assinaturaData = (window.getPendenciasData ? window.getPendenciasData().assinatura : {}) || {};
+    const meses = new Set(retratoMesesFunil(dataISO));
+    const g = {};
+    const slot = nome => (g[nome] = g[nome] || { f:0, a:0, r:0 });
+    (PROPOSTAS||[]).forEach(p => {
+      if (!p.g || !/pend|analis/i.test(String(p.st||'')) || !meses.has(String(p.vg||'').slice(0,7))) return;
+      slot(p.g).f += (p.bn||0);
+    });
+    Object.keys(assinaturaData).forEach(nome => { slot(nome).a += (assinaturaData[nome]||[]).reduce((s,r)=>s+(r.beneficiarios||0),0); });
+    // Ranking: o desta importação, ou o do último retrato (o extrato do BI nem sempre vem junto)
+    let rk = rankByRaw, rkData = dataISO;
+    if (!rk){
+      const ant = Object.keys(DAILY_SNAPSHOTS).filter(d => d <= dataISO).sort().pop();
+      if (ant){ rk = {}; rkData = DAILY_SNAPSHOTS[ant].rk || ant; Object.keys(DAILY_SNAPSHOTS[ant].g).forEach(n => { if (DAILY_SNAPSHOTS[ant].g[n].r) rk[n] = DAILY_SNAPSHOTS[ant].g[n].r; }); }
+    }
+    Object.keys(rk||{}).forEach(nome => { slot(nome).r = Math.round(rk[nome]); });
+    return { v: RETRATO_V, em: new Date().toISOString(), meses: [...meses], rk: rk ? rkData : null, g };
+  }
+  function saveDailySnapshot(rankByRaw){
+    const hoje = dataLocalISO(new Date());
+    DAILY_SNAPSHOTS[hoje] = computeGestorSnapshotNow(hoje, rankByRaw || null);
     // Mantém só os últimos 60 dias — suficiente pra qualquer comparação de período, sem o
     // data.json crescer sem limite.
     const datas = Object.keys(DAILY_SNAPSHOTS).sort();
     while (datas.length > 60){ delete DAILY_SNAPSHOTS[datas.shift()]; }
   }
-  function getYesterdaySnapshot(){
-    const hoje = new Date().toISOString().slice(0,10);
-    const datas = Object.keys(DAILY_SNAPSHOTS).filter(d => d < hoje).sort();
-    return datas.length ? DAILY_SNAPSHOTS[datas[datas.length-1]] : null;
+  // { hoje: {data, ...retrato}, ontem: {data, ...retrato} | null } — "hoje" = o retrato mais recente (pode ser de ontem,
+  // se ainda não importaram nada hoje); "ontem" = o último retrato de um dia anterior a ele.
+  function getRetratosOntemHoje(){
+    const datas = Object.keys(DAILY_SNAPSHOTS).sort();
+    if (!datas.length) return null;
+    const dh = datas[datas.length-1], doo = datas.length > 1 ? datas[datas.length-2] : null;
+    return { hoje: Object.assign({ data: dh }, DAILY_SNAPSHOTS[dh]), ontem: doo ? Object.assign({ data: doo }, DAILY_SNAPSHOTS[doo]) : null };
   }
   function slaAddDU(d,n){ let c=new Date(d), a=0; while(a<n){ c.setDate(c.getDate()+1); if (c.getDay()!==0 && c.getDay()!==6) a++; } return c; }
   function slaDuDiff(a,b){ let c=0, cur=new Date(a); while(cur<b){ if (cur.getDay()!==0 && cur.getDay()!==6) c++; cur.setDate(cur.getDate()+1); } return c; }
@@ -5447,6 +5479,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   window.getSlaHistorico = () => SLA_HISTORICO;
   window.getDailySnapshots = () => DAILY_SNAPSHOTS;
   window.saveDailySnapshot = saveDailySnapshot;
+  window.getRetratosOntemHoje = getRetratosOntemHoje;
   window.getConvOntemHoje = () => CONV_ONTEM_HOJE;
   window.updateConvOntemHoje = function(newData){
     Object.keys(newData||{}).forEach(g => { CONV_ONTEM_HOJE[g] = newData[g]; });
@@ -5495,7 +5528,26 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }).sort();
     document.getElementById('convCount').textContent = gestores.length + (gestores.length===1 ? ' gestor' : ' gestores');
 
-    const convReport = (window.getConvOntemHoje ? window.getConvOntemHoje() : {}) || {};
+    // Ontem → hoje: pelos retratos diários do próprio painel (14/10/2026). A planilha Crescimento Geral só é usada se
+    // ainda não existir nenhum retrato (nunca mistura as duas fontes).
+    const ret = window.getRetratosOntemHoje ? window.getRetratosOntemHoje() : null;
+    const convReport = ret ? {} : ((window.getConvOntemHoje ? window.getConvOntemHoje() : {}) || {});
+    const retDoGestor = g => {
+      if (!ret || !ret.ontem) return null;
+      const o = ret.ontem.g[g] || {f:0,a:0,r:0}, h = ret.hoje.g[g] || {f:0,a:0,r:0};
+      return { funilOntem:o.f, funilHoje:h.f, assinaturaOntem:o.a, assinaturaHoje:h.a, rankingOntem:o.r, rankingHoje:h.r };
+    };
+    const dBR = iso => iso ? iso.slice(8,10)+'/'+iso.slice(5,7) : '';
+    const infoEl = document.getElementById('convRetratoInfo');
+    if (infoEl){
+      if (ret && ret.ontem){
+        const mesesTxt = (ret.hoje.meses||[]).map(m => ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+m.slice(5,7)-1]+'/'+m.slice(2,4)).join(' e ');
+        infoEl.innerHTML = `<b>Ontem → hoje:</b> ${dBR(ret.ontem.data)} → ${dBR(ret.hoje.data)} · Funil = análise + pendência com vigência ${mesesTxt} (regra da Crescimento Geral) · Assinatura = extrato de notificadas · Ranking = vendas do mês com ADM`
+          + (ret.hoje.rk && ret.hoje.rk < ret.hoje.data ? ` <span style="color:var(--accent-red);">(ranking sem extrato do BI novo desde ${dBR(ret.hoje.rk)})</span>` : '');
+      } else if (ret){
+        infoEl.innerHTML = `<b>Ontem → hoje:</b> primeiro retrato guardado em ${dBR(ret.hoje.data)} — a comparação aparece a partir da próxima importação, num outro dia.`;
+      } else infoEl.innerHTML = '';
+    }
     const cresce = (hoje, ant) => (ant===undefined || ant===null || ant===0) ? null : Math.round((hoje-ant)/ant*100);
 
     const rows = gestores.map(g => {
@@ -5512,7 +5564,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       // Ontem→hoje só aparece quando o "Crescimento Geral" já foi importado pra esse gestor —
       // os dois lados (ontem E hoje) vêm sempre da mesma planilha, nunca misturando com o
       // dado ao vivo do PROPOSTAS (que é de outra fonte e atualiza em outro ritmo).
-      const cg = convReport[g] || null;
+      const cg = ret ? retDoGestor(g) : (convReport[g] || null);
       return { gestor:g, total:ps.length, ativasCount: ativas.length,
         ativasVidas, criticos, atrasoMedio, conv, assinTotal,
         funilOntem: cg ? cg.funilOntem : null, funilHojeReport: cg ? cg.funilHoje : null,
@@ -5541,7 +5593,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // Seta de crescimento — pra Funil e Assinatura, MENOS é melhor (menos gente parada),
     // por isso a cor é invertida em relação ao sentido comum de "subiu = verde".
     const cresLabel = (pct) => {
-      if (pct===null) return '<span style="color:var(--muted); font-size:11px;">importe o Crescimento Geral</span>';
+      if (pct===null) return '<span style="color:var(--muted); font-size:11px;">' + (ret && !ret.ontem ? 'a partir da próxima importação' : 'sem base de ontem') + '</span>';
       const cor = pct===0 ? 'var(--muted)' : (pct>0 ? 'var(--accent-red)' : 'var(--accent-mint)');
       const seta = pct===0 ? '·' : (pct>0 ? '▲' : '▼');
       return `<span style="color:${cor}; font-weight:700; font-size:11px;">${seta} ${Math.abs(pct)}% vs ontem</span>`;
@@ -5627,7 +5679,20 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // Mesma fonte pros dois lados (ontem e hoje): quando o "Crescimento Geral" já foi
     // importado pra esse gestor, os dois números vêm dele — nunca mistura com o dado ao
     // vivo do PROPOSTAS, que teria outro ritmo de atualização e não bateria.
-    const cgData = (window.getConvOntemHoje ? window.getConvOntemHoje() : {})[gestor] || null;
+    // Retratos diários do painel (14/10/2026) — os dois lados vêm do retrato; sem retrato nenhum, cai na Crescimento Geral.
+    // (Antes o "hoje" do ranking comparava r.g — nome curto, ex.: "Pablo Amora" — com o nome cru, e dava 0 pra quem tem
+    // nome abreviado.)
+    const ret = window.getRetratosOntemHoje ? window.getRetratosOntemHoje() : null;
+    let cgData = null;
+    if (ret && ret.ontem){
+      const o = ret.ontem.g[gestor] || {f:0,a:0,r:0}, h = ret.hoje.g[gestor] || {f:0,a:0,r:0};
+      cgData = { funilOntem:o.f, funilHoje:h.f, assinaturaOntem:o.a, assinaturaHoje:h.a, rankingOntem:o.r, rankingHoje:h.r };
+    } else if (ret){
+      const h = ret.hoje.g[gestor] || {f:0,a:0,r:0};
+      cgData = { funilOntem:null, funilHoje:h.f, assinaturaOntem:null, assinaturaHoje:h.a, rankingOntem:null, rankingHoje:h.r };
+    } else {
+      cgData = (window.getConvOntemHoje ? window.getConvOntemHoje() : {})[gestor] || null;
+    }
 
     document.getElementById('convDetailAvatar').textContent = gestor.trim().split(/\s+/).map(p=>p[0]).slice(0,2).join('').toUpperCase();
     document.getElementById('convDetailName').textContent = gestor;
@@ -5635,7 +5700,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
     const linhas = [
       {label:'Aguardando Assinatura', ontem: cgData ? cgData.assinaturaOntem : null, hoje: cgData ? cgData.assinaturaHoje : assinHoje},
-      {label:'Funil (análise + pendência)', ontem: cgData ? cgData.funilOntem : null, hoje: cgData ? cgData.funilHoje : funilHoje},
+      {label:'Funil (análise + pendência, vigência mês atual + anterior)', ontem: cgData ? cgData.funilOntem : null, hoje: cgData ? cgData.funilHoje : funilHoje},
       {label:'Ranking (volume de vendas)', ontem: cgData ? cgData.rankingOntem : null, hoje: cgData ? cgData.rankingHoje : rankingHoje},
       {label:'Propostas implantadas', ontem: null, hoje: implantadas.length},
     ];
@@ -7451,7 +7516,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     return html;
   }
 
-  let pendingMeta = null, pendingElig = null, pendingCarteira = null, pendingPendPme = null, pendingPendPf = null, pendingCorretorasRaw = null, pendingEligBridge = null, pendingPropostas = null, pendingAssinatura = null, pendingCrescimentoGeral = null, pendingT6140bRaw = null;
+  let pendingMeta = null, pendingElig = null, pendingCarteira = null, pendingPendPme = null, pendingPendPf = null, pendingCorretorasRaw = null, pendingEligBridge = null, pendingPropostas = null, pendingAssinatura = null, pendingT6140bRaw = null;
   let pendingRankCur = null, pendingRankPrev = null;
 
   // Gestores da equipe do Rio (excluídos do ranking de SP)
@@ -8304,88 +8369,56 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (digits.length === 11) return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
     return digits; // formato inesperado (nem 11 nem 14 dígitos) — mostra cru em vez de escondido
   }
-  function parseAssinaturaWorkbook(workbook){
-    const sheet = findSheet(workbook, 'stats_export_gndi');
-    if (!sheet) throw new Error('Não encontrei a aba "stats_export_gndi..." no arquivo de Aguardando Assinatura.');
+  // Aguardando assinatura (notificadas). Desde 14/10/2026 aceita o EXTRATO CRU do jeito que baixa
+  // ("stats_export_gndi_NNNN.csv", sem GESTOR): o gestor sai do CNPJ da corretora na Carteira (byCnpj, primeiro
+  // CNPJ vale — mesmo PROCV do funil PME; conferido com o relatório do Victor de 13/10: 460 de 461 linhas iguais, a
+  // outra é um CNPJ que entrou na Carteira depois). O relatório antigo, já com a coluna GESTOR, continua valendo: se o
+  // CNPJ não estiver na Carteira, usa o GESTOR da planilha. Linha sem CNPJ e sem operadora (lixo no fim da planilha
+  // montada à mão) é ignorada. ATENÇÃO: CSV aberto e salvo no Excel estraga o CNPJ ("2,68E+13") — aí nada casa.
+  function parseAssinaturaWorkbook(workbook, carteira){
+    const sheet = findSheet(workbook, 'stats_export_gndi') || workbook.Sheets[workbook.SheetNames[0]];
     const rows = sheetRows(sheet);
     const header = (rows[0]||[]).map(h => String(h||'').trim());
     const idx = name => header.indexOf(name);
-    const iAlvo = idx('alvo'), iGestor = idx('GESTOR'), iCorretora = idx('CORRETORA'),
+    const iAlvo = idx('alvo'), iGestor = idx('GESTOR'), iCorretora = idx('CORRETORA'), iCorrCnpj = idx('corretora_cnpj'),
           iData = idx('datacriacao'), iBenef = idx('beneficiarios'), iContratante = idx('contratante_nome'),
-          iCnpj = idx('contratante_cnpj'), iCpf = idx('contratante_cpf');
-    if ([iAlvo,iGestor].some(i=>i<0)) throw new Error('A aba não tem as colunas esperadas ("alvo", "GESTOR") — confirme que já rodou o cruzamento de GESTOR/CORRETORA antes de subir este arquivo.');
-    const data = {};
+          iCnpj = idx('contratante_cnpj'), iCpf = idx('contratante_cpf'), iOper = idx('cnpjoperadora');
+    if (iAlvo < 0 || (iGestor < 0 && iCorrCnpj < 0)) throw new Error('Não reconheci o extrato de notificadas — esperado o "stats_export_gndi" da Planium com as colunas "alvo" e "corretora_cnpj".');
+    const byCnpj = (carteira && carteira.byCnpj) || {};
+    if (iGestor < 0 && !Object.keys(byCnpj).length) throw new Error('Pra ler o extrato de notificadas o painel precisa da Carteira com CNPJ — selecione também a Carteira (BANCO DE DADOS - COMERCIAL) nesta importação.');
+    const data = {}, semGestor = {};
+    let lidas = 0, cnpjEstragado = 0;
     for (let i = 1; i < rows.length; i++){
       const row = rows[i] || [];
-      const gestorRaw = row[iGestor];
-      if (!gestorRaw) continue;
-      const gestor = String(gestorRaw).trim();
+      const corrCnpjRaw = iCorrCnpj>=0 ? row[iCorrCnpj] : '';
+      if (!corrCnpjRaw && !(iOper>=0 && row[iOper])) continue;
+      lidas++;
+      if (/e\+/i.test(String(corrCnpjRaw))) cnpjEstragado++;
+      const cnpj = cnpjDigits(typeof corrCnpjRaw === 'number' ? corrCnpjRaw.toFixed(0) : corrCnpjRaw);
+      const gestor = String(byCnpj[cnpj] || (iGestor>=0 ? row[iGestor] || '' : '')).trim();
+      if (!gestor || /^#N/i.test(gestor)){ semGestor[cnpj || '(sem CNPJ)'] = (semGestor[cnpj || '(sem CNPJ)']||0) + (iBenef>=0 ? num(row[iBenef]) : 1); continue; }
       const docRaw = (iCnpj>=0 && row[iCnpj]) ? row[iCnpj] : (iCpf>=0 ? row[iCpf] : null);
       (data[gestor] = data[gestor] || []).push({
         alvo: String(row[iAlvo]||'').trim(),
-        corretora: iCorretora>=0 ? String(row[iCorretora]||'').trim() : '',
+        corretora: iCorretora>=0 && row[iCorretora] ? String(row[iCorretora]).trim() : (cnpj ? 'CNPJ ' + formatCnpjCpf(cnpj) : ''),
         contratante: iContratante>=0 ? String(row[iContratante]||'').trim() : '',
-        doc: formatCnpjCpf(docRaw),
+        doc: formatCnpjCpf(typeof docRaw === 'number' ? docRaw.toFixed(0) : docRaw),
         dataCriacao: iData>=0 ? assinaturaDateToStr(row[iData]) : '',
         beneficiarios: iBenef>=0 ? num(row[iBenef]) : 1,
       });
     }
-    if (Object.keys(data).length === 0) throw new Error('Nenhum registro de "aguardando assinatura" reconhecido no arquivo.');
-    return { data };
-  }
-  // "CRESCIMENTO GERAL" (aba GERAL) — planilha que o sênior já preenche todo dia, com o
-  // ontem e o hoje reais de Assinatura/Funil/Ranking por gestor. Vira a fonte oficial do
-  // "ontem → hoje" da aba Conversão (ver CONV_ONTEM_HOJE), no lugar do snapshot automático.
-  // A aba tem um bloco por carteira (Plataforma/ABC/Cauda Longa/Digital) — a Conversão em si
-  // já é da diretoria inteira (ver convSetupFilters/GESTOR_EQUIPE), então o reconhecimento
-  // aqui tem que cobrir os mesmos gestores, não só os 4 da Cauda Longa.
-  // Achado 2026-09-04: só os 4 nomes da Cauda Longa eram aceitos aqui (CG_KNOWN_NAMES,
-  // lista fixa) — os outros ~11 gestores da planilha (Plataforma/ABC/Digital) caíam sempre em
-  // "não reconhecido" e nunca recebiam ontem/hoje, mesmo com o arquivo certo importado todo
-  // dia. Trocado pra usar GESTOR_EQUIPE (mesma lista já usada pelo Ranking/Comparativo pra
-  // decidir quem é da diretoria), excluindo só os times fora de escopo (Interior SP, Venda
-  // Interna) — mesmo critério já aplicado em updateRankingData.
-  // Guarda pelo nome EXATO da planilha (maiúsculo, nome completo) — é assim que PROPOSTAS.g
-  // já vem do relatório Planium, então bate direto sem precisar converter pra apelido curto.
-  const CG_OUT_OF_SCOPE_TEAMS = new Set(['INTERIOR SP', 'VENDA INTERNA']);
-  function parseCrescimentoGeralWorkbook(workbook){
-    const sheet = workbook.Sheets['GERAL'] || findSheet(workbook, 'GERAL');
-    if (!sheet) throw new Error('Não encontrei a aba "GERAL" no arquivo Crescimento Geral.');
-    const rows = sheetRows(sheet);
-    const data = {};
-    const naoReconhecidos = [];
-    for (let i = 0; i < rows.length; i++){
-      const row = rows[i] || [];
-      const nomeRaw = String(row[0]||'').trim();
-      // pula linhas em branco, cabeçalhos de carteira ("CARTEIRA X"), a linha de rótulos
-      // das colunas e as linhas de "TOTAL" — só sobram linhas de gestor de verdade.
-      if (!nomeRaw || nomeRaw.toUpperCase() === 'TOTAL' || nomeRaw.toUpperCase().indexOf('CARTEIRA') === 0) continue;
-      const nomeUp = nomeRaw.toUpperCase();
-      const equipe = window.GESTOR_EQUIPE[nomeUp];
-      if (!equipe || CG_OUT_OF_SCOPE_TEAMS.has(equipe)){ naoReconhecidos.push(nomeRaw); continue; }
-      data[nomeRaw] = {
-        assinaturaOntem: num(row[2]), assinaturaHoje: num(row[3]),
-        funilOntem: num(row[5]), funilHoje: num(row[6]),
-        rankingOntem: num(row[8]), rankingHoje: num(row[9]),
-      };
-    }
-    if (Object.keys(data).length === 0) throw new Error('Nenhum gestor da diretoria foi encontrado na aba "GERAL" (nenhum nome bateu com GESTOR_EQUIPE).');
-    return { data, naoReconhecidos };
-  }
-  function diffCrescimentoGeral(parsed){
-    let html = '<h3 style="font-size:14px;color:var(--navy);margin:14px 0 8px;"><i class=ic-trend></i> Crescimento Geral — Resumo</h3>';
-    html += `<div style="font-size:12.5px;line-height:1.8;"><div>Ontem × hoje atualizado pra <b>${Object.keys(parsed.data).length}</b> gestor${Object.keys(parsed.data).length!==1?'es':''}.</div></div>`;
-    if (parsed.naoReconhecidos && parsed.naoReconhecidos.length){
-      html += `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--red);">Nomes não reconhecidos (${parsed.naoReconhecidos.length}) — ficaram de fora</summary><ul style="font-size:12px;margin:6px 0 0 18px;">`;
-      parsed.naoReconhecidos.forEach(n => html += `<li>${n}</li>`);
-      html += '</ul></details>';
-    }
-    return html;
+    if (cnpjEstragado > lidas / 2) throw new Error('O CNPJ das corretoras veio estragado ("2,68E+13") — o arquivo foi aberto e salvo no Excel. Baixe o extrato de novo e suba sem abrir.');
+    if (Object.keys(data).length === 0) throw new Error('Nenhum registro de "aguardando assinatura" achou gestor (confira se a Carteira é a mais recente).');
+    return { data, semGestor, lidas };
   }
   function diffAssinatura(parsed){
     const totalReg = Object.values(parsed.data).reduce((s,arr)=>s+arr.length,0);
     let html = '<h3 style="font-size:14px;color:var(--navy);margin:14px 0 8px;"><i class=ic-clip></i> Aguardando Assinatura — Resumo</h3>';
-    html += `<div style="font-size:12.5px;line-height:1.8;"><div><b>${totalReg}</b> contratos aguardando assinatura, em <b>${Object.keys(parsed.data).length}</b> gestores.</div></div>`;
+    const totalVidas = Object.values(parsed.data).reduce((s,arr)=>s+arr.reduce((a,r)=>a+(r.beneficiarios||0),0),0);
+    html += `<div style="font-size:12.5px;line-height:1.8;"><div><b>${totalReg}</b> contratos (<b>${totalVidas.toLocaleString('pt-BR')}</b> vidas) aguardando assinatura, em <b>${Object.keys(parsed.data).length}</b> gestores.</div>`;
+    const sg = Object.entries(parsed.semGestor || {}).sort((a,b)=>b[1]-a[1]);
+    if (sg.length) html += `<div style="color:var(--amber);"><i class=ic-warn></i> ${sg.reduce((s,[,v])=>s+v,0)} vidas de ${sg.length} CNPJ(s) de corretora fora da Carteira ficaram de fora: ${sg.slice(0,6).map(([k,v])=>`${k === '(sem CNPJ)' ? k : formatCnpjCpf(k)} (${v})`).join(' · ')}${sg.length>6?' · …':''}</div>`;
+    html += '</div>';
     return html;
   }
   function diffPendPme(parsed){
@@ -8458,7 +8491,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
 
   // Botões "remover" + estado visual dos campos de arquivo
-  const IMPORT_FILE_IDS = ['fileMetaJunho','fileElegibilidade','fileCarteira','filePendPme','filePendPf','fileAssinatura','fileCrescimentoGeral','fileRankPrev'];
+  const IMPORT_FILE_IDS = ['fileMetaJunho','fileElegibilidade','fileCarteira','filePendPme','filePendPf','fileAssinatura','fileRankPrev'];
   function syncFileFieldState(id){
     const input = document.getElementById(id);
     const field = input.closest('.file-field');
@@ -8518,7 +8551,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     document.getElementById('filePendPme').value = '';
     document.getElementById('filePendPf').value = '';
     IMPORT_FILE_IDS.forEach(id => { const f = document.getElementById(id).closest('.file-field'); if (f) f.classList.remove('has-file'); });
-    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null; pendingT6140bRaw = null;
+    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingT6140bRaw = null;
   }
 
   document.getElementById('btnOpenImport').addEventListener('click', () => {
@@ -8540,9 +8573,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const pendPmeFiles = Array.from(document.getElementById('filePendPme').files);
     const pendPfFile = document.getElementById('filePendPf').files[0];
     const assinaturaFile = document.getElementById('fileAssinatura').files[0];
-    const crescimentoGeralFile = document.getElementById('fileCrescimentoGeral').files[0];
     const rankPrevFile = document.getElementById('fileRankPrev').files[0];
-    if (!metaFile && !eligFile && !carteiraFile && !pendPmeFiles.length && !pendPfFile && !assinaturaFile && !crescimentoGeralFile && !rankPrevFile){
+    if (!metaFile && !eligFile && !carteiraFile && !pendPmeFiles.length && !pendPfFile && !assinaturaFile && !rankPrevFile){
       statusEl.innerHTML = '<p style="color:var(--red);font-size:12.5px;">Selecione ao menos um arquivo.</p>';
       return;
     }
@@ -8552,7 +8584,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     btn.style.cursor = 'default';
     btn.innerHTML = '<span class="spinner"></span> Processando...';
     summaryEl.style.display = 'none';
-    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null; pendingT6140bRaw = null;
+    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingT6140bRaw = null;
     let summaryHtml = '';
     try {
       // ---- AUTO-DETECÇÃO: roteia cada arquivo pelo conteúdo, não pelo campo ----
@@ -8722,15 +8754,10 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       }
       if (assinaturaFile){
         statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Aguardando Assinatura...</p>';
-        const wb = await readFileAsWorkbook(assinaturaFile);
-        pendingAssinatura = parseAssinaturaWorkbook(wb);
+        // CSV cru da Planium (vírgula) ou o relatório antigo em .xlsx — readPmeFileAsWorkbook lê os dois
+        const wb = await readPmeFileAsWorkbook(assinaturaFile);
+        pendingAssinatura = parseAssinaturaWorkbook(wb, pendingCarteira || window.CARTEIRA_MAP || null);
         summaryHtml += diffAssinatura(pendingAssinatura);
-      }
-      if (crescimentoGeralFile){
-        statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Crescimento Geral...</p>';
-        const wb = await readFileAsWorkbook(crescimentoGeralFile);
-        pendingCrescimentoGeral = parseCrescimentoGeralWorkbook(wb);
-        summaryHtml += diffCrescimentoGeral(pendingCrescimentoGeral);
       }
       if (rankPrevFile){
         statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Ranking — mês anterior...</p>';
@@ -8763,7 +8790,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (pendingPendPme) window.markSourceUpdated('funilPme');
       if (pendingPendPf) window.markSourceUpdated('funilPf');
       if (pendingAssinatura) window.markSourceUpdated('assinatura');
-      if (pendingCrescimentoGeral) window.markSourceUpdated('crescimentoGeral');
       if (pendingElig) window.markSourceUpdated('elegibilidade');
       if (window.renderSourceStatus) window.renderSourceStatus();
     }
@@ -8820,8 +8846,20 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     // juntos nessa importação (senão não tem com o que comparar).
     if (pendingPendPme && pendingPropostas && window.reconciliarPendenciasComPropostas) window.reconciliarPendenciasComPropostas();
     if (pendingAssinatura && window.updateAssinaturaData) window.updateAssinaturaData(pendingAssinatura.data);
-    if (pendingCrescimentoGeral && window.updateConvOntemHoje) window.updateConvOntemHoje(pendingCrescimentoGeral.data);
-    if ((pendingPropostas || pendingAssinatura) && window.saveDailySnapshot) window.saveDailySnapshot();
+    // Retrato do dia pra aba Conversão (ontem → hoje). Ranking = vendas do mês por gestor com ADM ("Total" do BI), só
+    // quando o extrato Corretoras veio nesta importação — senão o retrato repete o ranking do anterior.
+    if ((pendingPropostas || pendingAssinatura || pendingCorretorasRaw) && window.saveDailySnapshot){
+      let rankByRaw = null;
+      if (pendingCorretorasRaw){
+        rankByRaw = {};
+        Object.keys(pendingCorretorasRaw.byGestor).forEach(f => {
+          const raw = window.getGestorRawName ? window.getGestorRawName(f) : f;
+          const b = pendingCorretorasRaw.byGestor[f];
+          rankByRaw[raw] = (rankByRaw[raw]||0) + (b.total||0) + (b.adm||0);
+        });
+      }
+      window.saveDailySnapshot(rankByRaw);
+    }
     // T6140B inteiro: só quando o funil PME foi de fato importado junto. Fica na memória desta aba e é gravado no
     // Firestore (seção T6140B_EXTRATO) no próximo "Publicar" — fora da lista do login, só é lido no "Baixar .xlsx".
     if (pendingPendPme && pendingT6140bRaw){

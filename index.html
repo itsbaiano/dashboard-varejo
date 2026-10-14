@@ -2225,13 +2225,13 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
           <div class="file-field"><input type="file" id="filePendPf" accept=".xlsx,.csv"></div>
         </div>
         <div class="upload-card">
-          <button type="button" class="upload-card-check file-clear" data-target="fileCrescimentoGeral" title="Remover arquivo">✕</button>
+          <button type="button" class="upload-card-check file-clear" data-target="fileAssinatura" title="Remover arquivo">✕</button>
           <div class="upload-card-top">
-            <div class="upload-card-icon"><i class=ic-trend></i></div>
-            <div class="upload-card-title">Crescimento Geral</div>
+            <div class="upload-card-icon"><i class=ic-check></i></div>
+            <div class="upload-card-title">Notificadas (aguardando assinatura)</div>
           </div>
-          <p class="upload-card-hint">Cartões "ontem → hoje" da aba Conversão, com os números oficiais do dia.</p>
-          <div class="file-field"><input type="file" id="fileCrescimentoGeral" accept=".xlsx"></div>
+          <p class="upload-card-hint">Ontem → hoje da aba Conversão. Solte o extrato da Planium ("stats_export_gndi....csv") do jeito que baixa — <b>sem abrir no Excel</b>. O gestor sai do CNPJ da corretora na Carteira.</p>
+          <div class="file-field"><input type="file" id="fileAssinatura" accept=".csv,.xlsx"></div>
         </div>
       </div>
 
@@ -2247,11 +2247,6 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
             <label><i class=ic-award></i> Elegibilidade completa — arquivo mestre da Hapvida</label>
             <div class="file-field"><input type="file" id="fileElegibilidade" accept=".xlsx"><button type="button" class="file-clear" data-target="fileElegibilidade" title="Remover arquivo">✕ remover</button></div>
             <div style="font-size:10.5px; color:var(--muted); margin-top:5px;">Ranking e histórico completo (18+ meses). Não precisa pro dia a dia.</div>
-          </div>
-          <div class="f-group">
-            <label><i class=ic-check></i> Aguardando Assinatura (Notificadas)</label>
-            <div class="file-field"><input type="file" id="fileAssinatura" accept=".xlsx"><button type="button" class="file-clear" data-target="fileAssinatura" title="Remover arquivo">✕ remover</button></div>
-            <div style="font-size:10.5px; color:var(--muted); margin-top:5px;">O relatório "stats_export_gndi" já com as colunas GESTOR e CORRETORA preenchidas.</div>
           </div>
           <div class="f-group">
             <label><i class=ic-target></i> Metas por Executivo — "META VAREJO" (1 arquivo por trimestre)</label>
@@ -3355,6 +3350,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     <div class="panel">
       <h2>Por Executivo — hoje</h2>
       <div class="panel-sub">Clique num card pra ver o detalhe (tabela e gráficos) daquele executivo</div>
+      <div id="convRetratoInfo" style="font-size:11.5px; color:var(--muted); line-height:1.5; margin-top:8px;"></div>
       <div id="convGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px,1fr)); gap:14px; margin-top:14px;"></div>
     </div>
 
