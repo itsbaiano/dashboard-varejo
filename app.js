@@ -1415,6 +1415,41 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let pendActiveTab = 'pme';
   let pendSelectedStatuses = new Set();
   let pendFinAberto = false; // grupo "Finalizadas" do painel de status aberto/fechado (sobrevive aos redesenhos)
+  // Vigência e Corretora com VÁRIAS escolhas (pedido do Victor, 2026-10-14: "poder escolher mais de um, tipo só setembro
+  // e outubro" / "selecionar duas corretoras em um único PDF"). Antes eram <select> de uma opção só. Vazio = todos.
+  // Mesma lógica de sempre entre filtros: mês E corretora E status E busca.
+  const pendMesSel = new Set(), pendCorSel = new Set();
+  const PEND_MES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const pendMesNome = m => { const p = String(m || '').split('-'); return p.length === 2 ? (PEND_MES_ABREV[Number(p[1]) - 1] || p[1]) + '/' + p[0].slice(2) : String(m || ''); };
+  const pendEsc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Texto do filtro pra relatórios/etiquetas ("Set/26 + Out/26", "2 corretoras: A, B")
+  // Tudo marcado (ex.: botão "Todos") = mesmo que nenhum filtro — o rótulo mostra "Todos os meses" / "Todas".
+  const pendTudoMarcado = { mes: false, cor: false };
+  function pendFiltroTexto(tipo, completo){
+    if (tipo === 'mes') return (pendMesSel.size && !pendTudoMarcado.mes) ? [...pendMesSel].sort().map(pendMesNome).join(' + ') : 'Todos os meses';
+    if (!pendCorSel.size || pendTudoMarcado.cor) return 'Todas as corretoras';
+    const l = [...pendCorSel].sort();
+    return (completo || l.length === 1) ? l.join(', ') : `${l.length} corretoras`;
+  }
+  function pendMultiFechar(){
+    ['pendMesLista','pendCorLista','pendRelMenu'].forEach(id => { const el = document.getElementById(id); if (el) el.hidden = true; });
+    ['pendMesBtn','pendCorBtn','pendPdfBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.setAttribute('aria-expanded','false'); });
+  }
+  // Desenha a lista de um dos dois filtros (chamada no renderPendencias). `contagem` = {valor: nº de propostas}.
+  function pendMultiRender(tipo, valores, contagem){
+    const sel = tipo === 'mes' ? pendMesSel : pendCorSel;
+    const opts = document.getElementById(tipo === 'mes' ? 'pendMesOpts' : 'pendCorOpts');
+    const q = tipo === 'cor' ? String(document.getElementById('pendCorBusca').value || '').trim().toUpperCase() : '';
+    const visiveis = valores.filter(v => !q || String(v).toUpperCase().indexOf(q) >= 0);
+    opts.innerHTML = visiveis.length ? visiveis.map(v => `<label class="pmulti-item"><input type="checkbox" value="${pendEsc(v)}"${sel.has(v) ? ' checked' : ''}><span>${pendEsc(tipo === 'mes' ? pendMesNome(v) : v)}</span><span class="pmulti-n">${(contagem[v] || 0).toLocaleString('pt-BR')}</span></label>`).join('')
+      : `<p class="pmulti-vazio">${q ? 'Nenhuma corretora com esse nome.' : 'Nada nesse recorte.'}</p>`;
+    opts.querySelectorAll('input').forEach(i => i.addEventListener('change', () => { i.checked ? sel.add(i.value) : sel.delete(i.value); renderPendencias(); }));
+    pendTudoMarcado[tipo] = valores.length > 0 && valores.every(v => sel.has(v));
+    const btn = document.getElementById(tipo === 'mes' ? 'pendMesBtn' : 'pendCorBtn');
+    btn.classList.toggle('on', sel.size > 0 && !pendTudoMarcado[tipo]);
+    document.getElementById(tipo === 'mes' ? 'pendMesResumo' : 'pendCorResumo').textContent =
+      tipo === 'mes' ? pendFiltroTexto('mes') : ((sel.size && !pendTudoMarcado.cor) ? pendFiltroTexto('cor') : 'Todas');
+  }
   // Nome de exibição de cada "esteira" (campo de status.{campo}) — usado nos chips de filtro
   // de Pendências PME, ver renderPendencias().
   const PEND_STATUS_FIELD_LABELS = {planium:'Planium', cadastro:'Cadastro', ditec:'Ditec', bitix:'Bitix'};
@@ -1554,19 +1589,17 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
     const list = pendActiveTab === 'pme' ? pme : pf;
     const dateField = pendActiveTab === 'pme' ? 'dataVigencia' : 'dataStatus';
-    const months = [...new Set(list.map(p => pendMonthOf(p[dateField])).filter(Boolean))].sort();
-    const sel = document.getElementById('pendMonthFilter');
-    const prevVal = sel.value;
-    sel.innerHTML = '<option value="">Todos os meses</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
-    sel.value = months.includes(prevVal) ? prevVal : '';
-    const activeMonth = sel.value;
-
-    const corretoras = [...new Set(list.map(p => p.corretora).filter(Boolean))].sort();
-    const corSel = document.getElementById('pendCorretoraFilter');
-    const prevCor = corSel.value;
-    corSel.innerHTML = '<option value="">Todas</option>' + corretoras.map(c => `<option value="${c}">${c}</option>`).join('');
-    corSel.value = corretoras.includes(prevCor) ? prevCor : '';
-    const activeCorretora = corSel.value;
+    // Vigência / Corretora com várias escolhas (2026-10-14) — tira da escolha o que não existe mais no recorte
+    const contMes = {}, contCor = {};
+    list.forEach(p => { const m = pendMonthOf(p[dateField]); if (m) contMes[m] = (contMes[m] || 0) + 1; if (p.corretora) contCor[p.corretora] = (contCor[p.corretora] || 0) + 1; });
+    const months = Object.keys(contMes).sort();
+    const corretoras = Object.keys(contCor).sort();
+    [...pendMesSel].forEach(m => { if (!contMes[m]) pendMesSel.delete(m); });
+    [...pendCorSel].forEach(c => { if (!contCor[c]) pendCorSel.delete(c); });
+    pendMultiRender('mes', months, contMes);
+    pendMultiRender('cor', corretoras, contCor);
+    const mesOk = d => !pendMesSel.size || pendMesSel.has(pendMonthOf(d));
+    const corOk = c => !pendCorSel.size || pendCorSel.has(c);
 
     // Cada chip carrega o par {campo, valor} — dois status com o mesmo texto mas de campos
     // diferentes (ex.: REANALISE no Ditec e no Bitix) viram chips distintos, nunca fundidos.
@@ -1711,23 +1744,26 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const pmeStatusOk = p => p._extra
       ? (pendActiveTab === 'pme' && ((!!selPorArea.planium && bateFiltro(p)) || (!!searchRaw && pendSelectedStatuses.size === 0)))
       : (pendActiveTab !== 'pme' || pendSelectedStatuses.size === 0 || bateFiltro(p));
-    const pmeFiltered = pmeComExtras.filter(p => (!activeMonth || pendMonthOf(p.dataVigencia) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && pmeStatusOk(p) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
+    const pmeFiltered = pmeComExtras.filter(p => mesOk(p.dataVigencia) && corOk(p.corretora) && pmeStatusOk(p) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.beneficiarios||0) - (b.beneficiarios||0)));
-    const pfFiltered = pf.filter(p => (!activeMonth || pendMonthOf(p.dataStatus) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || bateFiltro(p)) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
+    const pfFiltered = pf.filter(p => mesOk(p.dataStatus) && corOk(p.corretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || bateFiltro(p)) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.vidas||0) - (b.vidas||0)));
     pendLastPmeFiltered = pmeFiltered;
     pendLastPfFiltered = pfFiltered;
-    // "Baixar relatório" continua exigindo UM gestor específico (ver comentário em
-    // pendGerarPDF) — em "todos os gestores" fica desabilitado, não só sem fazer nada ao clicar.
-    document.getElementById('pendPdfBtn').disabled = !gestorNome || (pendActiveTab === 'pme' ? !pmeFiltered.length : !pfFiltered.length);
-    document.getElementById('pendPdfBtn').style.opacity = document.getElementById('pendPdfBtn').disabled ? '.5' : '';
-    document.getElementById('pendPdfBtn').style.cursor = document.getElementById('pendPdfBtn').disabled ? 'default' : 'pointer';
-    document.getElementById('pendPdfBtn').title = gestorNome ? '' : 'Selecione um gestor específico pra baixar o relatório';
-    // Planilha .xlsx: só PME, com qualquer gestor (inclusive "todos")
+    // "Baixar relatório" (2026-10-14): o que está filtrado na tela, em PDF (direto) ou Excel — agora também com
+    // "Todos os gestores" (o relatório ganha a coluna Gestor). Desligado só quando o filtro não traz nada.
+    const nTela = pendActiveTab === 'pme' ? pmeFiltered.length : pfFiltered.length;
+    const relBtn = document.getElementById('pendPdfBtn');
+    relBtn.disabled = !nTela;
+    relBtn.style.opacity = relBtn.disabled ? '.5' : '';
+    relBtn.style.cursor = relBtn.disabled ? 'default' : 'pointer';
+    relBtn.title = nTela ? `Relatório com ${nTela} ${pendActiveTab === 'pme' ? 'propostas' : 'orçamentos'} do filtro atual (PDF ou Excel)` : 'Nada no filtro atual';
+    // "Baixar funil (Excel)": funil INTEIRO de todos os gestores, sem os filtros da tela (PME ou PF, conforme a aba)
     const xlsxBtn = document.getElementById('pendXlsxBtn');
-    xlsxBtn.style.display = pendActiveTab === 'pme' ? '' : 'none';
-    xlsxBtn.disabled = !pmeFiltered.length;
-    xlsxBtn.title = `Baixa as ${pmeFiltered.length} propostas da tela (com os filtros aplicados) + aba DINÂMICA por gestor`;
+    const nFunil = pendActiveTab === 'pme' ? Object.values(PENDENCIAS_PME || {}).reduce((s, a) => s + (a || []).length, 0) : Object.values(PENDENCIAS_PF || {}).reduce((s, a) => s + (a || []).length, 0);
+    xlsxBtn.disabled = !nFunil;
+    xlsxBtn.title = pendActiveTab === 'pme' ? 'Funil PME inteiro (todos os gestores, sem os filtros da tela) com as abas DINÂMICA, ESTEIRA DITEC, RESULTADO FINAL, PLANIUM e T6140B'
+      : 'Funil PF inteiro (todos os gestores, sem os filtros da tela) com a aba DINÂMICA por gestor e status';
 
     document.getElementById('pendCountPme').textContent = pmeFiltered.reduce((s,p)=>s+(p.beneficiarios||0),0);
     document.getElementById('pendCountPf').textContent = pfFiltered.reduce((s,p)=>s+(p.vidas||0),0);
@@ -1741,8 +1777,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // status/busca, todos locais a renderPendencias) pra montar a mensagem e o botão de verdade,
     // em vez de um texto genérico "nenhum resultado encontrado".
     const pendFilterParts = [];
-    if (activeMonth) pendFilterParts.push(activeMonth);
-    if (activeCorretora) pendFilterParts.push(activeCorretora);
+    if (pendMesSel.size) pendFilterParts.push(pendFiltroTexto('mes'));
+    if (pendCorSel.size) pendFilterParts.push(pendFiltroTexto('cor'));
     if (pendSelectedStatuses.size) pendFilterParts.push(pendSelectedStatuses.size === 1 ? '1 status' : pendSelectedStatuses.size+' status');
     if (searchRaw) pendFilterParts.push(`busca "${searchRaw}"`);
     const pendHasActiveFilters = pendFilterParts.length > 0;
@@ -1763,8 +1799,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     `).join('') : pendEmptyRow(showGestorCol?6:5, 'pendência PF');
     document.querySelectorAll('#pendPmeBody .pend-empty-clear, #pendPfBody .pend-empty-clear').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.getElementById('pendMonthFilter').value = '';
-        document.getElementById('pendCorretoraFilter').value = '';
+        pendMesSel.clear(); pendCorSel.clear();
         document.getElementById('pendPropostaSearch').value = '';
         pendSelectedStatuses.clear();
         renderPendencias();
@@ -1794,8 +1829,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('pendTabPf').classList.remove('active');
     document.getElementById('pendPmeSection').style.display = '';
     document.getElementById('pendPfSection').style.display = 'none';
-    document.getElementById('pendMonthFilter').value = '';
-    document.getElementById('pendCorretoraFilter').value = '';
+    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
     document.getElementById('pendPropostaSearch').value = '';
     pendSelectedStatuses.clear();
     // opts.amanha: veio do cartão "Implanta amanhã" do Resumo do Dia — já abre filtrado nisso.
@@ -1807,8 +1841,24 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   document.getElementById('btnClosePend').addEventListener('click', () => { document.getElementById('pendModalOverlay').style.display = 'none'; });
   document.getElementById('pendModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'pendModalOverlay') document.getElementById('pendModalOverlay').style.display = 'none'; });
   window.__kb(document.getElementById('pendStatusClear')).addEventListener('click', () => { pendSelectedStatuses.clear(); renderPendencias(); });
-  document.getElementById('pendMonthFilter').addEventListener('change', renderPendencias);
-  document.getElementById('pendCorretoraFilter').addEventListener('change', renderPendencias);
+  // Vigência / Corretora com várias escolhas (2026-10-14): abre/fecha as listas, busca, "marcar todos"/"limpar".
+  [['pendMesBtn','pendMesLista'], ['pendCorBtn','pendCorLista']].forEach(([b, l]) => {
+    document.getElementById(b).addEventListener('click', (e) => {
+      e.stopPropagation();
+      const lista = document.getElementById(l), abrir = lista.hidden;
+      pendMultiFechar();
+      lista.hidden = !abrir; document.getElementById(b).setAttribute('aria-expanded', String(abrir));
+      if (abrir && l === 'pendCorLista') document.getElementById('pendCorBusca').focus();
+    });
+    document.getElementById(l).addEventListener('click', (e) => e.stopPropagation());
+  });
+  document.getElementById('pendCorBusca').addEventListener('input', () => renderPendencias());
+  document.getElementById('pendMesTodos').addEventListener('click', () => { document.querySelectorAll('#pendMesOpts input').forEach(i => pendMesSel.add(i.value)); renderPendencias(); });
+  document.getElementById('pendCorTodos').addEventListener('click', () => { document.querySelectorAll('#pendCorOpts input').forEach(i => pendCorSel.add(i.value)); renderPendencias(); });
+  document.getElementById('pendMesLimpa').addEventListener('click', () => { pendMesSel.clear(); renderPendencias(); });
+  document.getElementById('pendCorLimpa').addEventListener('click', () => { pendCorSel.clear(); renderPendencias(); });
+  document.getElementById('pendModal').addEventListener('click', () => pendMultiFechar());
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pendMultiFechar(); });
   document.getElementById('pendPropostaSearch').addEventListener('input', renderPendencias);
   // Troca o gestor SEM fechar o popup — pedido do Victor, 2026-09-29 ("Consultar Funil"),
   // portado do V2: dropdown vazio = todos os gestores juntos, mesma variável que já controlava
@@ -1816,8 +1866,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   document.getElementById('pendGestorFilter').addEventListener('change', (e) => {
     pendCurrentGestor = e.target.value || null;
     document.getElementById('pendModalGestor').textContent = pendCurrentGestor || 'Todas as equipes';
-    document.getElementById('pendMonthFilter').value = '';
-    document.getElementById('pendCorretoraFilter').value = '';
+    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
     pendSelectedStatuses.clear();
     renderPendencias();
   });
@@ -1828,110 +1877,197 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     window.showPendenciasModal(null);
   });
 
-  // "Baixar relatório" — mesmo padrão de PDF-via-HTML do Ranking (rkmGerarPDF, removido em
-  // 2026-09-04: casava por nome de corretora entre extrato de vendas e funil, o que não é
-  // confiável — "AFFINITY" vendida como QUALI PLANOS no BI, registrada como F8 no Planium).
-  // Aqui não tem esse problema: já está tudo filtrado por GESTOR (que os dois sistemas
-  // concordam), então baixa exatamente o que está na tela — sem tentar casar nome nenhum.
-  function pendGerarPDF(){
-    if (!pendCurrentGestor) return;
+  // ===== "Baixar relatório" (2026-10-14, pedido do Victor) =====
+  // Relatório do que está FILTRADO na tela (gestor, vigências, corretoras, status, busca), em PDF ou Excel — o menu do
+  // botão escolhe. Antes era uma página HTML que a pessoa tinha que salvar como PDF pelo Ctrl+P; agora o PDF é gerado
+  // direto (jsPDF + autoTable, carregados do cdnjs só no clique — o login não fica mais lento). Com mais de uma corretora,
+  // o relatório sai separado por corretora (cabeçalho + subtotal de cada uma) e o total geral no fim. Funciona também em
+  // "Todos os gestores" (aí o relatório ganha a coluna Gestor). O funil inteiro vai pelo "Baixar funil (Excel)".
+  let pendJsPdfPromise = null;
+  function pendLoadJsPdf(){
+    if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) return Promise.resolve(window.jspdf.jsPDF);
+    if (!pendJsPdfPromise){
+      const carrega = src => new Promise((res, rej) => {
+        const s = document.createElement('script'); s.src = src;
+        s.onload = res; s.onerror = () => rej(new Error('Falha ao baixar a biblioteca de PDF'));
+        document.head.appendChild(s);
+      });
+      pendJsPdfPromise = carrega('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+        .then(() => carrega('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'))
+        .then(() => { if (!(window.jspdf && window.jspdf.jsPDF)) throw new Error('jsPDF não carregou'); return window.jspdf.jsPDF; })
+        .catch(e => { pendJsPdfPromise = null; throw e; });
+    }
+    return pendJsPdfPromise;
+  }
+  const pendDataBR = iso => iso ? String(iso).slice(0,10).split('-').reverse().join('/') : '—';
+  // Monta o conteúdo do relatório a partir do que está na tela (mesma lista da tabela)
+  function pendRelatorioDados(){
     const isPme = pendActiveTab === 'pme';
     const rows = (isPme ? pendLastPmeFiltered : pendLastPfFiltered).slice();
-    if (!rows.length) return;
-    const esc = t => String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const dataBR = iso => iso ? String(iso).split('-').reverse().join('/') : '—';
-    const hoje = new Date().toLocaleDateString('pt-BR');
-    const fmtN = n => Math.round(n||0).toLocaleString('pt-BR');
-    const stColor = st => {
-      const s = String(st||'').toLowerCase();
-      if (s.indexOf('implant')>=0 || s.indexOf('concluid')>=0 || s.indexOf('liberad')>=0 || s.indexOf('assinado')>=0 || s.indexOf('processado')>=0) return '#16B87A';
-      if (s.indexOf('pend')>=0) return '#F26B21';
-      if (s.indexOf('cancel')>=0 || s.indexOf('recusad')>=0 || s.indexOf('devolv')>=0) return '#F5364A';
-      return '#56608F';
-    };
-    if (isPme) rows.sort((a,b) => (b.dataVigencia||'').localeCompare(a.dataVigencia||''));
-    else rows.sort((a,b) => (b.dataStatus||'').localeCompare(a.dataStatus||''));
-    const total = rows.reduce((s,p)=>s+(isPme?(p.beneficiarios||0):(p.vidas||0)), 0);
-    const mesFiltroTxt = document.getElementById('pendMonthFilter').value || 'Todos os meses';
-    const corFiltroTxt = document.getElementById('pendCorretoraFilter').value || 'Todas as corretoras';
-    const stsFiltroTxt = pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'Todos os status';
-
-    const linhas = isPme ? rows.map(p => `<tr>
-      <td>${esc(p.proposta)}</td>
-      <td>${esc(p.corretora)}</td>
-      <td class="c">${dataBR(p.dataReceb)}</td>
-      <td class="c">${dataBR(p.dataVigencia)}</td>
-      <td class="c"><span class="st" style="color:${stColor(pendPlaniumView(p))};border-color:${stColor(pendPlaniumView(p))}33;background:${stColor(pendPlaniumView(p))}14;">${esc(pendPlaniumView(p))}</span>${pendImplantaAmanha(p) ? '<div class="am">Implanta amanhã</div>' : ''}</td>
-      <td class="c">${esc(pendSemLogin(p.status.cadastro)) || '—'}</td>
-      <td class="c">${esc(pendSemLogin(p.status.ditec)) || '—'}</td>
-      <td class="c b">${p.beneficiarios||0}</td>
-    </tr>`).join('') : rows.map(p => `<tr>
-      <td>${esc(p.orcamento)}</td>
-      <td>${esc(p.corretora)}</td>
-      <td class="c">${dataBR(p.dataStatus)}</td>
-      <td class="c"><span class="st" style="color:${stColor(p.status)};border-color:${stColor(p.status)}33;background:${stColor(p.status)}14;">${esc(p.status)||'—'}</span></td>
-      <td class="c b">${p.vidas||0}</td>
-    </tr>`).join('');
-    const headers = isPme
-      ? `<th style="width:10%">Proposta</th><th style="width:25%">Corretora</th><th style="width:10%;text-align:center">Recebido</th><th style="width:10%;text-align:center">Vigência</th><th style="width:17%;text-align:center">Planium</th><th style="width:13%;text-align:center">Cadastro</th><th style="width:10%;text-align:center">DITEC</th><th style="width:5%;text-align:center">Vidas</th>`
-      : `<th style="width:13%">Orçamento</th><th style="width:32%">Corretora</th><th style="width:17%;text-align:center">Data Status</th><th style="width:20%;text-align:center">Status</th><th style="width:8%;text-align:center">Vidas</th>`;
-    const colspanTotal = isPme ? 7 : 4;
-
-    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatório de Pendências ${isPme?'PME':'PF'} — ${esc(pendCurrentGestor)}</title>
-<style>
-@page{size:A4 portrait;margin:10mm}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;color:#131C4F;font-size:9px}
-.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1D33A8;padding-bottom:8px;margin-bottom:12px}
-.hd h1{font-size:15px;color:#101E63;letter-spacing:-.3px}
-.hd .sb{font-size:10px;color:#56608F;margin-top:3px}
-.hd .rt{text-align:right;font-size:8.5px;color:#56608F;line-height:1.5}
-.hd .rt b{color:#101E63;font-size:10px}
-.kp{display:flex;gap:8px;margin-bottom:12px}
-.kp div{flex:1;border:1px solid #E3E9F8;border-radius:7px;padding:7px 9px;background:#F8FAFF}
-.kp .l{font-size:7.5px;font-weight:700;color:#56608F;text-transform:uppercase;letter-spacing:.4px}
-.kp .v{font-size:14px;font-weight:800;color:#101E63;margin-top:2px}
-table{width:100%;border-collapse:collapse;table-layout:fixed}
-th{background:#101E63;color:#fff;font-size:7px;text-transform:uppercase;letter-spacing:.3px;padding:5px 4px;text-align:left}
-td{padding:4px;border-bottom:1px solid #E8EDF7;font-size:8px;overflow-wrap:break-word}
-tr:nth-child(even) td{background:#F8FAFF}
-td.c{text-align:center}td.b{font-weight:700}
-.am{margin-top:2px;font-size:6.5px;font-weight:800;color:#16B87A;text-transform:uppercase;letter-spacing:.3px}
-.st{display:inline-block;padding:1px 5px;border-radius:20px;border:1px solid;font-size:7px;font-weight:700;text-transform:capitalize;white-space:nowrap}
-tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #1D33A8}
-.ft{margin-top:12px;font-size:7.5px;color:#8B93B8;border-top:1px solid #E3E9F8;padding-top:6px;display:flex;justify-content:space-between}
-@media print{.noprint{display:none}}
-.noprint{position:fixed;top:10px;right:10px;background:#1D33A8;color:#fff;border:0;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 12px rgba(0,0,0,.2)}
-</style></head><body>
-<button class="noprint" onclick="window.print()">🖨️ Salvar como PDF (Ctrl+P)</button>
-<div class="hd">
-  <div><h1>Relatório de Pendências ${isPme?'PME/SS':'PF'}</h1><div class="sb">${esc(pendCurrentGestor)}</div></div>
-  <div class="rt"><b>Hapvida NDI SP</b><br>Corretora: ${esc(corFiltroTxt)} · Mês: ${esc(mesFiltroTxt)}<br>Status: ${esc(stsFiltroTxt)}<br>Emitido em ${hoje}</div>
-</div>
-<div class="kp">
-  <div><div class="l">Registros</div><div class="v">${rows.length}</div></div>
-  <div><div class="l">Vidas</div><div class="v">${fmtN(total)}</div></div>
-</div>
-<table>
-  <thead><tr>${headers}</tr></thead>
-  <tbody>${linhas}</tbody>
-  <tfoot><tr><td colspan="${colspanTotal}">Total — ${rows.length} registro(s)</td><td class="c">${fmtN(total)}</td></tr></tfoot>
-</table>
-<div class="ft"><span>Hapvida NotreDame Intermédica · Diretoria Regional SP · NDI SP</span><span>Fonte: Relatório ${isPme?'PME (PLANIUM)':'PF'} · Documento gerado automaticamente</span></div>
-</body></html>`;
-    try {
-      const blob = new Blob(['﻿' + html], {type:'text/html;charset=utf-8'});
-      const url = URL.createObjectURL(blob);
-      const nomeArq = 'Pendencias_' + (isPme?'PME':'PF') + '_' + String(pendCurrentGestor).replace(/[^A-Za-z0-9]+/g,'_').slice(0,40) + '.html';
-      const a = document.createElement('a');
-      a.href = url; a.download = nomeArq;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url), 10000);
-    } catch(err){
-      alert('Erro ao gerar o arquivo: ' + err.message);
-    }
+    const gestor = pendCurrentGestor ? (window.getGestorFriendlyName ? window.getGestorFriendlyName(pendCurrentGestor) : pendCurrentGestor) : 'Todas as equipes';
+    const comGestor = !pendCurrentGestor;
+    const vidasDe = p => isPme ? (p.beneficiarios || 0) : (p.vidas || 0);
+    const dataDe = p => isPme ? (p.dataVigencia || '') : (p.dataStatus || '');
+    rows.sort((a,b) => String(a.corretora||'').localeCompare(String(b.corretora||'')) || dataDe(b).localeCompare(dataDe(a)));
+    const grupos = [], idx = {};
+    rows.forEach(p => { const c = p.corretora || '(sem corretora)'; if (!(c in idx)){ idx[c] = grupos.length; grupos.push({ nome: c, rows: [] }); } grupos[idx[c]].rows.push(p); });
+    const cols = isPme
+      ? ['Proposta', ...(comGestor ? ['Gestor'] : []), 'Corretora', 'Recebido', 'Vigência', 'Planium', 'Cadastro', 'Ditec', 'Vidas']
+      : ['Orçamento', ...(comGestor ? ['Gestor'] : []), 'Corretora', 'Data status', 'Status', 'Vidas'];
+    const linha = p => isPme
+      ? [String(p.proposta), ...(comGestor ? [p._gestor || ''] : []), p.corretora || '', pendDataBR(p.dataReceb), pendDataBR(p.dataVigencia),
+         pendPlaniumView(p) + (pendImplantaAmanha(p) ? ' · implanta amanhã' : ''), pendSemLogin(p.status.cadastro) || '—', pendSemLogin(p.status.ditec) || '—', vidasDe(p)]
+      : [String(p.orcamento), ...(comGestor ? [p._gestor || ''] : []), p.corretora || '', pendDataBR(p.dataStatus), p.status || '', vidasDe(p)];
+    const busca = document.getElementById('pendPropostaSearch').value.trim();
+    const filtros = [
+      `${isPme ? 'Vigência' : 'Data status'}: ${pendFiltroTexto('mes')}`,
+      `Corretora: ${pendFiltroTexto('cor', true)}`,
+      `Status: ${pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'Todos os status'}`,
+    ].concat(busca ? [`Busca: "${busca}"`] : []);
+    const total = rows.reduce((s,p) => s + vidasDe(p), 0);
+    const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g, '.');
+    const nomeBase = `Pendencias ${isPme ? 'PME' : 'PF'} - ${gestor} - ${hoje}`.replace(/[\\/:*?"<>|]+/g, ' ').trim();
+    const qtd = n => `${n.toLocaleString('pt-BR')} ${isPme ? (n === 1 ? 'proposta' : 'propostas') : (n === 1 ? 'orçamento' : 'orçamentos')}`;
+    return { qtd, isPme, rows, gestor, comGestor, grupos, separar: grupos.length > 1, cols, linha, vidasDe, filtros, total, nomeBase };
   }
-  document.getElementById('pendPdfBtn').addEventListener('click', pendGerarPDF);
+  const pendCorStatus = st => {
+    const s = String(st || '').toLowerCase();
+    if (/implant|conclu|liberad|assinado|processado/.test(s)) return [22,184,122];
+    if (/pend/.test(s)) return [242,107,33];
+    if (/cancel|recusad|devolv/.test(s)) return [245,54,74];
+    return null;
+  };
+
+  async function pendRelatorioPdf(){
+    const d = pendRelatorioDados(); if (!d.rows.length) return;
+    const jsPDF = await pendLoadJsPdf();
+    const doc = new jsPDF({ orientation: d.isPme ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 32;
+    const NAVY = [16,30,99], AZUL = [29,51,168], CINZA = [86,96,143], FUNDO = [238,242,253];
+    const fmtN = n => Math.round(n || 0).toLocaleString('pt-BR');
+    // Cabeçalho
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...NAVY);
+    doc.text(`Relatório de Pendências ${d.isPme ? 'PME/SS' : 'PF'}`, M, M + 10);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...CINZA);
+    doc.text(d.gestor, M, M + 26);
+    doc.setFontSize(8.5);
+    doc.text(['Hapvida NotreDame Intermédica · NDI SP', 'Emitido em ' + new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })], W - M, M + 8, { align: 'right' });
+    const filtrosTxt = doc.splitTextToSize(d.filtros.join('   ·   '), W - 2 * M);
+    doc.text(filtrosTxt, M, M + 42);
+    let y = M + 42 + filtrosTxt.length * 10 + 4;
+    doc.setDrawColor(...AZUL); doc.setLineWidth(2); doc.line(M, y, W - M, y);
+    y += 16;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...NAVY);
+    doc.text(`${d.qtd(d.rows.length)}   ·   ${fmtN(d.total)} vidas${d.separar ? `   ·   ${d.grupos.length} corretoras` : ''}`, M, y);
+    y += 8;
+    // Corpo — separado por corretora quando há mais de uma
+    const nCol = d.cols.length, iVidas = nCol - 1;
+    const iStatus = d.cols.indexOf(d.isPme ? 'Planium' : 'Status');
+    const body = [];
+    if (d.separar){
+      d.grupos.forEach(g => {
+        const v = g.rows.reduce((s,p) => s + d.vidasDe(p), 0);
+        body.push([{ content: `${g.nome}  —  ${d.qtd(g.rows.length)} · ${fmtN(v)} vidas`, colSpan: nCol, styles: { fillColor: FUNDO, textColor: AZUL, fontStyle: 'bold', fontSize: 8 } }]);
+        g.rows.forEach(p => body.push(d.linha(p)));
+      });
+    } else {
+      d.rows.forEach(p => body.push(d.linha(p)));
+    }
+    const colStyles = {}; colStyles[iVidas] = { halign: 'right', fontStyle: 'bold', cellWidth: 38 };
+    doc.autoTable({
+      startY: y + 6, head: [d.cols], body,
+      foot: [[{ content: `Total — ${d.rows.length} registro(s)`, colSpan: nCol - 1 }, { content: fmtN(d.total), styles: { halign: 'right' } }]],
+      theme: 'grid', showFoot: 'lastPage', margin: { left: M, right: M, bottom: 36 },
+      styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 3, overflow: 'linebreak', lineColor: [227,233,248], lineWidth: 0.5, textColor: [19,28,79] },
+      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+      footStyles: { fillColor: FUNDO, textColor: NAVY, fontStyle: 'bold', fontSize: 8.5 },
+      alternateRowStyles: { fillColor: [248,250,255] },
+      columnStyles: colStyles,
+      didParseCell: data => {
+        if (data.section === 'body' && data.column.index === iStatus && typeof data.cell.raw === 'string'){
+          const c = pendCorStatus(data.cell.raw); if (c){ data.cell.styles.textColor = c; data.cell.styles.fontStyle = 'bold'; }
+        }
+      },
+      didDrawPage: () => {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...CINZA);
+        doc.text(`Fonte: funil ${d.isPme ? 'PME (Planium + T6140B)' : 'PF (T221ORCAM)'} · gerado pelo Painel Comercial`, M, H - 18);
+        doc.text(`Página ${doc.internal.getNumberOfPages()}`, W - M, H - 18, { align: 'right' });
+      },
+    });
+    doc.save(`${d.nomeBase}.pdf`);
+  }
+
+  async function pendRelatorioXlsx(){
+    const d = pendRelatorioDados(); if (!d.rows.length) return;
+    const ExcelJS = await pendLoadExcelJS();
+    const wb = new ExcelJS.Workbook(); wb.creator = 'Painel Comercial — Cauda Longa NDI SP';
+    const ws = wb.addWorksheet('RELATÓRIO', { views: [{ state: 'frozen', ySplit: 5 }] });
+    const NAVY = 'FF101E63', AZUL = 'FF1D33A8', FUNDO = 'FFEEF2FD', CINZA = 'FFE3E9F8';
+    const borda = { top:{style:'thin',color:{argb:CINZA}}, bottom:{style:'thin',color:{argb:CINZA}}, left:{style:'thin',color:{argb:CINZA}}, right:{style:'thin',color:{argb:CINZA}} };
+    const nCol = d.cols.length;
+    ws.mergeCells(1, 1, 1, nCol); ws.getCell(1,1).value = `Relatório de Pendências ${d.isPme ? 'PME/SS' : 'PF'} — ${d.gestor}`;
+    ws.getCell(1,1).font = { bold: true, size: 13, color: { argb: NAVY } };
+    ws.mergeCells(2, 1, 2, nCol); ws.getCell(2,1).value = d.filtros.join('   ·   ');
+    ws.getCell(2,1).font = { italic: true, size: 9, color: { argb: 'FF56608F' } };
+    ws.mergeCells(3, 1, 3, nCol); ws.getCell(3,1).value = `${d.qtd(d.rows.length)} · ${d.total.toLocaleString('pt-BR')} vidas · emitido em ${new Date().toLocaleString('pt-BR')}`;
+    ws.getCell(3,1).font = { size: 9, color: { argb: 'FF56608F' } };
+    const cab = ws.getRow(5); d.cols.forEach((h, i) => { const c = cab.getCell(i + 1); c.value = h; c.font = { bold:true, color:{argb:'FFFFFFFF'}, size:10 }; c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} }; c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }; c.border = borda; });
+    cab.height = 26;
+    const largura = { 'Proposta':12, 'Orçamento':14, 'Gestor':30, 'Corretora':42, 'Recebido':12, 'Vigência':12, 'Data status':13, 'Planium':26, 'Status':26, 'Cadastro':20, 'Ditec':16, 'Vidas':9 };
+    d.cols.forEach((h, i) => { ws.getColumn(i + 1).width = largura[h] || 14; });
+    const ehData = d.cols.map(h => /Recebido|Vigência|Data status/.test(h));
+    const paraXl = (v, i) => {
+      if (ehData[i]){ const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(v)); return m ? new Date(Date.UTC(+m[3], +m[2]-1, +m[1])) : ''; }
+      if (i === 0 && /^\d+$/.test(String(v))) return Number(v);
+      return v;
+    };
+    let r = 6;
+    const escreve = p => {
+      const row = ws.getRow(r++);
+      d.linha(p).forEach((v, i) => { const c = row.getCell(i + 1); c.value = paraXl(v, i); c.border = borda; if (ehData[i]) { c.numFmt = 'dd/mm/yyyy'; c.alignment = { horizontal:'center' }; } });
+      row.getCell(nCol).font = { bold: true };
+    };
+    const faixa = (txt, v, cor) => {
+      const row = ws.getRow(r++);
+      ws.mergeCells(row.number, 1, row.number, nCol - 1);
+      row.getCell(1).value = txt; row.getCell(nCol).value = v;
+      for (let i = 1; i <= nCol; i++){ const c = row.getCell(i); c.font = { bold: true, color: { argb: cor === NAVY ? 'FFFFFFFF' : AZUL } }; c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: cor } }; c.border = borda; }
+    };
+    if (d.separar){
+      d.grupos.forEach(g => {
+        const v = g.rows.reduce((s,p) => s + d.vidasDe(p), 0);
+        faixa(`${g.nome} — ${d.qtd(g.rows.length)}`, v, FUNDO);
+        g.rows.forEach(escreve);
+      });
+    } else {
+      d.rows.forEach(escreve);
+    }
+    faixa(`TOTAL — ${d.rows.length} registro(s)`, d.total, NAVY);
+    const buf = await wb.xlsx.writeBuffer();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    a.download = `${d.nomeBase}.xlsx`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+
+  // Botão "Baixar relatório" abre o menu PDF / Excel
+  document.getElementById('pendPdfBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const m = document.getElementById('pendRelMenu'), abrir = m.hidden;
+    pendMultiFechar();
+    m.hidden = !abrir; e.currentTarget.setAttribute('aria-expanded', String(abrir));
+    if (abrir){ const op = m.querySelector('.prel-op'); if (op) op.focus(); }
+  });
+  document.getElementById('pendRelMenu').addEventListener('click', (e) => e.stopPropagation());
+  document.querySelectorAll('#pendRelMenu .prel-op').forEach(op => op.addEventListener('click', async () => {
+    pendMultiFechar();
+    const btn = document.getElementById('pendPdfBtn'), orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando...';
+    try { if (op.dataset.fmt === 'pdf') await pendRelatorioPdf(); else await pendRelatorioXlsx(); }
+    catch(err){ alert('Não consegui gerar o relatório: ' + err.message); }
+    finally { btn.innerHTML = orig; btn.disabled = false; }
+  }));
 
   // ===== "Baixar .xlsx" do funil PME (pedido do Victor, 2026-10-09) =====
   // Decisões: (1) exporta EXATAMENTE o que está na tela (gestor/mês/corretora/status/busca — pendLastPmeFiltered);
@@ -2049,8 +2185,10 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     return null;
   }
 
+  // "Baixar funil (Excel)" da aba PME (2026-10-14, Victor: "baixar o funil inteiro por excel padrão"): TODAS as propostas
+  // em aberto de TODOS os gestores, sem os filtros da tela (o que está filtrado vai pelo "Baixar relatório").
   async function pendBaixarXlsx(){
-    const rows = pendLastPmeFiltered.slice();
+    const rows = pendenciasDoGestor(PENDENCIAS_PME, null, 'proposta');
     if (!rows.length) return;
     const btn = document.getElementById('pendXlsxBtn');
     const txtOrig = btn.innerHTML;
@@ -2103,14 +2241,8 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
       // clique não abria os detalhes). Mesma montagem da planilha original: DINÂMICA = GESTOR × PLANIUM, soma de
       // BENEFICIARIOS (+ filtros IMPLANTA AMANHÃ e BITIX); ESTEIRA DITEC = GESTOR × DITEC com filtros DATA VIGÊNCIA,
       // CADASTRO e BITIX. As duas leem a aba RESULTADO FINAL e o Excel as monta ao abrir (pendAddPivots).
-      const filtros = [
-        document.getElementById('pendGestorFilter').value || 'Todos os gestores',
-        document.getElementById('pendMonthFilter').value ? 'vigência ' + document.getElementById('pendMonthFilter').value : 'todos os meses',
-        document.getElementById('pendCorretoraFilter').value || 'todas as corretoras',
-        pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'todos os status',
-      ];
       const nota = (sh, col) => {
-        sh.getCell(1, col).value = 'Filtro do painel: ' + filtros.join(' · ');
+        sh.getCell(1, col).value = `Funil PME inteiro: todos os gestores, todas as vigências e corretoras, em análise/pendência (${rows.length} propostas).`;
         sh.getCell(2, col).value = 'Gerado em ' + new Date().toLocaleString('pt-BR') + '. Se a tabela aparecer vazia, clique em "Habilitar Edição".';
         [1,2].forEach(r => { sh.getCell(r, col).font = { italic:true, size:9, color:{ argb:'FF56608F' } }; });
       };
@@ -2174,19 +2306,74 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
         { sheetIndex:2, name:'Tabela dinâmica3', row:'GESTOR', col:'DITEC', pages:['DATA VIGÊNCIA','CADASTRO','BITIX'], data:'BENEFICIARIOS', dataName:'Vidas', rowCaption:'EXECUTIVO' },
       ]});
       const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g,'.');
-      const quem = pendCurrentGestor ? String(pendCurrentGestor).replace(/[\\/:*?"<>|]+/g,' ').trim() : 'Todas as equipes';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `Funil PME - ${quem} - ${hoje}.xlsx`;
+      a.download = `Funil PME - completo - ${hoje}.xlsx`;
       document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     } catch(err){
       alert('Não consegui gerar a planilha: ' + err.message);
     } finally {
-      btn.innerHTML = txtOrig; btn.disabled = !pendLastPmeFiltered.length;
+      btn.innerHTML = txtOrig; btn.disabled = false;
     }
   }
-  document.getElementById('pendXlsxBtn').addEventListener('click', pendBaixarXlsx);
+
+  // "Baixar funil (Excel)" da aba PF (2026-10-14): todos os orçamentos de todos os gestores, sem os filtros da tela.
+  // Abas: DINÂMICA (tabela dinâmica de verdade GESTOR × STATUS, soma de VIDAS, duplo clique abre o detalhe) e
+  // RESULTADO (um orçamento por linha), mesma técnica do PME (pendAddPivots).
+  async function pendBaixarFunilPf(){
+    const rows = pendenciasDoGestor(PENDENCIAS_PF, null, 'orcamento');
+    if (!rows.length) return;
+    const btn = document.getElementById('pendXlsxBtn');
+    const txtOrig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando...';
+    try {
+      const ExcelJS = await pendLoadExcelJS();
+      const dataXl = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); return m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : null; };
+      const gestorRaw = p => (window.getGestorRawName ? window.getGestorRawName(p._gestor) : String(p._gestor || '')).toUpperCase();
+      rows.sort((a,b) => gestorRaw(a).localeCompare(gestorRaw(b)) || String(a.corretora||'').localeCompare(String(b.corretora||'')));
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Painel Comercial — Cauda Longa NDI SP';
+      const NAVY = 'FF101E63', VERDE = 'FF16B87A', CINZA = 'FFE3E9F8';
+      const borda = { top:{style:'thin',color:{argb:CINZA}}, bottom:{style:'thin',color:{argb:CINZA}}, left:{style:'thin',color:{argb:CINZA}}, right:{style:'thin',color:{argb:CINZA}} };
+      const estiloCab = cell => { cell.font = { bold:true, color:{argb:'FFFFFFFF'}, size:10 }; cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} }; cell.alignment = { vertical:'middle', horizontal:'center', wrapText:true }; cell.border = borda; };
+      const wd = wb.addWorksheet('DINÂMICA'); // sheet1 — a tabela dinâmica é ligada aqui
+      const ws = wb.addWorksheet('RESULTADO', { views:[{ state:'frozen', ySplit:1 }] });
+      const COLS = [['ORÇAMENTO',16], ['GESTOR',36], ['CORRETORA',44], ['STATUS',28], ['VIDAS',9], ['DATA STATUS',14]];
+      ws.columns = COLS.map(([h,w]) => ({ header:h, width:w }));
+      ws.getRow(1).height = 28; ws.getRow(1).eachCell(estiloCab);
+      rows.forEach(p => {
+        const num = /^\d+$/.test(String(p.orcamento)) ? Number(p.orcamento) : p.orcamento;
+        const r = ws.addRow([num, gestorRaw(p), p.corretora || '', p.status || '', p.vidas || 0, dataXl(p.dataStatus)]);
+        r.getCell(6).numFmt = 'dd/mm/yyyy';
+        [1,5,6].forEach(c => { r.getCell(c).alignment = { horizontal:'center' }; });
+      });
+      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:COLS.length } };
+      wd.getColumn(1).width = 36;
+      wd.getCell(1, 12).value = `Funil PF inteiro: todos os gestores, todos os status e corretoras (${rows.length} orçamentos).`;
+      wd.getCell(2, 12).value = 'Gerado em ' + new Date().toLocaleString('pt-BR') + '. Se a tabela aparecer vazia, clique em "Habilitar Edição".';
+      [1,2].forEach(r => { wd.getCell(r, 12).font = { italic:true, size:9, color:{ argb:'FF56608F' } }; });
+      wb.views = [{ activeTab: 0 }];
+      wb.worksheets.forEach(s => { s.properties.tabColor = { argb: s.name === 'DINÂMICA' ? VERDE : NAVY }; });
+      const buf = await wb.xlsx.writeBuffer();
+      const cab = COLS.map(c => c[0]);
+      const linhas = rows.map(p => [p.orcamento, gestorRaw(p), p.corretora || '', p.status || '', p.vidas || 0, p.dataStatus || '']);
+      const blob = await pendAddPivots(buf, { sourceSheet:'RESULTADO', headers:cab, rows:linhas, pivots:[
+        { sheetIndex:1, name:'Tabela dinâmica1', row:'GESTOR', col:'STATUS', pages:['CORRETORA'], data:'VIDAS', dataName:'Soma de VIDAS' },
+      ]});
+      const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g,'.');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Funil PF - completo - ${hoje}.xlsx`;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    } catch(err){
+      alert('Não consegui gerar a planilha: ' + err.message);
+    } finally {
+      btn.innerHTML = txtOrig; btn.disabled = false;
+    }
+  }
+  document.getElementById('pendXlsxBtn').addEventListener('click', () => { pendMultiFechar(); if (pendActiveTab === 'pf') pendBaixarFunilPf(); else pendBaixarXlsx(); });
 
   document.querySelectorAll('#pendModal thead th[data-k]').forEach(th => {
     window.__kb(th).addEventListener('click', () => {
@@ -2199,8 +2386,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     pendActiveTab = 'pme';
     document.getElementById('pendTabPme').classList.add('active'); document.getElementById('pendTabPf').classList.remove('active');
     document.getElementById('pendPmeSection').style.display = ''; document.getElementById('pendPfSection').style.display = 'none';
-    document.getElementById('pendMonthFilter').value = '';
-    document.getElementById('pendCorretoraFilter').value = '';
+    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
     document.getElementById('pendPropostaSearch').value = '';
     pendSelectedStatuses.clear();
     renderPendencias();
@@ -2209,8 +2395,7 @@ tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #
     pendActiveTab = 'pf';
     document.getElementById('pendTabPf').classList.add('active'); document.getElementById('pendTabPme').classList.remove('active');
     document.getElementById('pendPfSection').style.display = ''; document.getElementById('pendPmeSection').style.display = 'none';
-    document.getElementById('pendMonthFilter').value = '';
-    document.getElementById('pendCorretoraFilter').value = '';
+    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
     document.getElementById('pendPropostaSearch').value = '';
     pendSelectedStatuses.clear();
     renderPendencias();
