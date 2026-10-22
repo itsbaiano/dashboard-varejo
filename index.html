@@ -1549,7 +1549,7 @@
    ========================================================= */
 window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
 (function(){
-  var EMPTY = {MJ_TEAMS_BY_MONTH:{}, currentMonth:"", PENDENCIAS_PME:{}, PENDENCIAS_PF:{}, PENDENCIAS_ASSINATURA:{}, MJ_CORRETORAS_BY_MONTH:{}, MJ_NAO_ATRIBUIDO_BY_MONTH:{}, MJ_BENCHMARK:[], DATA:[], RANKDATA:[], PROPOSTAS:[], SLA_HISTORICO:[], DAILY_SNAPSHOTS:{}, CONV_ONTEM_HOJE:{}, META_EXEC_BY_MONTH:{}, INT_EXEC_BY_MONTH:{}, RANK_CUR_LABEL:"", RANK_PREV_LABEL:"", CARTEIRA_MAP:null, LAST_UPDATED_BY_SOURCE:{}, publishedAt:""};
+  var EMPTY = {SEEDS_HIST:null, MJ_TEAMS_BY_MONTH:{}, currentMonth:"", PENDENCIAS_PME:{}, PENDENCIAS_PF:{}, PENDENCIAS_ASSINATURA:{}, MJ_CORRETORAS_BY_MONTH:{}, MJ_NAO_ATRIBUIDO_BY_MONTH:{}, MJ_BENCHMARK:[], DATA:[], RANKDATA:[], PROPOSTAS:[], SLA_HISTORICO:[], DAILY_SNAPSHOTS:{}, CONV_ONTEM_HOJE:{}, META_EXEC_BY_MONTH:{}, INT_EXEC_BY_MONTH:{}, RANK_CUR_LABEL:"", RANK_PREV_LABEL:"", CARTEIRA_MAP:null, LAST_UPDATED_BY_SOURCE:{}, publishedAt:""};
   window.__EMPTY_DASH_DATA__ = EMPTY;
   function showFatalError(msg){
     document.addEventListener('DOMContentLoaded', function(){
@@ -2041,7 +2041,9 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   const FS_SECTIONS = ['MJ_TEAMS_BY_MONTH','currentMonth','PENDENCIAS_PME','PENDENCIAS_PF',
     'PENDENCIAS_ASSINATURA','MJ_CORRETORAS_BY_MONTH','MJ_NAO_ATRIBUIDO_BY_MONTH','MJ_BENCHMARK',
     'DATA','RANKDATA','PROPOSTAS','SLA_HISTORICO','DAILY_SNAPSHOTS','CONV_ONTEM_HOJE','META_EXEC_BY_MONTH','INT_EXEC_BY_MONTH',
-    'RANK_CUR_LABEL','RANK_PREV_LABEL','CARTEIRA_MAP','LAST_UPDATED_BY_SOURCE','publishedAt'];
+    'RANK_CUR_LABEL','RANK_PREV_LABEL','CARTEIRA_MAP','LAST_UPDATED_BY_SOURCE','publishedAt',
+    // Dados históricos jan–set/26 (antes só embutidos no app.js público) — 22/10/2026, item 3 de segurança.
+    'SEEDS_HIST'];
 
   // Chamada pelo auth <script> (lá em cima) assim que o login confirma que a pessoa está na
   // allowlist_v1 — busca todas as seções em paralelo, monta window.__DASH_DATA__ do mesmo
