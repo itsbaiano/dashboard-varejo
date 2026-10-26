@@ -1453,6 +1453,63 @@
   .fab-item{display:flex; align-items:center; gap:10px; border:0; background:transparent; padding:9px 10px; border-radius:9px; font:inherit; font-size:13px; font-weight:600; color:var(--text); cursor:pointer; text-align:left;}
   .fab-item:hover, .fab-item:focus-visible{background:rgba(46,82,212,.09);}
   .fab-ic{width:28px; height:28px; border-radius:8px; display:grid; place-items:center; color:#fff; font-size:13px; flex:none;}
+
+  /* Registro de acessos (item 4 da revisão de segurança, 26/10/2026 — demonstrativo aprovado pelo Victor). Só quem tem
+     verAcessos:true no cadastro vê o botão e consegue ler (Regras do Firestore). Cores pelos tokens do painel. */
+  .acs-overlay{position:fixed; inset:0; z-index:1200; background:rgba(8,14,40,.55); display:flex; align-items:flex-start; justify-content:center; overflow-y:auto; padding:max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px)); animation:acsFade .18s ease-out both;}
+  .acs-overlay[hidden]{display:none;}
+  .acs-modal{width:100%; max-width:1060px; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:16px; box-shadow:0 18px 50px rgba(16,30,99,.22); overflow:hidden; animation:fadeInUp .22s ease-out both;}
+  .acs-head{display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid var(--line);}
+  .acs-head h2{font-family:'Sora',sans-serif; font-size:19px; font-weight:700; margin:0; color:var(--navy);}
+  [data-theme="dark"] .acs-head h2, [data-theme="dark"] .acs-h3, [data-theme="dark"] .acs-kpi .v{color:var(--text);}
+  .acs-sub{font-size:12.5px; color:var(--muted);}
+  .acs-x{width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--muted); font-size:16px; cursor:pointer;}
+  .acs-bar{display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:14px 22px; border-bottom:1px solid var(--line);}
+  .acs-seg{display:inline-flex; background:rgba(46,82,212,.07); border-radius:10px; padding:3px; gap:2px;}
+  .acs-seg button{border:0; background:transparent; color:var(--muted); font:inherit; font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:8px; cursor:pointer; transition:background .15s, color .15s;}
+  .acs-seg button[aria-pressed="true"]{background:var(--card); color:var(--blue); box-shadow:0 1px 3px rgba(16,30,99,.14);}
+  .acs-bar select{font:inherit; font-size:13px; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:9px; padding:7px 10px;}
+  .acs-btn{margin-left:auto; font:inherit; font-size:12.5px; font-weight:600; color:var(--blue); background:rgba(46,82,212,.1); border:0; border-radius:9px; padding:8px 12px; cursor:pointer;}
+  .acs-btn:disabled{opacity:.5; cursor:default;}
+  .acs-seg button:focus-visible, .acs-bar select:focus-visible, .acs-x:focus-visible, .acs-btn:focus-visible{outline:2px solid var(--blue); outline-offset:2px;}
+  .acs-body{padding:18px 22px 22px; display:grid; grid-template-columns:minmax(0,1fr); gap:20px;}
+  .acs-body > *, .acs-cols > *{min-width:0;} /* a tabela larga rola dentro do próprio quadro, sem empurrar a tela */
+  .acs-kpis{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px;}
+  .acs-kpi{border:1px solid var(--line); border-radius:12px; padding:12px 14px; animation:fadeInUp .3s ease-out both;}
+  .acs-kpi:nth-child(2){animation-delay:.04s;} .acs-kpi:nth-child(3){animation-delay:.08s;} .acs-kpi:nth-child(4){animation-delay:.12s;}
+  .acs-kpi .l{font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600;}
+  .acs-kpi .v{font-family:'Sora',sans-serif; font-size:24px; font-weight:700; color:var(--navy); font-variant-numeric:tabular-nums;}
+  .acs-kpi .v small{font-size:13px; color:var(--muted); font-weight:500;}
+  .acs-kpi .d{font-size:12px; color:var(--muted);}
+  .acs-cols{display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:20px; align-items:start;}
+  .acs-h3{font-family:'Sora',sans-serif; font-size:14.5px; font-weight:600; margin:0 0 8px; color:var(--navy);}
+  .acs-h3 span{font-family:inherit; font-weight:500; font-size:12px; color:var(--muted); margin-left:6px;}
+  .acs-tbl{overflow-x:auto; border:1px solid var(--line); border-radius:12px;}
+  .acs-tbl table{width:100%; border-collapse:collapse; font-size:13px; min-width:600px;}
+  .acs-tbl th{text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; padding:9px 12px; background:rgba(46,82,212,.06);}
+  .acs-tbl td{padding:9px 12px; border-top:1px solid var(--line); vertical-align:middle;}
+  .acs-tbl tbody tr{cursor:pointer; transition:background .12s;}
+  .acs-tbl tbody tr:hover, .acs-tbl tbody tr:focus-visible{background:rgba(46,82,212,.06); outline:none;}
+  .acs-tbl tbody tr.sel{background:rgba(46,82,212,.1);}
+  .acs-tbl .n{text-align:right; font-variant-numeric:tabular-nums;}
+  .acs-who{font-weight:600;} .acs-who small{display:block; font-weight:400; color:var(--muted); font-size:11.5px;}
+  .acs-pill{display:inline-block; font-size:11.5px; font-weight:600; padding:2px 9px; border-radius:999px; white-space:nowrap;}
+  .acs-ok{background:rgba(22,184,122,.14); color:#0E8A5B;} .acs-warn{background:rgba(255,184,28,.18); color:#9A6B00;} .acs-bad{background:rgba(245,54,74,.12); color:#C8243A;}
+  [data-theme="dark"] .acs-ok{color:#3BD69A;} [data-theme="dark"] .acs-warn{color:#FFC94D;} [data-theme="dark"] .acs-bad{color:#FF6B7C;}
+  .acs-dev{font-size:12px; color:var(--muted); white-space:nowrap;}
+  .acs-feed{border:1px solid var(--line); border-radius:12px; overflow:hidden; max-height:520px; overflow-y:auto;}
+  .acs-day{position:sticky; top:0; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); background:var(--card); box-shadow:inset 0 -1px 0 var(--line); padding:7px 14px;}
+  .acs-ev{display:grid; grid-template-columns:52px 22px minmax(0,1fr) auto; gap:10px; align-items:center; padding:9px 14px; border-top:1px solid var(--line); animation:fadeInUp .25s ease-out both;}
+  .acs-ev .t{font-variant-numeric:tabular-nums; color:var(--muted); font-size:12.5px;}
+  .acs-ev .txt{min-width:0; overflow-wrap:anywhere;} .acs-ev .txt b{font-weight:600;}
+  .acs-dot{width:10px; height:10px; border-radius:50%; justify-self:center;}
+  .acs-d-entrou{background:var(--blue);} .acs-d-publicou{background:var(--orange);} .acs-d-baixou{background:var(--green);} .acs-d-sessao_venceu{background:var(--muted);}
+  .acs-vazio{padding:28px 14px; text-align:center; color:var(--muted); font-size:13px;}
+  .acs-rodape{font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; display:grid; gap:4px;}
+  @keyframes acsFade{ from{opacity:0;} to{opacity:1;} }
+  @media (max-width:820px){ .acs-cols{grid-template-columns:1fr;} .acs-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} }
+  @media (max-width:440px){ .acs-ev{grid-template-columns:44px 14px minmax(0,1fr);} .acs-ev .acs-dev{grid-column:3;} .acs-btn{margin-left:0;} .acs-head, .acs-bar, .acs-body{padding-left:14px; padding-right:14px;} }
+  @media (prefers-reduced-motion:reduce){ .acs-overlay, .acs-modal, .acs-kpi, .acs-ev{animation:none;} }
   .fab-ic i{width:15px; height:15px; flex:0 0 auto;}
   [data-theme="dark"] .fab-toggle{background:#33489E;}
   @media (max-width:640px){ .fab-wrap{right:14px; bottom:14px;} .fab-toggle{width:48px; height:48px;} }
@@ -1666,7 +1723,9 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   }
   function encerrarSessaoVencida(){
     try { window.sessionStorage.setItem(SESSAO_EXPIROU_KEY, '1'); } catch(e){}
-    firebase.auth().signOut().then(function(){ window.location.reload(); });
+    (window.fsRegistrarAcesso ? window.fsRegistrarAcesso('sessao_venceu', SESSAO_MAX_DIAS + ' dias') : Promise.resolve())
+      .then(function(){ return firebase.auth().signOut(); })
+      .then(function(){ window.location.reload(); });
   }
 
   window.__userRole__ = null;
@@ -2104,6 +2163,9 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       // maioria dos admins hoje — Victor, Estevão, Amanda, Brenda, Emanuel, Marcelo, Emily —
       // nenhum é de uma equipe específica), continua sem restrição nenhuma, igual sempre foi.
       window.__eligTeamScope__ = myAllow.eligTeam || null;
+      // Registro de acessos (item 4, 26/10/2026): quem vê a tela é só quem tem verAcessos:true; a entrada fica registrada.
+      window.__verAcessos__ = myAllow.verAcessos === true;
+      fsRegistrarAcesso('entrou', '');
       window.__acessoLiberado__();
       document.dispatchEvent(new CustomEvent('authReady', { detail: { role: window.__userRole__, email: window.__userEmail__, noEleg: window.__noEleg__, eligTeamScope: window.__eligTeamScope__ } }));
       const values = await Promise.all(FS_SECTIONS.map(s => fsReadSection(s).catch(e => {
@@ -2122,6 +2184,61 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       window.__showFatalError__('Não consegui carregar os dados do painel (' + e.message + '). Recarregue a página; se persistir, fale com o administrador.');
     }
   }
+
+  /* REGISTRO DE ACESSOS (item 4 da revisão de segurança, 26/10/2026; mesmo código do V2). Cada evento vira um
+     documento em "acessos_v1": { email, quando (hora do servidor), acao: entrou | publicou | baixou | sessao_venceu,
+     detalhe, aparelho }. As Regras só deixam cada pessoa CRIAR o próprio registro (e-mail do login, hora do servidor,
+     campos fixos); ninguém edita; ler e apagar só quem tem verAcessos:true no cadastro (o Victor). Sem IP nem
+     localização. Nunca trava o painel: erro ao gravar vira só aviso no console. */
+  const ACESSOS_COLLECTION = 'acessos_v1';
+  const ACESSOS_DIAS_GUARDA = 365; // decisão do Victor (26/10/2026): guardar 1 ano
+  function descreverAparelho(){
+    const ua = navigator.userAgent || '';
+    const nav = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+      : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Navegador';
+    const so = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android'
+      : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'outro sistema';
+    return nav + ' · ' + so;
+  }
+  function fsRegistrarAcesso(acao, detalhe){
+    if (window.__IS_LOCAL_TEST__) return Promise.resolve();
+    const u = firebase.auth().currentUser;
+    if (!u || !u.email) return Promise.resolve();
+    return db.collection(ACESSOS_COLLECTION).add({
+      email: u.email.toLowerCase(),
+      quando: firebase.firestore.FieldValue.serverTimestamp(),
+      acao: acao,
+      detalhe: String(detalhe || '').slice(0, 200),
+      aparelho: descreverAparelho(),
+    }).catch(function(e){ console.warn('Registro de acesso não gravado:', e && e.message); });
+  }
+  // Lê os eventos desde "desdeMs" (mais recente primeiro). Só funciona pra quem tem verAcessos (Regras).
+  async function fsLerAcessos(desdeMs){
+    const snap = await db.collection(ACESSOS_COLLECTION)
+      .where('quando', '>=', firebase.firestore.Timestamp.fromMillis(desdeMs))
+      .orderBy('quando', 'desc').limit(5000).get();
+    return snap.docs.map(function(d){ const x = d.data(); return Object.assign({}, x, { id: d.id, quando: x.quando ? x.quando.toDate() : null }); });
+  }
+  // Cadastro inteiro (pra mostrar quem nunca entrou). Também só pra quem tem verAcessos (Regras).
+  async function fsListarCadastro(){
+    const snap = await db.collection(ALLOWLIST_COLLECTION).get();
+    return snap.docs.map(function(d){ return Object.assign({ email: d.id }, d.data()); });
+  }
+  // Apaga o que passou de ACESSOS_DIAS_GUARDA (até 400 por vez — roda de novo a cada abertura da tela).
+  async function fsLimparAcessosAntigos(){
+    const corte = firebase.firestore.Timestamp.fromMillis(Date.now() - ACESSOS_DIAS_GUARDA * 864e5);
+    const snap = await db.collection(ACESSOS_COLLECTION).where('quando', '<', corte).limit(400).get();
+    if (snap.empty) return 0;
+    const b = db.batch();
+    snap.docs.forEach(function(d){ b.delete(d.ref); });
+    await b.commit();
+    return snap.size;
+  }
+  window.fsRegistrarAcesso = fsRegistrarAcesso;
+  window.fsLerAcessos = fsLerAcessos;
+  window.fsListarCadastro = fsListarCadastro;
+  window.fsLimparAcessosAntigos = fsLimparAcessosAntigos;
+  window.__ACESSOS_DIAS_GUARDA__ = ACESSOS_DIAS_GUARDA;
 
   window.fsWriteSection = fsWriteSection;
   window.fsReadSection = fsReadSection;
@@ -2227,6 +2344,8 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     <div class="fab-menu" id="fabMenu" hidden>
       <button type="button" id="btnOpenResumo" class="fab-item"><span class="fab-ic" style="background:var(--accent-mint)"><i class=ic-clip></i></span>Resumo do Dia</button>
       <button type="button" id="btnOpenImport" class="fab-item"><span class="fab-ic" style="background:linear-gradient(120deg,var(--accent-coral),var(--accent-red))"><i class=ic-refresh></i></span>Atualizar Dados</button>
+      <!-- Só aparece pra quem tem verAcessos:true no cadastro (app.js, módulo "Registro de acessos"). -->
+      <button type="button" id="btnOpenAcessos" class="fab-item" hidden><span class="fab-ic" style="background:var(--primary-mid)"><i class=ic-users></i></span>Registro de acessos</button>
     </div>
     <button type="button" id="fabToggle" class="fab-toggle" aria-expanded="false" aria-controls="fabMenu" aria-label="Ações: Resumo do Dia e Atualizar Dados"><span aria-hidden="true">+</span></button>
   </div>

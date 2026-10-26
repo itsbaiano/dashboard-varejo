@@ -1994,6 +1994,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       },
     });
     doc.save(`${d.nomeBase}.pdf`);
+    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', `${d.nomeBase}.pdf`); // registro de acessos (item 4)
   }
 
   async function pendRelatorioXlsx(){
@@ -2047,6 +2048,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     a.download = `${d.nomeBase}.xlsx`;
     document.body.appendChild(a); a.click();
+    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', a.download); // registro de acessos (item 4)
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   }
 
@@ -2327,6 +2329,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       a.href = URL.createObjectURL(blob);
       a.download = `Funil PME - completo - ${hoje}.xlsx`;
       document.body.appendChild(a); a.click();
+      if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', a.download); // registro de acessos (item 4)
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     } catch(err){
       alert('Não consegui gerar a planilha: ' + err.message);
@@ -2383,6 +2386,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       a.href = URL.createObjectURL(blob);
       a.download = `Funil PF - completo - ${hoje}.xlsx`;
       document.body.appendChild(a); a.click();
+      if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', a.download); // registro de acessos (item 4)
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     } catch(err){
       alert('Não consegui gerar a planilha: ' + err.message);
@@ -6205,6 +6209,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     a.download = fileName;
     document.body.appendChild(a);
     a.click();
+    // Registro de acessos (item 4): cobre Elegibilidade e Desempenho Comercial, que baixam por aqui.
+    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', fileName);
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   }
   // Usados também pelo export do Desempenho Comercial (outra IIFE).
@@ -8981,6 +8987,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: o extrato completo do T6140B NÃO foi salvo (' + e.message + ') — a aba T6140B do "Baixar .xlsx" vai sair resumida pra quem baixar de outro computador.</span>'; }
       }
       status.innerHTML = '<span style="color:#1b7a63; font-weight:700;">Publicado! Quem já estiver com o painel aberto vê a atualização só no próximo login/recarregamento.</span>' + avisoMeta;
+      // Registro de acessos (item 4, 26/10/2026): quem publicou e o quê.
+      if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('publicou', keys.length + ' seções' + (window.__T6140B_EXTRATO && !window.__T6140B_EXTRATO_PENDENTE ? ' + extrato T6140B' : ''));
     } catch(err){
       const permMsg = (err.code === 'permission-denied')
         ? ' Seu usuário pode não estar marcado como admin na allowlist_v1 do Firestore — confira com quem administra o painel.'
@@ -8999,6 +9007,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     a.href = URL.createObjectURL(blob);
     a.download = 'data.json';
     document.body.appendChild(a); a.click(); a.remove();
+    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', 'data.json (cópia local de todos os dados)'); // item 4
     setTimeout(()=>URL.revokeObjectURL(a.href), 8000);
   });
   window.__buildDataJson = buildDataJson;
@@ -9721,3 +9730,231 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   apply();
 })();
 
+
+/* =========================================================
+   REGISTRO DE ACESSOS — tela (item 4 da revisão de segurança, 26/10/2026; demonstrativo aprovado pelo Victor:
+   manter animações, interatividade, responsividade e cores). Abre pelo botão de ações, item "Registro de acessos",
+   que só aparece pra quem tem verAcessos:true no cadastro (hoje só o Victor). Lê os eventos gravados por
+   window.fsRegistrarAcesso (index.html) e o cadastro (pra mostrar quem nunca entrou). As Regras do Firestore
+   garantem no servidor que mais ninguém lê. Ao abrir, apaga o que passou de 1 ano (window.fsLimparAcessosAntigos).
+   ========================================================= */
+(function(){
+  const btnAbrir = document.getElementById('btnOpenAcessos');
+  if (!btnAbrir || !window.__verAcessos__ || !window.fsLerAcessos) return;
+  btnAbrir.hidden = false;
+
+  const ESC_MAP = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ESC_MAP[c]);
+  const DIA = 864e5;
+  const ACOES = { entrou:'Entrou no painel', publicou:'Publicou dados', baixou:'Baixou arquivo', sessao_venceu:'Sessão venceu' };
+  const nomeDe = (email, cad) => {
+    if (cad && cad.nome) return String(cad.nome).trim().split(/\s+/)[0];
+    const base = String(email || '').split('@')[0].replace(/^t_/, '').split('.')[0];
+    return /^[a-z]{2,}$/i.test(base) ? base.charAt(0).toUpperCase() + base.slice(1).toLowerCase() : String(email || '').split('@')[0];
+  };
+  const hhmm = d => d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  const inicioDoDia = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+  const rotuloDia = d => {
+    const hoje = inicioDoDia(new Date()), dd = inicioDoDia(d), n = Math.round((hoje - dd) / DIA);
+    const data = d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+    return n === 0 ? 'Hoje · ' + data : n === 1 ? 'Ontem · ' + data : d.toLocaleDateString('pt-BR', { weekday:'long' }) + ' · ' + data;
+  };
+
+  // Monta o modal uma vez.
+  const ov = document.createElement('div');
+  ov.className = 'acs-overlay'; ov.hidden = true;
+  ov.innerHTML = `
+    <section class="acs-modal" role="dialog" aria-modal="true" aria-labelledby="acsTitulo">
+      <div class="acs-head">
+        <div><h2 id="acsTitulo">Registro de acessos</h2><div class="acs-sub">Visível só para você</div></div>
+        <button class="acs-x" type="button" id="acsFechar" aria-label="Fechar">✕</button>
+      </div>
+      <div class="acs-bar">
+        <div class="acs-seg" role="group" aria-label="Período">
+          <button type="button" data-p="hoje" aria-pressed="false">Hoje</button>
+          <button type="button" data-p="7" aria-pressed="true">7 dias</button>
+          <button type="button" data-p="30" aria-pressed="false">30 dias</button>
+          <button type="button" data-p="365" aria-pressed="false">1 ano</button>
+        </div>
+        <select id="acsPessoa" aria-label="Pessoa"><option value="">Todas as pessoas</option></select>
+        <select id="acsAcao" aria-label="Ação"><option value="">Todas as ações</option>${Object.keys(ACOES).map(k => `<option value="${k}">${ACOES[k]}</option>`).join('')}</select>
+        <button class="acs-btn" type="button" id="acsExcel">Baixar registro (Excel)</button>
+      </div>
+      <div class="acs-body" id="acsCorpo"><div class="acs-vazio">Carregando o registro...</div></div>
+    </section>`;
+  document.body.appendChild(ov);
+
+  const st = { periodo:'7', pessoa:'', acao:'', eventos:[], cadastro:[], carregadoDesde:null, ultimosFiltrados:[], cadPor:{} };
+  const corpo = ov.querySelector('#acsCorpo');
+  const selPessoa = ov.querySelector('#acsPessoa'), selAcao = ov.querySelector('#acsAcao');
+
+  function desdeMs(){
+    if (st.periodo === 'hoje') return inicioDoDia(new Date()).getTime();
+    return inicioDoDia(new Date(Date.now() - (Number(st.periodo) - 1) * DIA)).getTime();
+  }
+
+  async function carregar(forcar){
+    const desde = desdeMs();
+    // Já tem eventos de um período maior carregado? Só filtra; senão busca de novo.
+    if (forcar || st.carregadoDesde == null || desde < st.carregadoDesde){
+      corpo.innerHTML = '<div class="acs-vazio">Carregando o registro...</div>';
+      try {
+        const [ev, cad] = await Promise.all([window.fsLerAcessos(desde), window.fsListarCadastro()]);
+        st.eventos = ev; st.cadastro = cad; st.carregadoDesde = desde;
+      } catch(e){
+        corpo.innerHTML = `<div class="acs-vazio">Não consegui ler o registro (${esc(e && e.message)}). Confira se o seu cadastro tem verAcessos = true e se as Regras novas foram publicadas.</div>`;
+        return;
+      }
+    }
+    preencherPessoas();
+    render();
+  }
+
+  function preencherPessoas(){
+    const cadPor = {}; st.cadastro.forEach(c => { cadPor[c.email] = c; });
+    const emails = new Set(st.cadastro.map(c => c.email));
+    st.eventos.forEach(e => emails.add(e.email));
+    const ops = [...emails].sort((a,b) => nomeDe(a, cadPor[a]).localeCompare(nomeDe(b, cadPor[b])));
+    selPessoa.innerHTML = '<option value="">Todas as pessoas</option>' + ops.map(e => `<option value="${esc(e)}"${e === st.pessoa ? ' selected' : ''}>${esc(nomeDe(e, cadPor[e]))} · ${esc(e.split('@')[0])}</option>`).join('');
+  }
+
+  function contaAte(el, alvo){
+    if (!el) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){ el.textContent = alvo.toLocaleString('pt-BR'); return; }
+    const t0 = performance.now(), dur = 600;
+    const passo = t => { const p = Math.min(1, (t - t0) / dur), v = Math.round(alvo * (1 - Math.pow(1 - p, 3))); el.textContent = v.toLocaleString('pt-BR'); if (p < 1) requestAnimationFrame(passo); };
+    requestAnimationFrame(passo);
+    // Garantia: com a aba em segundo plano o navegador pausa a animação — o número final aparece de qualquer jeito.
+    setTimeout(() => { el.textContent = alvo.toLocaleString('pt-BR'); }, dur + 150);
+  }
+
+  function render(){
+    const desde = desdeMs();
+    const cadPor = {}; st.cadastro.forEach(c => { cadPor[c.email] = c; });
+    const noPeriodo = st.eventos.filter(e => e.quando && e.quando.getTime() >= desde);
+    const filtrados = noPeriodo.filter(e => (!st.pessoa || e.email === st.pessoa) && (!st.acao || e.acao === st.acao));
+    const daPessoa = noPeriodo.filter(e => !st.pessoa || e.email === st.pessoa);
+
+    // Resumo
+    const entraram = new Set(noPeriodo.filter(e => e.acao === 'entrou').map(e => e.email));
+    const nCad = st.cadastro.length;
+    const semEntrar = st.cadastro.filter(c => !entraram.has(c.email)).length;
+    const nEntradas = daPessoa.filter(e => e.acao === 'entrou').length;
+    const pubs = daPessoa.filter(e => e.acao === 'publicou');
+    const quemPub = [...new Set(pubs.map(e => nomeDe(e.email, cadPor[e.email])))];
+    const nBaixou = daPessoa.filter(e => e.acao === 'baixou').length;
+    const diasPeriodo = st.periodo === 'hoje' ? 1 : Number(st.periodo);
+
+    // Por pessoa (todo o cadastro + quem aparece no registro sem cadastro)
+    const emails = new Set(st.cadastro.map(c => c.email)); st.eventos.forEach(e => emails.add(e.email));
+    const ultimoGeral = {};
+    st.eventos.forEach(e => { if (e.acao === 'entrou' && e.quando && (!ultimoGeral[e.email] || e.quando > ultimoGeral[e.email])) ultimoGeral[e.email] = e.quando; });
+    const linhas = [...emails].map(email => {
+      const evs = noPeriodo.filter(e => e.email === email);
+      const aps = {}; evs.forEach(e => { aps[e.aparelho] = (aps[e.aparelho] || 0) + 1; });
+      const ap = Object.entries(aps).sort((a,b) => b[1] - a[1])[0];
+      return { email, cad: cadPor[email], ultimo: ultimoGeral[email] || null, entradas: evs.filter(e => e.acao === 'entrou').length,
+               baixou: evs.filter(e => e.acao === 'baixou').length, aparelho: ap ? ap[0] : '—' };
+    }).sort((a,b) => (b.ultimo ? b.ultimo.getTime() : -1) - (a.ultimo ? a.ultimo.getTime() : -1));
+
+    const pill = d => {
+      if (!d) return '<span class="acs-pill acs-bad">Sem entrada no período carregado</span>';
+      const n = Math.round((inicioDoDia(new Date()) - inicioDoDia(d)) / DIA);
+      if (n === 0) return `<span class="acs-pill acs-ok">Hoje, ${hhmm(d)}</span>`;
+      if (n === 1) return `<span class="acs-pill acs-ok">Ontem, ${hhmm(d)}</span>`;
+      return `<span class="acs-pill ${n <= 7 ? 'acs-warn' : 'acs-bad'}">Há ${n} dias</span>`;
+    };
+    const papel = c => !c ? 'sem cadastro' : (c.role === 'admin' ? 'admin' : 'executivo') + (c.eligTeam ? ' · ' + c.eligTeam : '');
+
+    // Linha do tempo agrupada por dia (até 300 eventos na tela; o Excel leva todos)
+    let feed = '', diaAtual = '';
+    filtrados.slice(0, 300).forEach((e, i) => {
+      const r = rotuloDia(e.quando);
+      if (r !== diaAtual){ feed += `<div class="acs-day">${esc(r)}</div>`; diaAtual = r; }
+      const nome = esc(nomeDe(e.email, cadPor[e.email]));
+      const txt = e.acao === 'entrou' ? `<b>${nome}</b> entrou no painel`
+        : e.acao === 'publicou' ? `<b>${nome}</b> publicou dados${e.detalhe ? ' · ' + esc(e.detalhe) : ''}`
+        : e.acao === 'baixou' ? `<b>${nome}</b> baixou ${esc(e.detalhe || 'um arquivo')}`
+        : e.acao === 'sessao_venceu' ? `<b>${nome}</b> saiu: sessão de ${esc(e.detalhe || '7 dias')} venceu`
+        : `<b>${nome}</b> ${esc(e.acao)}`;
+      const cls = /^[a-z_]+$/.test(e.acao) ? e.acao : 'outro';
+      feed += `<div class="acs-ev" style="animation-delay:${Math.min(i, 12) * 25}ms"><span class="t">${hhmm(e.quando)}</span><span class="acs-dot acs-d-${cls}" aria-hidden="true"></span><span class="txt">${txt}</span><span class="acs-dev">${esc(e.aparelho || '')}</span></div>`;
+    });
+    if (!feed) feed = '<div class="acs-vazio">Nenhum evento nesse período com esses filtros.</div>';
+    if (filtrados.length > 300) feed += `<div class="acs-vazio">Mostrando os 300 mais recentes de ${filtrados.length.toLocaleString('pt-BR')}. O Excel leva todos.</div>`;
+
+    corpo.innerHTML = `
+      <div class="acs-kpis">
+        <div class="acs-kpi"><div class="l">Pessoas que entraram</div><div class="v"><span id="acsK1">0</span> <small>de ${nCad}</small></div><div class="d">${semEntrar ? semEntrar + ' cadastrado(s) sem entrar' : 'todo o cadastro entrou'}</div></div>
+        <div class="acs-kpi"><div class="l">Entradas</div><div class="v" id="acsK2">0</div><div class="d">média de ${(nEntradas / diasPeriodo).toLocaleString('pt-BR', { maximumFractionDigits:1 })} por dia</div></div>
+        <div class="acs-kpi"><div class="l">Publicações</div><div class="v" id="acsK3">0</div><div class="d">${pubs.length ? 'por ' + esc(quemPub.join(', ')) : 'nenhuma no período'}</div></div>
+        <div class="acs-kpi"><div class="l">Arquivos baixados</div><div class="v" id="acsK4">0</div><div class="d">funil, relatórios e cópias</div></div>
+      </div>
+      <div class="acs-cols">
+        <div>
+          <h3 class="acs-h3">Por pessoa <span>clique numa linha pra filtrar</span></h3>
+          <div class="acs-tbl"><table>
+            <thead><tr><th>Pessoa</th><th>Último acesso</th><th class="n">Entradas</th><th class="n">Baixou</th><th>Aparelho</th></tr></thead>
+            <tbody>${linhas.map(l => `<tr tabindex="0" data-email="${esc(l.email)}"${l.email === st.pessoa ? ' class="sel"' : ''}>
+              <td class="acs-who">${esc(nomeDe(l.email, l.cad))} <small>${esc(l.email.split('@')[0])} · ${esc(papel(l.cad))}</small></td>
+              <td>${pill(l.ultimo)}</td><td class="n">${l.entradas}</td><td class="n">${l.baixou}</td><td class="acs-dev">${esc(l.aparelho)}</td></tr>`).join('')}</tbody>
+          </table></div>
+        </div>
+        <div>
+          <h3 class="acs-h3">Linha do tempo <span>mais recente primeiro</span></h3>
+          <div class="acs-feed">${feed}</div>
+        </div>
+      </div>
+      <div class="acs-rodape">
+        <div><b>O que é registrado:</b> quem entrou, quando, navegador e sistema do aparelho; quem publicou; quem baixou qual arquivo.</div>
+        <div><b>O que não é:</b> endereço IP e localização. Tentativas de quem não tem cadastro aparecem só no Firebase, em Authentication → Users.</div>
+        <div>Cada pessoa só consegue criar o próprio registro; ninguém edita nem apaga pelo painel. Guardado por ${window.__ACESSOS_DIAS_GUARDA__ || 365} dias.</div>
+      </div>`;
+    contaAte(corpo.querySelector('#acsK1'), entraram.size);
+    contaAte(corpo.querySelector('#acsK2'), nEntradas);
+    contaAte(corpo.querySelector('#acsK3'), pubs.length);
+    contaAte(corpo.querySelector('#acsK4'), nBaixou);
+    st.ultimosFiltrados = filtrados; st.cadPor = cadPor;
+  }
+
+  function abrir(){
+    ov.hidden = false;
+    document.body.style.overflow = 'hidden';
+    ov.querySelector('#acsFechar').focus();
+    carregar(true);
+    if (window.fsLimparAcessosAntigos) window.fsLimparAcessosAntigos().catch(e => console.warn('Limpeza do registro:', e && e.message));
+  }
+  function fechar(){ ov.hidden = true; document.body.style.overflow = ''; }
+
+  btnAbrir.addEventListener('click', abrir);
+  ov.querySelector('#acsFechar').addEventListener('click', fechar);
+  ov.addEventListener('click', e => { if (e.target === ov) fechar(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !ov.hidden) fechar(); });
+  ov.querySelectorAll('.acs-seg button').forEach(b => b.addEventListener('click', () => {
+    st.periodo = b.dataset.p;
+    ov.querySelectorAll('.acs-seg button').forEach(o => o.setAttribute('aria-pressed', o === b ? 'true' : 'false'));
+    carregar(false);
+  }));
+  selPessoa.addEventListener('change', () => { st.pessoa = selPessoa.value; render(); });
+  selAcao.addEventListener('change', () => { st.acao = selAcao.value; render(); });
+  corpo.addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-email]'); if (!tr) return;
+    st.pessoa = st.pessoa === tr.dataset.email ? '' : tr.dataset.email;
+    selPessoa.value = st.pessoa; render();
+  });
+  corpo.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr[data-email]')){ e.preventDefault(); e.target.click(); }
+  });
+  ov.querySelector('#acsExcel').addEventListener('click', () => {
+    const linhas = st.ultimosFiltrados.map(e => ({
+      'Data': e.quando ? e.quando.toLocaleDateString('pt-BR') : '', 'Hora': e.quando ? e.quando.toLocaleTimeString('pt-BR') : '',
+      'Pessoa': nomeDe(e.email, st.cadPor[e.email]), 'E-mail': e.email, 'Ação': ACOES[e.acao] || e.acao,
+      'Detalhe': e.detalhe || '', 'Aparelho': e.aparelho || '' }));
+    const ws = XLSX.utils.json_to_sheet(linhas.length ? linhas : [{ 'Data':'', 'Hora':'', 'Pessoa':'', 'E-mail':'', 'Ação':'', 'Detalhe':'', 'Aparelho':'' }]);
+    ws['!cols'] = [{wch:11},{wch:9},{wch:14},{wch:34},{wch:18},{wch:48},{wch:20}];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Acessos');
+    const nome = 'Registro de acessos - ' + new Date().toLocaleDateString('pt-BR').replace(/\//g, '.') + '.xlsx';
+    XLSX.writeFile(wb, nome);
+    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', nome);
+  });
+})();
