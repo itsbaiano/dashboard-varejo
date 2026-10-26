@@ -258,7 +258,7 @@ window.debounce = function(fn, ms){
   return function(...args){ clearTimeout(t); t = setTimeout(()=>fn.apply(this, args), ms); };
 };
 function showView(view){
-  // Trava de tela pra e-mails em NO_ELEG_EMAILS (ver auth <script> lá em cima) — cobre não só
+  // Trava de tela pra quem tem noEleg:true no cadastro do Firestore (window.__noEleg__, ver auth no index.html) — cobre não só
   // o clique no botão da barra lateral, mas qualquer chamada de showView('el') no código
   // (ex.: o atalho de busca global em execSearchResultsCards). Pedido do Victor, 2026-09-08.
   if (view === 'el' && window.__noEleg__) view = 'overview';
@@ -297,7 +297,7 @@ document.getElementById('navBtnEl').addEventListener('click', ()=>showView('el')
 document.getElementById('navBtnCompare').addEventListener('click', ()=>showView('compare'));
 document.getElementById('navBtnRank').addEventListener('click', ()=>showView('rank'));
 document.getElementById('navBtnConversao').addEventListener('click', ()=>showView('conversao'));
-// Some o botão da Elegibilidade da barra lateral pra quem está em NO_ELEG_EMAILS.
+// Some o botão da Elegibilidade da barra lateral pra quem tem noEleg:true no cadastro do Firestore.
 // showView('el') já bloqueia por trás mesmo se o botão aparecer por algum motivo (defesa
 // dupla). Pedido do Victor, 2026-09-08.
 // Achado 2026-09-08 (migração Firestore): o evento 'authReady' dispara no login, ANTES do
@@ -2174,12 +2174,29 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
   // Extrato completo do T6140B: o desta aba (import recente) ou o publicado no Firestore (seção T6140B_EXTRATO, fora
   // do login — só é buscado aqui, no clique). Sem nenhum → null (a aba T6140B sai resumida).
+  // Tira do extrato T6140B as colunas com dado pessoal do cliente — CPF/CNPJ (NU_CGC_CPF) e nome/razão social
+  // (NM_PESSOA_RAZAO_SOCIAL) — antes de guardar no Firestore e de montar a aba do Excel (item 5 da revisão de segurança,
+  // decisão do Victor 26/10/2026). Nenhum cálculo do funil usa essas colunas (parseT6140bRawWorkbook lê só controle,
+  // recebimento e status); nome e CNPJ da empresa continuam vindo do Planium. Pega também o extrato antigo já publicado.
+  const T6_COL_PESSOAL = /^(NU_CGC_CPF|NM_PESSOA_RAZAO_SOCIAL)$/i;
+  function t6140bSemDadosPessoais(texto){
+    const wbT = XLSX.read(texto, { type:'string', raw:true });
+    const linhas = XLSX.utils.sheet_to_json(wbT.Sheets[wbT.SheetNames[0]], { header:1, raw:true, defval:'' });
+    const iCab = linhas.findIndex(l => (l || []).some(v => String(v).trim().toUpperCase() === 'NU_CONTROLE'));
+    if (iCab < 0) return texto;
+    const manter = linhas[iCab].map(h => !T6_COL_PESSOAL.test(String(h)));
+    if (manter.every(Boolean)) return texto;
+    const limpas = linhas.map(l => (l || []).filter((_, i) => manter[i] !== false));
+    return XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(limpas), { FS:';' });
+  }
+  window.t6140bSemDadosPessoais = t6140bSemDadosPessoais;
+
   async function pendObterT6140bExtrato(){
     if (window.__T6140B_EXTRATO && window.__T6140B_EXTRATO.texto) return window.__T6140B_EXTRATO;
     if (!window.fsReadSection) return null;
     try {
       const v = await window.fsReadSection('T6140B_EXTRATO');
-      if (v && v.texto){ window.__T6140B_EXTRATO = v; return v; }
+      if (v && v.texto){ v.texto = t6140bSemDadosPessoais(v.texto); window.__T6140B_EXTRATO = v; return v; }
     } catch(e){ console.warn('T6140B completo indisponível:', e && e.message); }
     return null;
   }
@@ -2194,7 +2211,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando...';
     try {
       const ExcelJS = await pendLoadExcelJS();
-      // Vendedor, empresa e nome cru do gestor vêm da lista completa do Planium (mesma proposta)
+      // Empresa e nome cru do gestor vêm da lista completa do Planium (mesma proposta). Coluna VENDEDOR saiu em
+      // 26/10/2026 (vinha o CPF do vendedor — item 5 de segurança); as tabelas dinâmicas acham as colunas pelo nome.
       const porNum = {};
       (window.getPropostasData ? window.getPropostasData() : []).forEach(p => { porNum[String(p.p)] = p; });
       const dataXl = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); return m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : null; };
@@ -2215,7 +2233,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       const ws = wb.addWorksheet('RESULTADO FINAL', { views:[{ state:'frozen', ySplit:1 }] });
       const COLS = [
         ['PROPOSTA',12], ['GESTOR',34], ['BENEFICIARIOS',14], ['DATA RECEBIMENTO',15], ['DATA VIGÊNCIA',14], ['CADASTRO',20],
-        ['DITEC',16], ['BITIX',24], ['PLANIUM',13], ['CORRETORA',42], ['VENDEDOR',34], ['EMPRESA',42], ['IMPLANTA AMANHÃ',14],
+        ['DITEC',16], ['BITIX',24], ['PLANIUM',13], ['CORRETORA',42], ['EMPRESA',42], ['IMPLANTA AMANHÃ',14],
       ];
       ws.columns = COLS.map(([h,w]) => ({ header:h, width:w }));
       ws.getRow(1).height = 30;
@@ -2226,11 +2244,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         const r = ws.addRow([
           num, gestorDe(p), p.beneficiarios || 0, dataXl(p.dataReceb), dataXl(p.dataVigencia),
           pendSemLogin(p.status.cadastro) || '', pendSemLogin(p.status.ditec) || '', pendTxt(p.status.bitix) || '',
-          pendTxt(p.status.planium) || '', p.corretora || '', x.vd || '', x.em || '', pendImplantaAmanha(p) ? 'SIM' : '',
+          pendTxt(p.status.planium) || '', p.corretora || '', x.em || '', pendImplantaAmanha(p) ? 'SIM' : '',
         ]);
         r.getCell(4).numFmt = 'dd/mm/yyyy'; r.getCell(5).numFmt = 'dd/mm/yyyy';
-        [1,3,4,5,9,13].forEach(c => { r.getCell(c).alignment = { horizontal:'center' }; });
-        if (pendImplantaAmanha(p)) r.getCell(13).font = { bold:true, color:{ argb:VERDE } };
+        [1,3,4,5,9,12].forEach(c => { r.getCell(c).alignment = { horizontal:'center' }; });
+        if (pendImplantaAmanha(p)) r.getCell(12).font = { bold:true, color:{ argb:VERDE } };
         r.eachCell({ includeEmpty:true }, c => { c.border = borda; });
       });
       ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:COLS.length } };
@@ -2262,9 +2280,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         return sh;
       };
       montaAba('PLANIUM', [['oper_propnum',13], ['contratante_nome',42], ['contratante_cnpj',20], ['data_notificada',14], ['date_vigencia',13],
-        ['beneficiarios',12], ['status',12], ['corretora_nome',42], ['vendedor_nome',34], ['GESTOR',34], ['DATA RECEBIMENTO',15], ['DITEC',16], ['CADASTRO',20]],
-        props.map(p => [numOuTxt(p.p), p.em || '', p.cn || '', dataXl(p.dn), dataXl(p.vg), p.bn || 0, p.st || '', p.co || '', p.vd || '',
-                         String(p.g || '').toUpperCase(), dataXl(p.dr), p.di || '', p.ca || '']), [4,5,11]);
+        ['beneficiarios',12], ['status',12], ['corretora_nome',42], ['GESTOR',34], ['DATA RECEBIMENTO',15], ['DITEC',16], ['CADASTRO',20]],
+        props.map(p => [numOuTxt(p.p), p.em || '', p.cn || '', dataXl(p.dn), dataXl(p.vg), p.bn || 0, p.st || '', p.co || '',
+                         String(p.g || '').toUpperCase(), dataXl(p.dr), p.di || '', p.ca || '']), [4,5,10]);
       // T6140B: o extrato INTEIRO quando o painel tem (importado nesta aba, ou publicado — lido do Firestore só agora);
       // senão, os campos resumidos de antes.
       const extratoT6 = await pendObterT6140bExtrato();
@@ -2275,7 +2293,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           .filter(l => l.some(v => String(v).trim() !== ''));
         const cabT = (linhasT.shift() || []).map(h => String(h).trim());
         const ehData = cabT.map(h => /^DT_/i.test(h));
-        const manterTexto = cabT.map(h => /CGC|CPF/i.test(h)); // CNPJ/CPF: texto, senão o Excel mostra em notação científica
+        const manterTexto = cabT.map(h => /CGC|CPF/i.test(h)); // (CPF/CNPJ já saem em t6140bSemDadosPessoais; fica por garantia)
         const conv = (v, i) => {
           const s = String(v == null ? '' : v).trim();
           if (!s) return '';
@@ -3028,7 +3046,12 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // em index.html. Agora subir ela uma vez (ou quando ela mudar de verdade) já basta: fica
   // disponível pra todo mundo a partir da próxima publicação.
   window.CARTEIRA_MAP = window.__DASH_DATA__.CARTEIRA_MAP || null;
-  let PROPOSTAS = window.__DASH_DATA__.PROPOSTAS;
+  // Sem o campo do vendedor (vd): no Planium ele vem quase sempre como número de 10–11 dígitos (CPF do vendedor) e
+  // só ia pro "Baixar .xlsx" — tirado na revisão de segurança (item 5, Victor, 26/10/2026). Limpa também o que já
+  // estava publicado: o próximo "Publicar" grava a lista sem ele.
+  let PROPOSTAS = Array.isArray(window.__DASH_DATA__.PROPOSTAS)
+    ? window.__DASH_DATA__.PROPOSTAS.map(p => { if (p && 'vd' in p){ const c = Object.assign({}, p); delete c.vd; return c; } return p; })
+    : window.__DASH_DATA__.PROPOSTAS;
   let RANK_CUR_LABEL = window.__DASH_DATA__.RANK_CUR_LABEL;
   let RANK_PREV_LABEL = window.__DASH_DATA__.RANK_PREV_LABEL;
   // Histórico de tempo-de-resolução (base do "macro" da aba Conversão) — cada vez que uma
@@ -8065,7 +8088,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       propostas.push({
         p: String(p), cn: fmtCnpj(row[iCn]), em: String(row[iEm]||''),
         vg: excelDateToStr(row[iVg]), st: String(row[iSt]||'').trim(),
-        bn: num(row[iBn]), vd: String(row[iVd]||''), co: String(co).trim(),
+        bn: num(row[iBn]), co: String(co).trim(), // sem vendedor (CPF) — item 5 de segurança, 26/10/2026
         // Campos novos (SLA/Conversão por executivo) — opcionais, não quebram nada que já
         // consumia esse array antes deles existirem.
         g: iGe>=0 ? String(row[iGe]||'').trim() : '',
@@ -8131,7 +8154,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         id: String(id), p: String(p), corrCnpj: cnpjDigits(row[iCorrCnpj]),
         cn: fmtCnpjDisplay(row[iContrCnpj]), em: String(row[iContrNome]||''),
         vg: excelDateToStr(row[iVg]), st: String(row[iSt]||'').trim(), bn: num(row[iBn]),
-        vd: String(row[iVd]||''), co: String(co).trim(),
+        co: String(co).trim(), // sem vendedor (CPF) — item 5 de segurança, 26/10/2026
         // data de notificação (aaaa-mm-dd) — regra de quanto tempo guardar as finalizadas (buildPmeFromRawFiles)
         dn: iDn >= 0 ? excelDateToStr(row[iDn]) : '',
       });
@@ -8204,7 +8227,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const gestorRaw = byCnpj[rec.corrCnpj] || '';
       const dr = t6 ? t6.dtReceb : '', di = t6 ? t6.ditec : '', ca = t6 ? t6.cadastro : '', bi = t6 ? t6.bitix : '';
       if (!emAberto(rec.st) && rec.dn && rec.dn < corte){ finalizadasAntigas++; return; }
-      propostas.push({ p: rec.p, cn: rec.cn, em: rec.em, vg: rec.vg, st: rec.st, bn: rec.bn, vd: rec.vd, co: rec.co, g: gestorRaw, dr, di, ca, bi, dn: rec.dn });
+      propostas.push({ p: rec.p, cn: rec.cn, em: rec.em, vg: rec.vg, st: rec.st, bn: rec.bn, co: rec.co, g: gestorRaw, dr, di, ca, bi, dn: rec.dn });
       if (!/pend|analis/i.test(rec.st)) return;
       const friendly = FULL_19_GESTOR_RAW_MAP[stripAccentsUpper(gestorRaw)] || ABREV_GESTOR_MAP[stripAccentsUpper(gestorRaw)];
       if (!friendly){
@@ -8698,7 +8721,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
           if (t6){
             t6140bByControle = t6;
             // Extrato inteiro (18 colunas) pra aba T6140B da planilha do funil — pedido do Victor, 09/10/2026.
-            pendingT6140bRaw = { nome: file.name, texto: wb.__textoCru || XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS:';' }) };
+            // Sem CPF/CNPJ e nome do cliente (window.t6140bSemDadosPessoais — item 5 de segurança, 26/10/2026).
+            pendingT6140bRaw = { nome: file.name, texto: window.t6140bSemDadosPessoais(wb.__textoCru || XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS:';' })) };
             continue;
           }
           pendNaoReconhecidos.push(file.name);

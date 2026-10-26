@@ -1594,8 +1594,8 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
 <script>
 /* =========================================================
    LOGIN — Firebase Authentication (link de acesso por e-mail,
-   sem senha). Só quem estiver na lista ALLOWED_EMAILS consegue
-   passar do gate; o papel (admin x executivo) decide quem pode
+   sem senha). Só quem estiver no cadastro allowlist_v1 do Firestore
+   passa do gate; o papel (admin x executivo) decide quem pode
    publicar pra todo mundo (window.__userRole__, usado no bloco
    de publicação mais abaixo). E-mail corporativo (Outlook) não
    é conta Google, por isso o login é por link de e-mail — funciona
@@ -1611,53 +1611,63 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     appId: "1:633071862649:web:1d31e726d61be2af05a5a8"
   };
   firebase.initializeApp(firebaseConfig);
+  // E-mail do link de acesso em português (antes saía em inglês, lang=en) — 26/10/2026.
+  firebase.auth().languageCode = 'pt-BR';
 
-  // Administrador: publica pra todo mundo. Executivo: só prévia na própria tela.
-  // Pra dar acesso a mais alguém, basta adicionar o e-mail na lista certa.
-  const ADMIN_EMAILS = ['victor.oliveirae@hapvida.com.br', 'estevao.cardoso@hapvida.com.br', 'amanda.ksilva@hapvida.com.br', 'brenda.romano@hapvida.com.br', 'emanueloliveira005@outlook.com', 'marcelo.alima@hapvida.com.br', 't_alexandre.calixto@hapvida.com.br', 'emily.franca@hapvida.com.br'];
-  const EXECUTIVO_EMAILS = ['jonathan.lsilva@hapvida.com.br', 'agatha.sakamoto@hapvida.com.br', 'patricia.monks@hapvida.com.br', 'pablo.amora@hapvida.com.br', 'psergiora@hotmail.com', 'daniel.vsoares@hapvida.com.br', 'helo.alvesmesquita@gmail.com', 'camila.pertinhez@hapvida.com.br', 'lais.martins@hapvida.com.br'];
+  // Quem tem acesso, o papel (admin = publica pra todo mundo; executivo = só prévia na própria tela), quem NÃO vê a
+  // Elegibilidade (noEleg) e a equipe da Elegibilidade (eligTeam) vêm só do cadastro do Firestore (coleção
+  // "allowlist_v1": documento = e-mail em minúsculas, campos role / noEleg / eligTeam). Até 26/10/2026 havia também
+  // listas fixas de e-mails aqui no código público (como reserva) — saíram no item 6 da revisão de segurança, conferidas
+  // antes contra o Firestore: todo cadastro já tinha role e noEleg, então a reserva não era usada por ninguém. Pra dar
+  // acesso a alguém: criar o documento no Firebase (Firestore → allowlist_v1).
   const norm = e => String(e || '').trim().toLowerCase();
-  const ADMIN_SET = new Set(ADMIN_EMAILS.map(norm));
-  const ALLOWED_SET = new Set(ADMIN_EMAILS.concat(EXECUTIVO_EMAILS).map(norm));
   const EMAIL_STORAGE_KEY = 'cl_signin_email';
-  // E-mails com acesso ao painel mas SEM a aba Elegibilidade (pedido do Victor, 2026-09-08:
-  // t_alexandre.calixto e camila.pertinhez têm login, mas não podem ver Elegibilidade — caso
-  // deles é "admin geral sem carteira própria", sem relação com equipe). Vira
-  // window.__noEleg__ no login (ver onAuthStateChanged abaixo) — checado em showView('el') e
-  // usado pra esconder o botão da barra lateral. É uma trava só de tela (mesma ressalva do
-  // gate inteiro: data.json continua carregado por baixo pra quem está logado).
-  // Camila/Lais SAÍRAM desta lista em 2026-09-17: agora que a Elegibilidade cobre as 4 equipes
-  // da diretoria, elas passam a ver a Elegibilidade da PRÓPRIA equipe (ver ELEG_TEAM_SCOPE
-  // abaixo) em vez de ficarem bloqueadas por completo — revoga o bloqueio total que faziam
-  // sentido só quando Elegibilidade era exclusiva de Cauda Longa.
-  const NO_ELEG_EMAILS = new Set(['t_alexandre.calixto@hapvida.com.br', 'emily.franca@hapvida.com.br'].map(norm));
-  // Restringe a Elegibilidade à própria equipe pra Executivo/Sênior (email → nome da equipe,
-  // mesmas strings usadas em RESUMO_GESTOR_EQUIPE no app.js) — decisão de Victor 2026-09-17:
-  // "cada equipe vai ver a elegibilidade conforme sua equipe". Admin TAMBÉM respeita isso
-  // agora (mesmo dia, decisão revista: "os admins também vão ver de acordo com suas equipes" —
-  // ver afterAuthLoadData em app.js/index.html pra onde isso é aplicado de fato) — continua
-  // admin pra tudo o mais, só a Elegibilidade fica restrita quando tiver equipe definida (aqui
-  // ou no campo eligTeam do Firestore). Quem não está aqui (ex.: daniel.vsoares,
-  // helo.alvesmesquita — equipe deles ainda não confirmada) continua sem restrição, mesmo
-  // comportamento de sempre, até alguém confirmar a equipe certa.
-  const ELEG_TEAM_SCOPE = {
-    'jonathan.lsilva@hapvida.com.br': 'CAUDA LONGA', 'agatha.sakamoto@hapvida.com.br': 'CAUDA LONGA',
-    'patricia.monks@hapvida.com.br': 'CAUDA LONGA', 'pablo.amora@hapvida.com.br': 'CAUDA LONGA', 'psergiora@hotmail.com': 'CAUDA LONGA',
-    'camila.pertinhez@hapvida.com.br': 'PLATAFORMA SP', 'lais.martins@hapvida.com.br': 'PLATAFORMA SP',
-  };
-  Object.keys(ELEG_TEAM_SCOPE).forEach(k => { const v = ELEG_TEAM_SCOPE[k]; delete ELEG_TEAM_SCOPE[k]; ELEG_TEAM_SCOPE[norm(k)] = v; });
-  // Cada <script> desta página roda dentro da SUA PRÓPRIA IIFE — ADMIN_SET/NO_ELEG_EMAILS/
-  // ELEG_TEAM_SCOPE são privados daqui, não "vazam" pros outros <script> mais abaixo (mesmo
-  // padrão de sempre neste projeto: só window.X atravessa). afterAuthLoadData (no <script> do
-  // Firestore, mais abaixo) precisa desses arrays como reserva pra quem ainda não tem os
-  // campos novos no Firestore — expõe UMA função em vez dos arrays crus.
-  window.__legacyAccessFallback__ = function(emailNorm){
-    return {
-      role: ADMIN_SET.has(emailNorm) ? 'admin' : 'executivo',
-      noEleg: NO_ELEG_EMAILS.has(emailNorm),
-      eligTeam: ELEG_TEAM_SCOPE[emailNorm] || null,
-    };
-  };
+
+  // Link de login preso ao navegador (item 3 da revisão de segurança, 26/10/2026; mesmo código do V2, testado lá com
+  // e-mail real): o link do e-mail podia ser encaminhado e quem recebesse entrava como o dono. Agora, ao pedir o link,
+  // o navegador guarda um código aleatório (nonce) e o mesmo código vai junto no endereço do link; ao abrir, os dois têm
+  // que bater. Link aberto em outro aparelho/navegador é recusado e a pessoa pede um novo ali mesmo. Guarda os últimos 5
+  // (quem pede duas vezes não perde o primeiro link). Limite: isso é conferido no navegador — barra o encaminhamento
+  // comum, não alguém que mexa no código pelo console.
+  const NONCE_STORAGE_KEY = 'cl_signin_nonces';
+  function lerNonces(){
+    try { const a = JSON.parse(window.localStorage.getItem(NONCE_STORAGE_KEY) || '[]'); return Array.isArray(a) ? a : []; }
+    catch(e){ return []; }
+  }
+  function novoNonce(){
+    const a = new Uint8Array(16);
+    window.crypto.getRandomValues(a);
+    const n = Array.from(a, function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+    const lista = lerNonces().concat(n).slice(-5);
+    window.localStorage.setItem(NONCE_STORAGE_KEY, JSON.stringify(lista));
+    return n;
+  }
+  // O Firebase devolve a pessoa pro endereço pedido (com ?ln=...) acrescentando os parâmetros dele; por garantia
+  // também procura dentro do continueUrl.
+  function nonceDoLink(href){
+    try {
+      const u = new URL(href);
+      let n = u.searchParams.get('ln');
+      if (!n){ const c = u.searchParams.get('continueUrl'); if (c) n = new URL(c).searchParams.get('ln'); }
+      return n || '';
+    } catch(e){ return ''; }
+  }
+
+  // Sessão com prazo (item 3, 26/10/2026): antes a sessão do Firebase durava pra sempre no aparelho. Agora, passados
+  // SESSAO_MAX_DIAS desde o login (auth_time do token, a hora em que o link foi usado), a pessoa é desconectada e pede
+  // um link novo. Conferido ao abrir o painel e a cada 30 min com ele aberto.
+  const SESSAO_MAX_DIAS = 7;
+  const SESSAO_EXPIROU_KEY = 'cl_sessao_expirou';
+  function sessaoVencida(user){
+    return user.getIdTokenResult().then(function(r){
+      const t = Date.parse(r.authTime);
+      return !isNaN(t) && (Date.now() - t) > SESSAO_MAX_DIAS * 864e5;
+    });
+  }
+  function encerrarSessaoVencida(){
+    try { window.sessionStorage.setItem(SESSAO_EXPIROU_KEY, '1'); } catch(e){}
+    firebase.auth().signOut().then(function(){ window.location.reload(); });
+  }
 
   window.__userRole__ = null;
   window.__noEleg__ = false;
@@ -1695,23 +1705,19 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     setTimeout(function(){ gate.style.display = 'none'; }, 450);
   }
 
-  // Primeiro nome de quem logou, pra deixar o "bem-vindo" pessoal em vez de genérico —
-  // mesma lista de e-mails já usada em ADMIN_EMAILS/EXECUTIVO_EMAILS, só invertida.
-  const FIRST_NAME_BY_EMAIL = {
-    'victor.oliveirae@hapvida.com.br': 'Victor', 'emanueloliveira005@outlook.com': 'Victor',
-    'estevao.cardoso@hapvida.com.br': 'Estevão', 'amanda.ksilva@hapvida.com.br': 'Amanda',
-    'brenda.romano@hapvida.com.br': 'Brenda', 'jonathan.lsilva@hapvida.com.br': 'Jonathan',
-    'agatha.sakamoto@hapvida.com.br': 'Agatha', 'patricia.monks@hapvida.com.br': 'Patricia',
-    'pablo.amora@hapvida.com.br': 'Pablo', 'psergiora@hotmail.com': 'Pablo', 'daniel.vsoares@hapvida.com.br': 'Daniel',
-    'helo.alvesmesquita@gmail.com': 'Helo', 'marcelo.alima@hapvida.com.br': 'Marcelo',
-    't_alexandre.calixto@hapvida.com.br': 'Alexandre', 'camila.pertinhez@hapvida.com.br': 'Camila',
-    'emily.franca@hapvida.com.br': 'Emily',
-  };
+  // Primeiro nome de quem logou, pro "bem-vindo" pessoal: o pedaço do e-mail antes do primeiro ponto
+  // ("agatha.sakamoto" → "Agatha"; "t_" de terceiro é ignorado). E-mail sem nome reconhecível (com números, por
+  // exemplo) fica com o "Bem-vindo de volta!" genérico. Antes vinha de uma lista fixa de e-mails (saiu em 26/10/2026).
+  function primeiroNome(email){
+    const base = norm(email).split('@')[0].replace(/^t_/, '').split('.')[0];
+    if (!/^[a-z]{2,}$/.test(base)) return '';
+    return base.charAt(0).toUpperCase() + base.slice(1);
+  }
   // Pedido do Victor, 2026-08-31: em vez de só sumir com fade, dar um momento de "bem-vindo"
   // — o cartão do formulário vira um check animado + saudação com o primeiro nome, segura um
   // pouco na tela, só depois é que o fade (mais longo que o padrão) tira o gate inteiro.
   function showWelcomeThenFade(email){
-    const nome = FIRST_NAME_BY_EMAIL[norm(email)];
+    const nome = primeiroNome(email);
     document.getElementById('authWelcomeTitle').textContent = nome ? ('Bem-vindo, ' + nome + '!') : 'Bem-vindo de volta!';
     document.getElementById('authGateCard').style.display = 'none';
     const welcome = document.getElementById('authWelcome');
@@ -1725,10 +1731,21 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     }, 1550);
   }
 
-  const actionCodeSettings = {
-    url: window.location.href.split('#')[0].split('?')[0],
-    handleCodeInApp: true
+  // Chamadas por afterAuthLoadData() depois de ler o cadastro (ver onAuthStateChanged abaixo).
+  window.__acessoLiberado__ = function(){
+    const checkingEl = document.getElementById('authGateChecking');
+    if (checkingEl) checkingEl.style.display = 'none';
+    showWelcomeThenFade(window.__userEmail__);
   };
+  window.__acessoNegado__ = function(){
+    const checkingEl = document.getElementById('authGateChecking');
+    if (checkingEl) checkingEl.style.display = 'none';
+    setError('O e-mail ' + (window.__userEmail__ || '') + ' não tem acesso liberado a este painel. Fale com o administrador.');
+    window.__userEmail__ = null;
+    firebase.auth().signOut();
+  };
+
+  const BASE_URL = window.location.href.split('#')[0].split('?')[0];
 
   // Alguns clientes de e-mail corporativos (achado com o Pablo em 2026-09-03: Outlook/Safe
   // Links da Hapvida, mas outros scanners de segurança fazem o mesmo) "abrem" o link sozinhos
@@ -1739,62 +1756,46 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   // que deixa vulnerável a esses scanners. Agora sempre espera um clique de verdade (reaproveita
   // o mesmo botão/campo de e-mail, só troca de comportamento) — scanner automático não clica.
   let completingLink = false;
-  // Checa se um e-mail pode pedir link de acesso — primeiro pelos arrays fixos (rápido, sem
-  // rede, cobre quem já é conhecido no código, mesmo comportamento de sempre); se não estiver
-  // ali, confere se já existe um documento allowlist_v1 com esse e-mail (self-serve — pedido
-  // de Victor 2026-09-17: gerenciar acesso de gente nova só pelo Firebase, sem precisar de
-  // mudança de código toda vez). A Regra de Segurança libera um "get" de UM documento exato
-  // mesmo sem login (nunca "list" — não dá pra enumerar quem está na lista). "db"/
-  // "ALLOWLIST_COLLECTION" só são declarados no <script> mais abaixo, mas essa função só roda
-  // de verdade num clique real do usuário — bem depois da página inteira já ter carregado.
-  function isAllowedEmail(email){
-    if (ALLOWED_SET.has(email)) return Promise.resolve(true);
-    // window.__fsCheckAllowExists__ vem do <script> do Firestore mais abaixo (ver comentário
-    // lá) — "db"/"ALLOWLIST_COLLECTION" são privados daquele <script>. Só é chamado num clique
-    // real do usuário, bem depois da página inteira (incluindo aquele <script>) já ter rodado.
-    if (!window.__fsCheckAllowExists__) return Promise.resolve(false);
-    return window.__fsCheckAllowExists__(email);
-  }
+  // Sem checagem de lista antes do login (26/10/2026, item 6 de segurança): antes o painel perguntava ao Firestore, SEM
+  // login, se o e-mail digitado estava cadastrado — e qualquer pessoa podia usar isso pra descobrir quem tem acesso.
+  // Agora qualquer e-mail recebe o link; quem não está no allowlist_v1 entra e é barrado logo em seguida
+  // (afterAuthLoadData), e os dados nunca são lidos por essa pessoa (Regras do Firestore).
   btn.addEventListener('click', function(){
     const email = norm(emailInput.value);
     setError('');
     if (!email){ setError('Digite um e-mail.'); return; }
-    const originalBtnText = btn.textContent;
     btn.disabled = true;
-    isAllowedEmail(email).then(function(allowed){
-      if (!allowed){
-        btn.disabled = false;
-        btn.textContent = originalBtnText;
-        setError('Este e-mail não tem acesso liberado a este painel. Fale com o administrador.');
-        return;
-      }
-      if (completingLink){
-        btn.textContent = 'Confirmando...';
-        formWrap.style.display = 'none';
-        msgEl.textContent = 'Confirmando acesso...';
-        firebase.auth().signInWithEmailLink(email, window.location.href).then(function(){
-          window.localStorage.removeItem(EMAIL_STORAGE_KEY);
-          if (window.history && window.history.replaceState) {
-            window.history.replaceState({}, document.title, window.location.href.split('?')[0]);
-          }
-        }).catch(function(err){
-          setError('Não consegui confirmar o acesso: ' + err.message);
-          formWrap.style.display = 'flex';
-          btn.disabled = false;
-          btn.textContent = 'Concluir login';
-          msgEl.textContent = 'Confirme seu e-mail e clique pra concluir o login.';
-        });
-        return;
-      }
-      btn.textContent = 'Enviando...';
-      firebase.auth().sendSignInLinkToEmail(email, actionCodeSettings).then(function(){
-        window.localStorage.setItem(EMAIL_STORAGE_KEY, email);
-        formWrap.style.display = 'none';
-        msgEl.innerHTML = 'Link enviado! Confira <b>' + email + '</b> (inclusive a caixa de spam) e clique no link pra entrar.';
+    if (completingLink){
+      btn.textContent = 'Confirmando...';
+      formWrap.style.display = 'none';
+      msgEl.textContent = 'Confirmando acesso...';
+      firebase.auth().signInWithEmailLink(email, window.location.href).then(function(){
+        window.localStorage.removeItem(EMAIL_STORAGE_KEY);
+        window.localStorage.removeItem(NONCE_STORAGE_KEY);
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, document.title, window.location.href.split('?')[0]);
+        }
       }).catch(function(err){
-        setError('Não consegui enviar o link: ' + err.message);
-        resetSendButton();
+        setError('Não consegui confirmar o acesso: ' + err.message);
+        formWrap.style.display = 'flex';
+        btn.disabled = false;
+        btn.textContent = 'Concluir login';
+        msgEl.textContent = 'Confirme seu e-mail e clique pra concluir o login.';
       });
+      return;
+    }
+    btn.textContent = 'Enviando...';
+    let nonce;
+    try { nonce = novoNonce(); }
+    catch(e){ setError('Este navegador bloqueou o armazenamento local (modo anônimo?). Abra o painel numa janela normal.'); resetSendButton(); return; }
+    const actionCodeSettings = { url: BASE_URL + '?ln=' + nonce, handleCodeInApp: true };
+    firebase.auth().sendSignInLinkToEmail(email, actionCodeSettings).then(function(){
+      window.localStorage.setItem(EMAIL_STORAGE_KEY, email);
+      formWrap.style.display = 'none';
+      msgEl.innerHTML = 'Link enviado! Confira <b>' + email + '</b> (inclusive a caixa de spam) e clique no link pra entrar.';
+    }).catch(function(err){
+      setError('Não consegui enviar o link: ' + err.message);
+      resetSendButton();
     });
   });
 
@@ -1803,14 +1804,32 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   // Se a página foi aberta a partir do link recebido por e-mail, prepara o botão pra concluir
   // o login — mas só de verdade quando a pessoa clicar (ver comentário acima).
   if (firebase.auth().isSignInWithEmailLink(window.location.href)) {
-    completingLink = true;
-    const storedEmail = window.localStorage.getItem(EMAIL_STORAGE_KEY);
-    if (storedEmail) emailInput.value = storedEmail;
-    msgEl.textContent = storedEmail
-      ? 'Clique abaixo pra concluir o login com ' + storedEmail + '.'
-      : 'Confirme o e-mail que você usou pra pedir o acesso e clique abaixo.';
-    btn.textContent = 'Concluir login';
+    const linkNonce = nonceDoLink(window.location.href);
+    let storedEmail = null;
+    try { storedEmail = window.localStorage.getItem(EMAIL_STORAGE_KEY); } catch(e){}
+    if (!linkNonce || lerNonces().indexOf(linkNonce) < 0){
+      // Link aberto num aparelho/navegador diferente de onde foi pedido (ou encaminhado): recusa e volta pro "pedir link".
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, document.title, BASE_URL);
+      }
+      setError('Este link foi pedido em outro aparelho ou navegador e, por segurança, só funciona lá. ' +
+        'Peça um link novo aqui mesmo e abra o e-mail neste mesmo navegador.');
+      msgEl.textContent = 'Digite seu e-mail pra receber um novo link de acesso.';
+    } else {
+      completingLink = true;
+      if (storedEmail) emailInput.value = storedEmail;
+      msgEl.textContent = storedEmail
+        ? 'Clique abaixo pra concluir o login com ' + storedEmail + '.'
+        : 'Confirme o e-mail que você usou pra pedir o acesso e clique abaixo.';
+      btn.textContent = 'Concluir login';
+    }
   }
+  try {
+    if (window.sessionStorage.getItem(SESSAO_EXPIROU_KEY)){
+      window.sessionStorage.removeItem(SESSAO_EXPIROU_KEY);
+      setError('Sua sessão expirou (' + SESSAO_MAX_DIAS + ' dias). Peça um novo link de acesso.');
+    }
+  } catch(e){}
 
   if (IS_LOCAL_TEST){
     window.__userRole__ = 'admin';
@@ -1842,20 +1861,26 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       gate.style.pointerEvents = 'auto';
       return;
     }
-    // Não checa mais ALLOWED_SET aqui de forma síncrona — quem só está cadastrado no Firestore
-    // (self-serve, sem entrada nos arrays fixos) passaria por um bloqueio indevido, já que esse
-    // array não sabe da existência dela. A checagem real agora é o próprio
-    // afterAuthLoadData()/fsGetMyAllow() logo abaixo — que já existia, já é a fonte de verdade
-    // (Firestore), e já mostra uma mensagem clara ("ainda não foi cadastrado na allowlist_v1")
-    // pra quem passou pelo login mas não tem documento nenhum. Papel/noEleg/equipe são
-    // decididos ali também agora, a partir do próprio documento — ver comentário em
-    // afterAuthLoadData().
+    // Acesso, papel, trava da Elegibilidade e equipe vêm do cadastro allowlist_v1, lido em afterAuthLoadData() (<script>
+    // do Firestore, abaixo). Desde 26/10/2026 (item 6 de segurança) qualquer e-mail recebe o link, então o cadastro é
+    // conferido ANTES do bem-vindo: "Verificando seu acesso..." fica na tela até lá; quem não está cadastrado é
+    // desconectado com a mensagem de sempre (window.__acessoNegado__) e quem está ganha o bem-vindo (__acessoLiberado__).
     window.__userEmail__ = user.email;
     setError('');
-    showWelcomeThenFade(user.email);
-    // Só a partir daqui (login real confirmado) é que os dados são buscados — em
-    // window.__afterAuthLoadData__, definido no <script> do Firestore logo abaixo.
-    if (!window.__IS_LOCAL_TEST__ && window.__afterAuthLoadData__) window.__afterAuthLoadData__();
+    document.getElementById('authGateCard').style.display = 'none';
+    if (checkingEl) checkingEl.style.display = 'flex';
+    // Só a partir daqui (login real confirmado e sessão dentro do prazo de SESSAO_MAX_DIAS) é que os dados são
+    // buscados — em window.__afterAuthLoadData__, definido no <script> do Firestore logo abaixo.
+    sessaoVencida(user).catch(function(){ return false; }).then(function(vencida){
+      if (vencida){ encerrarSessaoVencida(); return; }
+      if (!window.__sessaoTimer__){
+        window.__sessaoTimer__ = setInterval(function(){
+          const u = firebase.auth().currentUser;
+          if (u) sessaoVencida(u).then(function(v){ if (v) encerrarSessaoVencida(); }).catch(function(){});
+        }, 30 * 60 * 1000);
+      }
+      if (!window.__IS_LOCAL_TEST__ && window.__afterAuthLoadData__) window.__afterAuthLoadData__();
+    });
   });
 })();
 </script>
@@ -1894,15 +1919,6 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   const FS_CHUNK_SIZE = 700000; // caracteres — folga confortável do limite de 1MB/doc
   const DATA_COLLECTION = 'dashboard_data_v1';
   const ALLOWLIST_COLLECTION = 'allowlist_v1';
-  // "db"/"ALLOWLIST_COLLECTION" são privados desta IIFE (mesma observação do
-  // window.__legacyAccessFallback__ no <script> do login) — expõe só a checagem que o
-  // pré-login precisa (existe documento pra esse e-mail exato? nunca mais que isso), pra
-  // isAllowedEmail() (no <script> do login, mais acima na página) poder chamar.
-  window.__fsCheckAllowExists__ = function(email){
-    return db.collection(ALLOWLIST_COLLECTION).doc(email).get()
-      .then(function(doc){ return doc.exists; })
-      .catch(function(){ return false; });
-  };
 
   // "sectionRef" opcional (3º parâmetro) — quando não vem, escreve/lê a seção viva
   // (dashboard_data_v1/{section}, comportamento de sempre). O backup automático (mais abaixo,
@@ -1916,6 +1932,11 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     }
     if (chunks.length === 0) chunks.push('');
     const ref = sectionRef || db.collection(DATA_COLLECTION).doc(section);
+    // Quantos pedaços a versão anterior tinha — os que sobrarem (seção ficou menor) são apagados no fim. Antes ficavam
+    // esquecidos no Firestore (a leitura só olha até chunkCount), guardando dado antigo — ex.: o extrato T6140B com CPF
+    // (item 5 de segurança, 26/10/2026).
+    let antigos = 0;
+    try { const m = await ref.get(); antigos = (m.exists && m.data().chunkCount) || 0; } catch(e){}
     const batch = db.batch();
     batch.set(ref, {
       chunkCount: chunks.length,
@@ -1925,6 +1946,16 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       batch.set(ref.collection('chunks').doc(String(i)), { s });
     });
     await batch.commit();
+    // Apaga as sobras (+10 de folga, pra pegar resto de versões ainda maiores; apagar o que não existe não dá erro).
+    // Só em seção que já existia — documento novo (ex.: cada backup) não tem sobra nenhuma.
+    const ate = Math.max(antigos, chunks.length) + 10;
+    if (antigos > 0 && ate > chunks.length){
+      try {
+        const limpa = db.batch();
+        for (let i = chunks.length; i < ate; i++) limpa.delete(ref.collection('chunks').doc(String(i)));
+        await limpa.commit();
+      } catch(e){ console.warn('Não consegui apagar pedaços antigos de ' + section + ':', e && e.message); }
+    }
     return { chunkCount: chunks.length, bytes: jsonStr.length };
   }
 
@@ -2022,8 +2053,14 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   async function fsGetMyAllow(){
     const email = (window.__userEmail__ || '').trim().toLowerCase();
     if (!email) return null;
-    const doc = await db.collection(ALLOWLIST_COLLECTION).doc(email).get();
-    return doc.exists ? doc.data() : null;
+    try {
+      const doc = await db.collection(ALLOWLIST_COLLECTION).doc(email).get();
+      return doc.exists ? doc.data() : null;
+    } catch(e){
+      // Regra nova (26/10/2026): só quem está cadastrado lê o próprio cadastro — quem não está recebe permission-denied.
+      if (e && e.code === 'permission-denied') return null;
+      throw e;
+    }
   }
 
   // Mesma lista de seções que buildDataJson() monta pra publicar (mais abaixo no arquivo,
@@ -2053,24 +2090,12 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
   async function afterAuthLoadData(){
     try {
       const myAllow = await fsGetMyAllow();
-      if (!myAllow){
-        window.__showFatalError__('Seu e-mail está liberado no login, mas ainda não foi cadastrado na lista de acesso aos dados (allowlist_v1). Fale com o administrador.');
-        return;
-      }
-      // Papel/noEleg/equipe agora vêm do PRÓPRIO documento allowlist_v1 — role/noEleg já eram
-      // usados pelas Regras de Segurança pra bloquear coisas no servidor (ver Regras), só nunca
-      // tinham sido lidos aqui pro app decidir o que MOSTRAR na tela; isso duplicava a decisão
-      // em dois lugares diferentes (arrays fixos no código + campos no Firestore, sem
-      // conversar). Cai nos arrays fixos só como reserva, pra quem ainda não tiver o campo
-      // preenchido no Firestore (eligTeam é novo — ninguém tem ainda, então continua vindo do
-      // ELEG_TEAM_SCOPE por enquanto até você preencher esse campo direto no Console). Pedido
-      // de Victor 2026-09-17: dar acesso a gente nova só pelo Firebase, sem precisar de mim.
-      // window.__legacyAccessFallback__ vem do <script> do login (ver comentário lá) — os
-      // arrays fixos são privados daquele <script>, só essa função atravessa.
-      const emailNorm = String(window.__userEmail__ || '').trim().toLowerCase();
-      const legacy = window.__legacyAccessFallback__ ? window.__legacyAccessFallback__(emailNorm) : { role:'executivo', noEleg:false, eligTeam:null };
-      window.__userRole__ = myAllow.role || legacy.role;
-      window.__noEleg__ = (typeof myAllow.noEleg === 'boolean') ? myAllow.noEleg : legacy.noEleg;
+      if (!myAllow){ window.__acessoNegado__(); return; }
+      // Papel/noEleg/equipe vêm só do PRÓPRIO documento allowlist_v1 (as Regras do Firestore usam os mesmos campos
+      // no servidor). Até 26/10/2026 havia listas fixas no código como reserva pra campo vazio — saíram (item 6 de
+      // segurança); campo vazio agora vale o mais restrito: executivo, sem trava, sem equipe.
+      window.__userRole__ = myAllow.role === 'admin' ? 'admin' : 'executivo';
+      window.__noEleg__ = myAllow.noEleg === true;
       // Admin TAMBÉM respeita eligTeam quando o campo existe (decisão de Victor 2026-09-17,
       // implementada no mesmo dia — tinha ficado "pra depois" de manhã, mas ele quis já: "os
       // admins também vão ver de acordo com suas equipes"). Continua admin pra tudo o mais
@@ -2078,7 +2103,8 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       // restrita à equipe QUANDO o documento tiver esse campo preenchido. Sem o campo (a
       // maioria dos admins hoje — Victor, Estevão, Amanda, Brenda, Emanuel, Marcelo, Emily —
       // nenhum é de uma equipe específica), continua sem restrição nenhuma, igual sempre foi.
-      window.__eligTeamScope__ = myAllow.eligTeam || legacy.eligTeam;
+      window.__eligTeamScope__ = myAllow.eligTeam || null;
+      window.__acessoLiberado__();
       document.dispatchEvent(new CustomEvent('authReady', { detail: { role: window.__userRole__, email: window.__userEmail__, noEleg: window.__noEleg__, eligTeamScope: window.__eligTeamScope__ } }));
       const values = await Promise.all(FS_SECTIONS.map(s => fsReadSection(s).catch(e => {
         // seção DATA bloqueada por noEleg cai aqui como permission-denied — trata como
