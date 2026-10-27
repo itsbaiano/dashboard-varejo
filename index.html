@@ -36,6 +36,43 @@
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+/* ITEM 7 DE SEGURANÇA (27/10/2026): texto que vem de arquivo (Excel/CSV) ou do Firestore nunca vira código na tela.
+   O painel monta muitas telas com innerHTML; se uma célula trouxesse algo como <img onerror=...>, isso rodaria no
+   navegador de todo mundo que abrisse o painel. Em vez de depender de lembrar o escape em cada uma das telas,
+   o texto é limpo na ENTRADA: toda planilha lida pelo XLSX.read e todo dado lido do Firestore/data.json passa por aqui.
+   Troca só os caracteres que abrem tag ou fecham atributo/texto de onclick (< > " \ e entidades &#.. &apos; &bsol;)
+   por sinais parecidos (‹ › ” / ＆). Conferido em 27/10: nenhum dado atual tem esses caracteres — nada muda na tela. */
+(function(){
+  var PERIGO = /[<>"\\]|&(?:#|apos|bsol)/i;
+  function limparTexto(s){
+    if (typeof s !== 'string' || !PERIGO.test(s)) return s;
+    return s.replace(/</g, '‹').replace(/>/g, '›').replace(/"/g, '”').replace(/\\/g, '/').replace(/&(?=#|apos|bsol)/gi, '＆');
+  }
+  window.__limparTexto__ = limparTexto;
+  window.__limparJson__ = function(k, v){ return limparTexto(v); };
+  window.escHtml = function(s){
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  };
+  if (typeof XLSX === 'undefined' || !XLSX.read) return;
+  var lerOriginal = XLSX.read;
+  XLSX.read = function(){
+    var wb = lerOriginal.apply(this, arguments);
+    (wb.SheetNames || []).forEach(function(nome){
+      var sh = wb.Sheets[nome];
+      if (!sh) return;
+      for (var ref in sh){
+        if (ref.charAt(0) === '!') continue;
+        var c = sh[ref];
+        if (!c) continue;
+        if (typeof c.v === 'string') c.v = limparTexto(c.v);
+        if (typeof c.w === 'string') c.w = limparTexto(c.w);
+      }
+    });
+    return wb;
+  };
+})();
+</script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -1458,7 +1495,7 @@
      verAcessos:true no cadastro vê o botão e consegue ler (Regras do Firestore). Cores pelos tokens do painel. */
   .acs-overlay{position:fixed; inset:0; z-index:1200; background:rgba(8,14,40,.55); display:flex; align-items:flex-start; justify-content:center; overflow-y:auto; padding:max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px)); animation:acsFade .18s ease-out both;}
   .acs-overlay[hidden]{display:none;}
-  .acs-modal{width:100%; max-width:1060px; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:16px; box-shadow:0 18px 50px rgba(16,30,99,.22); overflow:hidden; animation:fadeInUp .22s ease-out both;}
+  .acs-modal{width:100%; max-width:1240px; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:16px; box-shadow:0 18px 50px rgba(16,30,99,.22); overflow:hidden; animation:fadeInUp .22s ease-out both;}
   .acs-head{display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid var(--line);}
   .acs-head h2{font-family:'Sora',sans-serif; font-size:19px; font-weight:700; margin:0; color:var(--navy);}
   [data-theme="dark"] .acs-head h2, [data-theme="dark"] .acs-h3, [data-theme="dark"] .acs-kpi .v{color:var(--text);}
@@ -1481,7 +1518,7 @@
   .acs-kpi .v{font-family:'Sora',sans-serif; font-size:24px; font-weight:700; color:var(--navy); font-variant-numeric:tabular-nums;}
   .acs-kpi .v small{font-size:13px; color:var(--muted); font-weight:500;}
   .acs-kpi .d{font-size:12px; color:var(--muted);}
-  .acs-cols{display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:20px; align-items:start;}
+  .acs-cols{display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:20px; align-items:start;}
   .acs-h3{font-family:'Sora',sans-serif; font-size:14.5px; font-weight:600; margin:0 0 8px; color:var(--navy);}
   .acs-h3 span{font-family:inherit; font-weight:500; font-size:12px; color:var(--muted); margin-left:6px;}
   .acs-tbl{overflow-x:auto; border:1px solid var(--line); border-radius:12px;}
@@ -1492,7 +1529,8 @@
   .acs-tbl tbody tr:hover, .acs-tbl tbody tr:focus-visible{background:rgba(46,82,212,.06); outline:none;}
   .acs-tbl tbody tr.sel{background:rgba(46,82,212,.1);}
   .acs-tbl .n{text-align:right; font-variant-numeric:tabular-nums;}
-  .acs-who{font-weight:600;} .acs-who small{display:block; font-weight:400; color:var(--muted); font-size:11.5px;}
+  .acs-who{font-weight:600;} .acs-who small{display:block; font-weight:400; color:var(--muted); font-size:11.5px; overflow-wrap:anywhere;}
+  .acs-tbl td .acs-pill{white-space:normal;} /* 27/10: "Sem entrada no período carregado" quebra linha em vez de empurrar a coluna "Baixou" pra fora */
   .acs-pill{display:inline-block; font-size:11.5px; font-weight:600; padding:2px 9px; border-radius:999px; white-space:nowrap;}
   .acs-ok{background:rgba(22,184,122,.14); color:#0E8A5B;} .acs-warn{background:rgba(255,184,28,.18); color:#9A6B00;} .acs-bad{background:rgba(245,54,74,.12); color:#C8243A;}
   [data-theme="dark"] .acs-ok{color:#3BD69A;} [data-theme="dark"] .acs-warn{color:#FFC94D;} [data-theme="dark"] .acs-bad{color:#FF6B7C;}
@@ -1507,7 +1545,8 @@
   .acs-vazio{padding:28px 14px; text-align:center; color:var(--muted); font-size:13px;}
   .acs-rodape{font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; display:grid; gap:4px;}
   @keyframes acsFade{ from{opacity:0;} to{opacity:1;} }
-  @media (max-width:820px){ .acs-cols{grid-template-columns:1fr;} .acs-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} }
+  @media (max-width:1260px){ .acs-cols{grid-template-columns:1fr;} } /* lado a lado só quando a tabela cabe inteira */
+  @media (max-width:820px){ .acs-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} }
   @media (max-width:440px){ .acs-ev{grid-template-columns:44px 14px minmax(0,1fr);} .acs-ev .acs-dev{grid-column:3;} .acs-btn{margin-left:0;} .acs-head, .acs-bar, .acs-body{padding-left:14px; padding-right:14px;} }
   @media (prefers-reduced-motion:reduce){ .acs-overlay, .acs-modal, .acs-kpi, .acs-ev{animation:none;} }
   .fab-ic i{width:15px; height:15px; flex:0 0 auto;}
@@ -1637,7 +1676,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       xhr.open('GET', 'data.json?v=' + Date.now(), false);
       xhr.send(null);
       if (xhr.status !== 200 && xhr.status !== 0) throw new Error('HTTP ' + xhr.status);
-      window.__DASH_DATA__ = JSON.parse(xhr.responseText);
+      window.__DASH_DATA__ = JSON.parse(xhr.responseText, window.__limparJson__);
     } catch(e){
       window.__DASH_DATA__ = EMPTY;
       showFatalError('O arquivo <code>data.json</code> não foi encontrado ou está corrompido (' + e.message + '). Se você abriu o index.html direto do computador (file://), isso não funciona — abra pelo link publicado (GitHub Pages) ou sirva a pasta por um servidor local.');
@@ -2031,7 +2070,8 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
     let jsonStr = '';
     docs.forEach(d => { jsonStr += (d.exists ? (d.data().s || '') : ''); });
     if (!jsonStr) return (count === 0 ? undefined : null);
-    return JSON.parse(jsonStr);
+    // Item 7: limpa o texto lido (menos o extrato T6140B, que é um CSV cru com aspas — ele é limpo ao ser lido pelo XLSX.read).
+    return section === 'T6140B_EXTRATO' ? JSON.parse(jsonStr) : JSON.parse(jsonStr, window.__limparJson__);
   }
 
   // ===== BACKUP AUTOMÁTICO ANTES DE PUBLICAR (pedido do Victor, 2026-09-28) =====

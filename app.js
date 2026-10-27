@@ -8621,7 +8621,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       let metaWb = null, eligWb = null, corretorasWb = null, carteiraWb = null;
       const naoReconhecidos = [];
       for (const file of mainFiles){
-        statusEl.innerHTML = `<p style="font-size:12.5px;color:var(--muted);">Lendo ${file.name}...</p>`;
+        statusEl.innerHTML = `<p style="font-size:12.5px;color:var(--muted);">Lendo ${window.escHtml(file.name)}...</p>`;
         const wb = await readFileAsWorkbook(file);
         const kind = detectWorkbookKind(wb);
         if (kind === 'meta' && !metaWb){ metaWb = wb; }
@@ -8633,7 +8633,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
       if (carteiraWb){
         try { pendingCarteira = parseCarteiraWorkbook(carteiraWb); }
-        catch(e){ summaryHtml += `<div style="color:var(--red);font-size:12.5px;"><i class=ic-warn></i> Não consegui interpretar a Carteira/Gestores: ${e.message}</div>`; }
+        catch(e){ summaryHtml += `<div style="color:var(--red);font-size:12.5px;"><i class=ic-warn></i> Não consegui interpretar a Carteira/Gestores: ${window.escHtml(e.message)}</div>`; }
       }
 
       if (naoReconhecidos.length && !metaWb && !eligWb && !corretorasWb){
@@ -8660,7 +8660,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
             const totR = pendingRankCur.reduce((s,r)=>s+r.t,0);
             summaryHtml += `<div style="font-size:12.5px; margin-top:6px; color:var(--blue);">Ranking de Vendas (mês atual) — ${pendingRankCur.length} corretoras, ${Math.round(totR).toLocaleString('pt-BR')} vidas (SP, sem Rio/Hapvida), do mesmo arquivo.</div>`;
           } catch(e){
-            summaryHtml += `<div style="font-size:12px; margin-top:6px; color:var(--muted);">Ranking não atualizado: ${e.message}</div>`;
+            summaryHtml += `<div style="font-size:12px; margin-top:6px; color:var(--muted);">Ranking não atualizado: ${window.escHtml(e.message)}</div>`;
           }
           pendingEligBridge = extractEligibilidadeDataFromExport(metaWb);
           if (pendingEligBridge && window.getEligibilidadeData){
@@ -8742,7 +8742,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
             pendingPropostas = parsePlaniumWorkbook(combinedWb);
             summaryHtml += diffPropostas(pendingPropostas);
           } catch(e){
-            summaryHtml += `<div style="font-size:12px; margin-top:6px; color:var(--muted);">Propostas do Ranking não atualizadas: ${e.message}</div>`;
+            summaryHtml += `<div style="font-size:12px; margin-top:6px; color:var(--muted);">Propostas do Ranking não atualizadas: ${window.escHtml(e.message)}</div>`;
           }
         } else if (planiumRawList.length){
           const carteiraForPme = pendingCarteira || window.CARTEIRA_MAP || null;
@@ -8796,7 +8796,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       document.getElementById('importSummaryBody').innerHTML = summaryHtml;
       summaryEl.style.display = 'block';
     } catch(err){
-      statusEl.innerHTML = `<p style="color:var(--red);font-size:12.5px;">Erro: ${err.message}</p>`;
+      statusEl.innerHTML = `<p style="color:var(--red);font-size:12.5px;">Erro: ${window.escHtml(err.message)}</p>`;
     } finally {
       btn.disabled = false;
       btn.style.opacity = '';
@@ -8978,13 +8978,13 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       for (const k of optionalKeys){
         if (!payload[k] || !Object.keys(payload[k]).length) continue;
         try { await window.fsWriteSection(k, payload[k]); }
-        catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: ' + rotulos[k] + ' importado(s) NÃO foi(ram) salvo(s) (' + e.message + ').</span>'; }
+        catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: ' + rotulos[k] + ' importado(s) NÃO foi(ram) salvo(s) (' + window.escHtml(e.message) + ').</span>'; }
       }
       // T6140B inteiro (pedido do Victor, 09/10/2026; V1 em 13/10) — só quando um T6140B novo foi importado nesta aba; seção
       // à parte, não lida no login. Falha aqui vira aviso: a aba T6140B da planilha só sai resumida, nada mais quebra.
       if (window.__T6140B_EXTRATO_PENDENTE && window.__T6140B_EXTRATO){
         try { await window.fsWriteSection('T6140B_EXTRATO', window.__T6140B_EXTRATO); window.__T6140B_EXTRATO_PENDENTE = false; }
-        catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: o extrato completo do T6140B NÃO foi salvo (' + e.message + ') — a aba T6140B do "Baixar .xlsx" vai sair resumida pra quem baixar de outro computador.</span>'; }
+        catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: o extrato completo do T6140B NÃO foi salvo (' + window.escHtml(e.message) + ') — a aba T6140B do "Baixar .xlsx" vai sair resumida pra quem baixar de outro computador.</span>'; }
       }
       status.innerHTML = '<span style="color:#1b7a63; font-weight:700;">Publicado! Quem já estiver com o painel aberto vê a atualização só no próximo login/recarregamento.</span>' + avisoMeta;
       // Registro de acessos (item 4, 26/10/2026): quem publicou e o quê.
@@ -8993,7 +8993,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const permMsg = (err.code === 'permission-denied')
         ? ' Seu usuário pode não estar marcado como admin na allowlist_v1 do Firestore — confira com quem administra o painel.'
         : '';
-      status.innerHTML = '<span style="color:var(--red);">Erro ao publicar: ' + err.message + '.' + permMsg + ' Pode baixar o backup abaixo e tentar de novo depois.</span>';
+      status.innerHTML = '<span style="color:var(--red);">Erro ao publicar: ' + window.escHtml(err.message) + '.' + permMsg + ' Pode baixar o backup abaixo e tentar de novo depois.</span>';
     } finally {
       btn.disabled = false; btn.style.opacity = '';
     }
@@ -9123,7 +9123,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
           if (hit) team = hit[1];
           else {
             team = titulo(a.replace(/^GERENTE SENIOR:?\s*/i, ''));
-            avisos.push(`Gerente sênior não reconhecido em ${sheetName}: "${a}" — entrou como equipe nova "${team}". Se for Interior, avise.`);
+            avisos.push(`Gerente sênior não reconhecido em ${window.escHtml(sheetName)}: "${a}" — entrou como equipe nova "${team}". Se for Interior, avise.`);
           }
           return;
         }
@@ -9658,11 +9658,11 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         Object.entries(r.months).forEach(([m, t]) => { META_EXEC_BY_MONTH[m] = t; });
         const nomes = Object.keys(r.months).sort().map(m => MES_LONGO[Number(m.slice(5)) - 1]).join(', ');
         const nExec = Object.values(r.months).reduce((s, t) => s + Object.values(t).reduce((x, l) => x + l.length, 0), 0);
-        msgs.push(`<div style="color:#1b7a63;"><b>${f.name}</b>: ${nomes} carregado(s) — ${nExec} linhas de executivo (Interior ignorado).</div>`);
+        msgs.push(`<div style="color:#1b7a63;"><b>${window.escHtml(f.name)}</b>: ${nomes} carregado(s) — ${nExec} linhas de executivo (Interior ignorado).</div>`);
         r.avisos.forEach(a => msgs.push(`<div style="color:var(--red);">${a}</div>`));
         ok++;
       } catch(e){
-        msgs.push(`<div style="color:var(--red);"><b>${f.name}</b>: ${e.message}</div>`);
+        msgs.push(`<div style="color:var(--red);"><b>${window.escHtml(f.name)}</b>: ${window.escHtml(e.message)}</div>`);
       }
     }
     if (ok) msgs.push('<div style="color:var(--muted); margin-top:4px;">Clique em Publicar pra salvar pra todo mundo.</div>');
@@ -9711,10 +9711,10 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         Object.entries(r.byGestor).forEach(([g, v]) => { out[g] = { ind:v.ind, ss:v.ss, pme:v.pme, adm:v.adm, total:v.ind + v.ss + v.pme + v.adm }; });
         INT_EXEC_BY_MONTH[mo] = out;
         const vidas = Object.values(out).reduce((s, v) => s + v.total, 0);
-        msgs.push(`<div style="color:#1b7a63;"><b>${MES_LONGO[Number(mo.slice(5)) - 1]}/${mo.slice(0,4)}</b> (${f.name}): ${Object.keys(out).length} executivos, ${fmt0(vidas)} vidas atribuídas, ${fmt0(r.semGestorVidas)} sem gestor.</div>`);
+        msgs.push(`<div style="color:#1b7a63;"><b>${MES_LONGO[Number(mo.slice(5)) - 1]}/${mo.slice(0,4)}</b> (${window.escHtml(f.name)}): ${Object.keys(out).length} executivos, ${fmt0(vidas)} vidas atribuídas, ${fmt0(r.semGestorVidas)} sem gestor.</div>`);
         ok++;
       } catch(e){
-        msgs.push(`<div style="color:var(--red);"><b>${f.name}</b>: ${e.message}</div>`);
+        msgs.push(`<div style="color:var(--red);"><b>${window.escHtml(f.name)}</b>: ${window.escHtml(e.message)}</div>`);
       }
     }
     if (ok) msgs.push('<div style="color:var(--muted); margin-top:4px;">Não altera o mês atual, Elegibilidade nem Ranking. Clique em Publicar pra salvar pra todo mundo.</div>');
