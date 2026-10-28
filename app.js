@@ -1,117 +1,38 @@
-// ===== ASSESSORIAS — nomes unificados (pedido do Victor, 2026-10-13) =====
-// A mesma assessoria aparecia em mais de uma linha por diferença de grafia (ex.: "F8 ... BENEFIC LTDA" ×
-// "F8 ... BENEFICIOS LTDA"; "VIVA SAUDE ... SEGUROS" × "... LTDA" × "... LTDA ME"; "PADRAO OPIPARI ... DE SEG" ×
-// "... SEGUROS LTDA."). Regra combinada com Victor: SÓ juntar as grafias — cada corretora continua na assessoria
-// em que já está (nada é reatribuído pela Carteira, os integrados se distribuem igual). Duas grafias se juntam
-// quando dividem um código de assessoria (gravado na corretora, ou o da Carteira pra ela) E são o mesmo nome com
-// outra grafia (ver mesmaAssessoria). Continuam separadas: NBA/BRH "EIRELI" (outro código — decisão do Victor) e
-// nomes diferentes com código trocado na origem (ex.: INNOV × TATIANA, achado no teste de 13/10).
-// Nome exibido: o da Carteira atual pra aquele código (a mais usada); sem Carteira, a grafia mais comum.
-// Uso: window.assCanon(nome, codigo) → { key, nome } | null (sem assessoria). Nada é gravado — é só exibição.
+// ===== extraído de index.html (dhTeamToggle/dhUpdatedText, ficou fora da extração
+//       mecânica original — corrigido em 2026-09-08, achado ao testar o site publicado) =====
 (function(){
-  const limpaCod = c => {
-    const s = String(c == null ? '' : c).trim();
-    if (!s || s === '0' || /ENCONTRAD/i.test(s)) return '';
-    return (window.normalizeCodigo ? String(window.normalizeCodigo(s)) : s).toUpperCase();
+  // Achado 2026-09-08 testando ao vivo: esse bloco roda mais de uma vez no fluxo de login
+  // real (confirmado direto — mesmo com uma trava por variável global impedindo o bloco
+  // inteiro de rodar de novo, o clique continuava disparando a mudança de atributo duas
+  // vezes seguidas, uma desfazendo a outra). Pra não depender de entender exatamente quantas
+  // vezes o bloco roda, a solução é usar `toggle.onclick =` (substitui o handler anterior,
+  // nunca acumula) em vez de `addEventListener` (empilha um handler novo por chamada) — assim
+  // não importa quantas vezes esse trecho execute, só o último handler atribuído conta.
+  var toggle = document.getElementById('dhTeamToggle');
+  var list = document.getElementById('dhTeamList');
+  toggle.onclick = function(){
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    list.classList.toggle('open', !open);
   };
-  const limpaNome = n => { const s = String(n == null ? '' : n).trim(); return (s === '0' || /^-?\d{6,}$/.test(s)) ? '' : s.toUpperCase(); };
-  let cache = null, cacheAt = 0, cacheSig = '';
-  // "Mesma assessoria com outra grafia": igual sem LTDA/ME/S.A./pontuação, ou um é o começo do outro (nome cortado,
-  // ex.: "...BENEFIC" × "...BENEFICIOS", "...DE SEG" × "...DE SEGUROS"). "EIRELI" nunca casa com "LTDA".
-  const base = s => String(s).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
-    .replace(/(\s(LTDA|ME|EPP|SA|S A|LIMITADA))+$/g, '').trim();
-  const mesmaAssessoria = (a, b) => {
-    const x = base(a), y = base(b);
-    if (!x || !y) return false;
-    if (x === y) return true;
-    const [curto, longo] = x.length <= y.length ? [x, y] : [y, x];
-    if (curto.length < 12 || !longo.startsWith(curto)) return false;
-    return !/EIRELI/.test(longo.slice(curto.length));
-  };
-  function montar(){
-    const elig = window.getEligibilidadeData ? (window.getEligibilidadeData() || []) : [];
-    const linhas = [].concat(elig, window.getRankData ? (window.getRankData() || []) : []);
-    const cart = window.CARTEIRA_MAP;
-    const pai = new Map();
-    const raiz = x => { if (!pai.has(x)) pai.set(x, x); let r = x; while (pai.get(r) !== r) r = pai.get(r); while (pai.get(x) !== r){ const n = pai.get(x); pai.set(x, r); x = n; } return r; };
-    const une = (a, b) => { const ra = raiz(a), rb = raiz(b); if (ra !== rb) pai.set(ra, rb); };
-    // 1) código → grafias ligadas a ele. O código é só PISTA: duas grafias só se juntam se, além de dividirem um
-    //    código, forem o mesmo nome (mesmaAssessoria). Achado no teste de 13/10: há corretoras gravadas com o nome
-    //    de uma assessoria e o código de outra (INNOV × TATIANA) — juntar só pelo código misturava as duas.
-    const nomesDoCod = {};
-    const liga = (cod, nome) => { (nomesDoCod[cod] = nomesDoCod[cod] || new Set()).add(nome); };
-    const contaNome = {};
-    linhas.forEach(d => {
-      const nome = limpaNome(d.ass), cod = limpaCod(d.acod);
-      if (nome){ raiz('N:' + nome); contaNome[nome] = (contaNome[nome] || 0) + 1; }
-      if (nome && cod) liga(cod, nome);
-    });
-    //    Corretora sem código gravado (ex.: Elegibilidade da Plataforma): o código que a Carteira dá pra ESSA
-    //    corretora entra como pista (a regra de nome continua valendo — quem a Carteira trocou de assessoria não junta).
-    if (cart && cart.byCodigo){
-      elig.forEach(d => {
-        const nome = limpaNome(d.ass); if (!nome || limpaCod(d.acod)) return;
-        const cod = window.normalizeCodigo ? window.normalizeCodigo(d.c) : d.c;
-        (cart.byCodigo[cod] || []).forEach(e => { const k = limpaCod(e.codAss); if (k) liga(k, nome); });
-      });
-    }
-    // 2) dentro de cada código, junta as grafias que são a mesma assessoria
-    Object.keys(nomesDoCod).forEach(cod => {
-      const ns = [...nomesDoCod[cod]];
-      for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++){
-        if (mesmaAssessoria(ns[i], ns[j])) une('N:' + ns[i], 'N:' + ns[j]);
-      }
-    });
-    // 3) nome exibido: o da Carteira atual pra algum código do grupo (se for a mesma assessoria); senão a grafia
-    //    mais comum guardada.
-    const nomeCart = {};
-    if (cart && cart.byCodigo){
-      const cont = {};
-      Object.values(cart.byCodigo).forEach(lista => (lista || []).forEach(e => {
-        const cod = limpaCod(e.codAss), nome = limpaNome(e.assessoria); if (!cod || !nome) return;
-        (cont[cod] = cont[cod] || {})[nome] = (cont[cod][nome] || 0) + 1;
-      }));
-      Object.keys(cont).forEach(cod => { nomeCart[cod] = Object.entries(cont[cod]).sort((a,b)=>b[1]-a[1])[0][0]; });
-    }
-    const membros = new Map(); // raiz → [grafias]
-    Object.keys(contaNome).forEach(n => { const r = raiz('N:' + n); (membros.get(r) || membros.set(r, []).get(r)).push(n); });
-    const nomePorRaiz = new Map();
-    const escolhe = r => {
-      if (nomePorRaiz.has(r)) return nomePorRaiz.get(r);
-      const ns = membros.get(r) || [];
-      const daCart = {};
-      Object.keys(nomesDoCod).forEach(cod => {
-        if (!nomeCart[cod] || ![...nomesDoCod[cod]].some(n => ns.includes(n))) return;
-        if (ns.some(n => mesmaAssessoria(n, nomeCart[cod]))) daCart[nomeCart[cod]] = (daCart[nomeCart[cod]] || 0) + 1;
-      });
-      let nome = Object.keys(daCart).sort((a,b)=>daCart[b]-daCart[a])[0];
-      if (!nome) nome = ns.slice().sort((a,b)=>contaNome[b]-contaNome[a])[0] || '';
-      nomePorRaiz.set(r, nome);
-      return nome;
-    };
-    // corretora só com código (sem nome): vai pro grupo da grafia mais comum daquele código
-    const raizDoCod = cod => {
-      const ns = [...(nomesDoCod[cod] || [])].sort((a,b)=>contaNome[b]-contaNome[a]);
-      return ns.length ? raiz('N:' + ns[0]) : null;
-    };
-    return { raiz, escolhe, pai, raizDoCod };
-  }
-  window.assCanon = function(nome, cod){
-    const n = limpaNome(nome), c = limpaCod(cod);
-    if (!n && !c) return null;
-    const elig = window.getEligibilidadeData ? (window.getEligibilidadeData() || []) : [];
-    const rank = window.getRankData ? (window.getRankData() || []) : [];
-    const sig = elig.length + '|' + rank.length + '|' + (window.CARTEIRA_MAP ? 1 : 0);
-    if (!cache || sig !== cacheSig || Date.now() - cacheAt > 2000){ cache = montar(); cacheSig = sig; cacheAt = Date.now(); }
-    let r = null;
-    if (n) r = cache.pai.has('N:' + n) ? cache.raiz('N:' + n) : null;
-    else r = cache.raizDoCod(c);
-    if (!r) return { key: n ? 'N:' + n : 'C:' + c, nome: n || ('Assessoria ' + c) };
-    return { key: r, nome: cache.escolhe(r) };
-  };
+
+  // "Atualizado há Xs" — igual ao original que o Victor mandou: conta a partir do momento
+  // que a página abriu (não do publishedAt real), pra ficar idêntico ao que foi pedido.
+  // Mesmo cuidado aqui: se esse bloco rodar mais de uma vez, cada setInterval novo teria
+  // seu próprio contador começando do zero — inofensivo (ambos escrevem o mesmo texto no
+  // mesmo ritmo), mas guardamos o id só do último pra não deixar intervalos acumulando à toa.
+  if (window.__dhUpdatedTextInterval__) clearInterval(window.__dhUpdatedTextInterval__);
+  var updatedText = document.getElementById('dhUpdatedText');
+  var seconds = 0;
+  updatedText.textContent = 'Atualizado agora';
+  window.__dhUpdatedTextInterval__ = setInterval(function(){
+    seconds += 1;
+    if (seconds < 60) updatedText.textContent = 'Atualizado há ' + seconds + 's';
+    else updatedText.textContent = 'Atualizado há ' + Math.floor(seconds/60) + ' min';
+  }, 1000);
 })();
 
-// ===== extraído de index.html linhas 1453-1470 =====
+// ===== extraído de index.html linhas 1385-1402 =====
 // Liga o botão de tema — troca o atributo + salva a escolha + recarrega a página (mais simples
 // e seguro do que tentar recriar na mão todo gráfico já desenhado nas 5 abas; recarregar é rápido
 // porque os dados já ficam em cache do navegador, só os filtros voltam ao padrão).
@@ -129,125 +50,7 @@
   });
 })();
 
-// ===== Ativação por teclado pra elementos clicáveis que não são <button> (2026-10-01, análise
-// de design) — cards/linhas marcados com role="button" tabindex="0" (gestor-card, resumo-card,
-// linhas de tabela clicáveis, KPIs, etc.) ficam alcançáveis via Tab, mas um <div> não dispara
-// "click" sozinho ao apertar Enter/Espaço do jeito que um <button> real dispara — isso é só o
-// navegador fazendo isso automaticamente PRA botões nativos, não pra qualquer coisa com
-// tabindex. Um único listener delegado no document resolve pra TODOS os elementos assim, atuais
-// e futuros, sem precisar repetir essa lógica em cada lugar que cria um card clicável. Espaço
-// teria rolado a página (comportamento padrão do navegador pra tecla de espaço) — por isso o
-// preventDefault só nesse caso.
-document.addEventListener('keydown', function(e){
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const el = e.target.closest('[role="button"][tabindex]');
-  if (!el) return;
-  if (e.key === ' ') e.preventDefault();
-  el.click();
-});
-// Marca um elemento não-botão (tr/td/div/span criado via JS) como alcançável por teclado — usar
-// junto com addEventListener('click', ...) nos padrões mais comuns (linha de tabela, cabeçalho
-// ordenável, card). Não cobre 100% dos cliques da base (são muitos, espalhados em ~30 pontos
-// diferentes) — passo focado nos padrões mais repetidos/mais usados, não uma varredura completa.
-window.__kb = function(el){ if (el){ el.tabIndex = 0; el.setAttribute('role','button'); } return el; };
-
-// ===== Status por fonte de dado (pedido do Victor, 2026-09-14: "algo que informe o que
-// exatamente foi atualizado... BI atualizado, funil não") =====
-// Guarda, por tipo de arquivo, a hora real da última vez que foi importado de verdade — mora
-// no Firestore (LAST_UPDATED_BY_SOURCE, ver FS_SECTIONS/buildDataPayload em index.html/mais
-// abaixo), igual ao CARTEIRA_MAP: uma correção de código/republicação no GitHub NUNCA toca
-// aqui, só um "Confirmar Atualização" de verdade. window.markSourceUpdated é chamado pelo
-// btnConfirmImport (IIFE de import, mais abaixo) pra cada arquivo confirmado na rodada.
-// Precisa estar definida ANTES do bloco de baixo (dhFooter), que já chama
-// window.renderSourceStatus() na primeira renderização.
-let LAST_UPDATED_BY_SOURCE = window.__DASH_DATA__.LAST_UPDATED_BY_SOURCE || {};
-window.getLastUpdatedBySource = function(){ return LAST_UPDATED_BY_SOURCE; };
-window.markSourceUpdated = function(key){ LAST_UPDATED_BY_SOURCE[key] = new Date().toISOString(); };
-
-// Lista enxuta a pedido do Victor, 2026-09-14 (depois de ver o resultado ao vivo): só os 5
-// pilares do dia a dia — tirou "Aguardando Assinatura" e "Carteira/Gestores" da exibição
-// (mudam raramente, poluíam a lista). "Elegibilidade" também removida a pedido do Victor,
-// 2026-09-28 (mudança rara/histórica, virou ruído na lista). O rastreamento das três continua
-// intacto em LAST_UPDATED_BY_SOURCE/btnConfirmImport — só não aparecem aqui; reativar é só
-// devolver a entrada nesta lista, sem precisar mexer em mais nada.
-const SOURCE_LABELS = [
-  {key:'corretoras', name:'Desempenho Comercial', sub:'Extrato do BI · Corretoras'},
-  {key:'funilPf', name:'Funil PF', sub:'Pendências · SLA'},
-  {key:'funilPme', name:'Funil PME', sub:'Pendências · SLA'},
-];
-
-function sourceStatusFor(iso){
-  if (!iso) return { tier:'unknown', label:'nunca importado' };
-  const then = new Date(iso);
-  if (isNaN(then.getTime())) return { tier:'unknown', label:'nunca importado' };
-  const now = new Date();
-  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const diffDays = Math.round((startOfDay(now) - startOfDay(then)) / 86400000);
-  const hhmm = then.toLocaleString('pt-BR', {hour:'2-digit', minute:'2-digit'});
-  if (diffDays <= 0) return { tier:'ok', label:'hoje, ' + hhmm };
-  if (diffDays === 1) return { tier:'warn', label:'ontem, ' + hhmm };
-  if (diffDays === 2) return { tier:'warn', label:'há 2 dias' };
-  return { tier:'stale', label:'há ' + diffDays + ' dias' };
-}
-
-window.renderSourceStatus = function(){
-  const grid = document.getElementById('dhStatusGrid');
-  const dot = document.getElementById('dhLiveDot');
-  const text = document.getElementById('dhUpdatedText');
-  if (!grid || !dot || !text) return;
-  const rank = {ok:0, warn:1, stale:2};
-  let worst = 'ok', lateCount = 0;
-  grid.innerHTML = SOURCE_LABELS.map(function(s){
-    const st = sourceStatusFor(LAST_UPDATED_BY_SOURCE[s.key]);
-    // "unknown" (nunca importado nessa sessão de dados) não conta como atraso no resumo —
-    // é esperado logo depois desta feature entrar no ar, ainda sem histórico registrado.
-    if (st.tier !== 'unknown' && rank[st.tier] > rank[worst]) worst = st.tier;
-    if (st.tier === 'warn' || st.tier === 'stale') lateCount++;
-    return '<div class="dh-status-row">'
-      + '<span class="dh-status-name"><b>' + s.name + '</b><small>' + s.sub + '</small></span>'
-      + '<span class="dh-status-tag ' + st.tier + '">' + st.label + '</span>'
-      + '</div>';
-  }).join('');
-  dot.classList.toggle('warn', worst !== 'ok');
-  text.textContent = lateCount === 0 ? 'Tudo em dia' : (lateCount + ' fonte' + (lateCount>1?'s':'') + ' atrasada' + (lateCount>1?'s':''));
-};
-
-// ===== extraído de index.html linhas 1520-1541 =====
-    (function(){
-      // Achado 2026-09-08 testando ao vivo: esse bloco roda mais de uma vez no fluxo de
-      // login real (confirmado direto — mesmo com uma trava por variável global impedindo o
-      // bloco inteiro de rodar de novo, o clique continuava disparando a mudança de atributo
-      // duas vezes seguidas, uma desfazendo a outra). Pra não depender de entender exatamente
-      // quantas vezes o bloco roda, a solução é usar `toggle.onclick =` (substitui o handler
-      // anterior, nunca acumula) em vez de `addEventListener` (empilha um handler novo por
-      // chamada) — assim não importa quantas vezes esse trecho execute, só o último handler
-      // atribuído conta.
-      var toggle = document.getElementById('dhTeamToggle');
-      var list = document.getElementById('dhTeamList');
-      toggle.onclick = function(){
-        var open = toggle.getAttribute('aria-expanded') === 'true';
-        toggle.setAttribute('aria-expanded', String(!open));
-        list.classList.toggle('open', !open);
-      };
-
-      // Resumo por fonte de dado (substitui o antigo "Atualizado há Xs", que contava a partir
-      // do carregamento da página — pedido do Victor, 2026-09-14: "algo que informe o que
-      // exatamente foi atualizado... BI atualizado, funil não", porque uma correção de código
-      // + reload fazia parecer que os dados tinham acabado de mudar, mesmo sem nada novo
-      // importado). Mesmo `.onclick =` (não addEventListener) pelo mesmo motivo do toggle
-      // acima — este bloco também pode rodar mais de uma vez no fluxo real de login.
-      var footer = document.getElementById('dhFooter');
-      var panel = document.getElementById('dhStatusPanel');
-      footer.onclick = function(){
-        var open = footer.getAttribute('aria-expanded') === 'true';
-        footer.setAttribute('aria-expanded', String(!open));
-        panel.classList.toggle('open', !open);
-      };
-      footer.onkeydown = function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); footer.click(); } };
-      if (window.renderSourceStatus) window.renderSourceStatus();
-    })();
-
-// ===== extraído de index.html linhas 2584-2646 =====
+// ===== extraído de index.html linhas 2516-2578 =====
 /* =========================================================
    NAVEGAÇÃO ENTRE VIEWS
    ========================================================= */
@@ -277,9 +80,6 @@ function showView(view){
   if (view==="rank" && !window.rankInitialized){ window.rankInitialized = true; renderRanking(); }
   if (view==='conversao' && window.renderConversao){ window.renderConversao(); }
   document.getElementById('mainHeader').style.display = '';
-  // Cabeçalho enxuto (2026-10-07): o título mostra a tela em que a pessoa está.
-  const dhTitle = document.getElementById('dhViewTitle');
-  if (dhTitle) dhTitle.textContent = ({overview:'Visão Geral', mj:'Desempenho Comercial', el:'Elegibilidade', compare:'Comparativo', rank:'Ranking de Vendas', conversao:'Conversão'})[view] || 'Painel Comercial';
   if(view==='el' && !elInitialized){
     elInitialized = true;
     window.renderEligibilidade();
@@ -317,7 +117,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   if (window.renderEligibilidade) window.renderEligibilidade();
 });
 
-// ===== extraído de index.html linhas 2648-3596 =====
+// ===== extraído de index.html linhas 2580-3527 =====
 /* =========================================================
    VIEW 1 — META JUNHO (dados e lógica isolados em IIFE)
    ========================================================= */
@@ -333,9 +133,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // único e "atual" (MJ_CORRETORAS achatado): trocar o "Mês de Referência" no dropdown não
   // mudava essa tabela nenhum pouco, sempre repetindo os dados do último import "ao vivo" —
   // e reimportar um mês passado nem sequer gravava (updateMetaJunhoData só tocava nisso
-  // quando isLive). Achado por Victor em 2026-09-02 (no V2, mesmo bug herdado aqui no V1).
-  // Migração: se o data.json ainda for do formato antigo (campo achatado), usa ele como
-  // valor do mês atual.
+  // quando isLive). Achado por Victor em 2026-09-02. Migração: se o data.json ainda for do
+  // formato antigo (campo achatado), usa ele como valor do mês atual.
   let MJ_CORRETORAS_BY_MONTH = window.__DASH_DATA__.MJ_CORRETORAS_BY_MONTH ||
     (window.__DASH_DATA__.MJ_CORRETORAS ? {[currentMonth]: window.__DASH_DATA__.MJ_CORRETORAS} : {});
   function getCorretoras(month){
@@ -355,7 +154,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     return MJ_NAO_ATRIBUIDO_BY_MONTH[currentMonth] || {ind:0, ss:0, pme:0, adm:0};
   }
   let MJ_BENCHMARK = window.__DASH_DATA__.MJ_BENCHMARK;
-  let currentTeam = "ALL_TEAMS";
+  let currentTeam = "Estevão Cardoso (Cauda Longa)";
   // Meses RECONSTRUÍDOS (Jan–Mai/26 — sem fechamento oficial do Excel): montados em memória pelo
   // módulo "Metas por executivo" (metas embutidas + extratos do BI + Carteira atual) via
   // window.mjSetSynthMonths. Ficam nos mesmos objetos *_BY_MONTH pra todas as telas lerem igual,
@@ -384,7 +183,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // sênior dele). Declarada aqui (não junto do resto do bloco "Resumo do Dia" mais abaixo) porque
   // o banner do Meta Junho já chama resumoTotais() na primeira renderização, que acontece antes
   // daquele bloco rodar — um const declarado só lá embaixo cai em "Cannot access before
-  // initialization" nessa primeira chamada (achado testando no V2, 2026-09-15).
+  // initialization" nessa primeira chamada (achado testando localmente, 2026-09-15).
   const PF_STATUS_PENDENTE = ['PENDENTE', 'AUDITORIA MEDICA', 'Pendente de auditoria médica', 'VALIDO E AUSENTE CRITICA', 'Validos com dados divergentes', 'CONFIRMACAO CLIENTE'];
   const pctColor = p => p >= 1 ? 'var(--green)' : (p >= 0.7 ? 'var(--amber)' : 'var(--red)');
   const pctBg = p => p >= 1 ? 'rgba(22,184,122,.14)' : (p >= 0.7 ? 'rgba(255,184,28,.16)' : 'rgba(245,54,74,.12)');
@@ -395,9 +194,62 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let mjCorretorasGestor = null;
   let mjSelectedGestor = null;
   let mjForecastData = null; // último cálculo de forecast do card "Meta Diária" — ver renderMetaJunho
-  let mjMetaCatData = null; // último detalhe por categoria do card "Meta do Gestor" — ver renderMetaJunho
   let mjExpandedTeams = new Set(); // times abertos (mostrando gestores) na visão "Todos os Times"
   function destroyMJChart(key){ if(mjCharts[key]){ mjCharts[key].destroy(); delete mjCharts[key]; } }
+
+  // ===== Rodada de design 14/10/2026 (demonstrativo aprovado pelo Victor) — gráficos de barra deitada =====
+  // Barra fina azul + traço marcando a meta (100%) + número escrito na ponta com a cor do status
+  // (verde bateu, laranja de 70% a 99%, vermelho abaixo de 70%). Usado no "% Atingimento por Categoria"
+  // (Visão Geral e Desempenho Comercial) e no "Meta vs. Integrado" (por time e por gestor).
+  const dsEscuro = () => document.documentElement.getAttribute('data-theme') === 'dark';
+  const dsStatus = p => p >= 100 ? '#16B87A' : (p >= 70 ? '#F26B21' : '#F5364A');
+  const dsPct = v => v.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '%';
+  const dsGrade = () => dsEscuro() ? 'rgba(255,255,255,.07)' : 'rgba(139,147,184,.18)';
+  function dsMarca(ctx, x, yTop, yBot){
+    ctx.save(); ctx.strokeStyle = dsEscuro() ? '#C9D2F5' : '#101E63'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, yTop); ctx.lineTo(x, yBot); ctx.stroke(); ctx.restore();
+  }
+  function dsRotulo(ctx, txt, cor, x, y){
+    ctx.save(); ctx.fillStyle = cor; ctx.font = '700 11px Inter, "Segoe UI", sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(txt, x, y); ctx.restore();
+  }
+  // pcts: % de atingimento (0–100+) por linha. extra: onClick/onHover do gráfico.
+  window.__dsCatChart = function(canvas, labels, pcts, extra){
+    return new Chart(canvas, {
+      type:'bar',
+      data:{ labels, datasets:[{ label:'% Atingimento', data:pcts, backgroundColor:'#2E52D4', borderRadius:5, barPercentage:.5, categoryPercentage:.9 }] },
+      options:Object.assign({ indexAxis:'y', responsive:true, maintainAspectRatio:false, layout:{padding:{right:56, top:14}},
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>dsPct(c.raw)}}},
+        scales:{x:{beginAtZero:true, max:Math.ceil(Math.max(110, ...pcts.map(v=>v*1.08))/10)*10, grid:{color:dsGrade()}, ticks:{callback:v=>v+'%', maxTicksLimit:7}}, y:{grid:{display:false}}} }, extra || {}),
+      plugins:[{ id:'dsCat', afterDatasetsDraw(chart){
+        const ctx = chart.ctx, x100 = chart.scales.x.getPixelForValue(100), area = chart.chartArea;
+        ctx.save(); ctx.setLineDash([4,3]); ctx.strokeStyle = dsEscuro() ? 'rgba(201,210,245,.7)' : 'rgba(16,30,99,.55)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x100, area.top); ctx.lineTo(x100, area.bottom); ctx.stroke(); ctx.restore();
+        dsRotulo(ctx, 'meta', dsEscuro() ? '#C9D2F5' : '#56608F', x100 - 12, area.top - 7);
+        chart.getDatasetMeta(0).data.forEach((bar, i) => { const v = chart.data.datasets[0].data[i]; dsRotulo(ctx, dsPct(v), dsStatus(v), bar.x + 6, bar.y); });
+      }}]
+    });
+  };
+  // metas/ints por linha; cores = cor da barra de cada linha (ex.: gestor selecionado em laranja).
+  window.__dsMetaChart = function(canvas, labels, metas, ints, cores, extra){
+    const maxV = Math.max(1, ...metas, ...ints) * 1.04;
+    return new Chart(canvas, {
+      type:'bar',
+      data:{ labels, datasets:[{ label:'Integrado', data:ints, backgroundColor:cores, borderRadius:5, barPercentage:.5, categoryPercentage:.9 }] },
+      options:Object.assign({ indexAxis:'y', responsive:true, maintainAspectRatio:false, layout:{padding:{right:58}},
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{ const m = metas[c.dataIndex] || 0, v = c.raw || 0;
+          return [`Integrado: ${Math.round(v).toLocaleString('pt-BR')} vidas`, `Meta: ${Math.round(m).toLocaleString('pt-BR')} vidas`, `Atingimento: ${m ? dsPct(v/m*100) : '—'}`]; }}}},
+        scales:{x:{beginAtZero:true, suggestedMax:maxV, grid:{color:dsGrade()}, ticks:{callback:v=>Math.round(v).toLocaleString('pt-BR'), maxTicksLimit:6}}, y:{grid:{display:false}, ticks:{font:{size:11}}}} }, extra || {}),
+      plugins:[{ id:'dsMeta', afterDatasetsDraw(chart){
+        const ctx = chart.ctx, sx = chart.scales.x;
+        chart.getDatasetMeta(0).data.forEach((bar, i) => {
+          const m = metas[i] || 0, v = ints[i] || 0, xm = sx.getPixelForValue(m), h = bar.height || 10;
+          if (m) dsMarca(ctx, xm, bar.y - h/2 - 4, bar.y + h/2 + 4);
+          if (m) dsRotulo(ctx, dsPct(v/m*100), dsStatus(v/m*100), Math.max(bar.x, xm) + 7, bar.y);
+        });
+      }}]
+    });
+  };
 
   function renderCorretoras(gestorNome){
     mjCorretorasGestor = gestorNome;
@@ -417,7 +269,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // abre modal com as corretoras que venderam naquela categoria, no escopo atual (time/gestor selecionado).
   // ADM fica de fora: a base não tem detalhamento por corretora pra essa categoria, só por gestor.
   const mjCatFieldByKey = {IND:'ind', SS:'ss', PME:'pme'};
-  const mjCatIconByKey = {IND:'ic-user', SS:'ic-users', PME:'ic-building', ADM:'ic-clip'};
+  const mjCatIconByKey = {IND:'ic-user', SS:'ic-users', PME:'ic-building'};
   let mjCatAllRows = [], mjCatShowGestor = false, mjCatGestorFilterVal = '';
 
   function getMjCatRows(key){
@@ -507,7 +359,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('mjTeamBannerName').textContent = selectedMember ? `${selectedMember.nome} — ${teamLabel}` : teamLabel;
     const resetBtn = document.getElementById('mjResetTeam');
     if (selectedMember){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Ver o time todo'; }
-    else if (currentTeam !== 'ALL_TEAMS'){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Voltar para Todos os Times'; }
+    else if (currentTeam.indexOf('Cauda Longa') < 0){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Voltar para Cauda Longa'; }
     else { resetBtn.style.display = 'none'; }
 
     const isAllTeamsAggregate = currentTeam === 'ALL_TEAMS' && !selectedMember;
@@ -565,22 +417,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       }
     }
 
-    // Detalhe por categoria do card "Meta do Gestor" (pedido do Victor, 2026-09-30: "é
-    // interessante aparecer as metas de cada categoria também") — os números já existiam em
-    // total.cat[k], só não apareciam na tela. Guardado aqui (mesmo padrão do mjForecastData
-    // acima) pro modal aberto via window.__openMjMetaCat() usar exatamente o que está no card
-    // no momento do clique, sem recalcular nada.
-    mjMetaCatData = {
-      titulo: selectedMember ? selectedMember.nome : teamLabel,
-      mesLabel: monthLabelPt(currentMonth),
-      rows: catKeys.map(k => {
-        const meta = total.cat[k].meta, int = total.cat[k].int;
-        return { key:k, label:catLabels[k], icon:mjCatIconByKey[k], meta, int, pct: meta ? int/meta : 0 };
-      }),
-    };
-
     const kpis = [
-      {icon:"<i class=ic-target></i>", label: selectedMember ? "Meta do Gestor" : (isAllTeamsAggregate ? "Meta Total — NDI SP" : "Meta Total do Time"), value: fmt0(total.meta) + " vidas", sub: monthLabelPt(currentMonth), subClass:"", onclick:"window.__openMjMetaCat()", hintTitle:"Ver por categoria"},
+      {icon:"<i class=ic-target></i>", label: selectedMember ? "Meta do Gestor" : (isAllTeamsAggregate ? "Meta Total — NDI SP" : "Meta Total do Time"), value: fmt0(total.meta) + " vidas", sub: monthLabelPt(currentMonth), subClass:""},
       {icon:"<i class=ic-check></i>", label:"Integrado (Realizado)", value: fmt0(displayInt) + " vidas", sub: naoAtribuidoTotal > 0 ? `Inclui ${fmt0(naoAtribuidoTotal)} vidas sem gestor/código não localizado` : (displayInt >= total.meta ? "Meta batida" : "Abaixo da meta"), subClass: displayInt >= total.meta ? "pos" : "warn"},
       {icon:"<i class=ic-chart></i>", label:"% Atingimento", value: pctf(pctTotalAdj), sub: pctTotalAdj >= 1 ? "Acima de 100%" : "Faltam " + pctf(1-pctTotalAdj) + " p/ meta", subClass: pctTotalAdj >= 1 ? "pos" : "neg"},
       {icon:"<i class=ic-warn></i>", label:"Gap p/ Meta", value: (gap>0?fmt0(gap):"0") + " vidas", sub:`Categoria crítica: ${catLabels[critKey]} (${pctf(critPct)})`, subClass:"neg"},
@@ -588,7 +426,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     ];
     const kpiExpandHintSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
     document.getElementById('mjKpiRow').innerHTML = kpis.map(k => `
-      <div class="kpi"${k.onclick ? ` onclick="${k.onclick}" style="cursor:pointer" role="button" tabindex="0"` : ''}><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.subClass}">${k.sub}</div>${k.onclick ? `<div class="kpi-expand-hint" title="${k.hintTitle||'Ver projeção completa'}">${kpiExpandHintSvg}</div>` : ''}</div>
+      <div class="kpi"${k.onclick ? ` onclick="${k.onclick}" style="cursor:pointer" role="button" tabindex="0"` : ''}><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.subClass}">${k.sub}</div>${k.onclick ? `<div class="kpi-expand-hint" title="Ver projeção completa">${kpiExpandHintSvg}</div>` : ''}</div>
     `).join('');
 
     // Banner do sênior: mesmos números de Total pra Atuar / Meta Diária já calculados acima,
@@ -643,14 +481,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }
 
     destroyMJChart('categoria');
-    mjCharts.categoria = new Chart(document.getElementById('mjChartCategoria'), {
-      type:'bar',
-      data:{ labels:catKeys.map(k=>catLabels[k]), datasets:[{ label:'% Atingimento', data:catKeys.map(k=>(total.cat[k].meta?total.cat[k].int/total.cat[k].meta:0)*100), backgroundColor:catKeys.map(k=>{ const p = total.cat[k].meta?total.cat[k].int/total.cat[k].meta:0; return p>=1?'#16B87A':(p>=0.7?'#FFB81C':'#F5364A'); }), borderRadius:6 }] },
-      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+    mjCharts.categoria = window.__dsCatChart(document.getElementById('mjChartCategoria'),
+      catKeys.map(k=>catLabels[k]), catKeys.map(k=>(total.cat[k].meta?total.cat[k].int/total.cat[k].meta:0)*100), {
         onClick:(evt,els)=>{ if(!els||!els.length) return; const key = catKeys[els[0].index]; if (key === 'ADM') return; const c = total.cat[key]; openMjCatModal(key, c.meta ? c.int/c.meta : 0); },
         onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target){ const key = els&&els.length ? catKeys[els[0].index] : null; evt.native.target.style.cursor = (key && key!=='ADM') ? 'pointer' : 'default'; } },
-        plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw.toFixed(1)+'%'}}}, scales:{x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{callback:v=>v+'%'}}, y:{grid:{display:false}}} }
-    });
+      });
 
     destroyMJChart('metaGestor');
     document.getElementById('mjCorretorasPanel').style.display = isAllTeamsAggregate ? 'none' : '';
@@ -662,25 +497,19 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         return {name:t, meta:tt.meta, int:tt.int};
       });
       document.getElementById('mjMetaGestorTitle').textContent = 'Meta vs. Integrado por Time';
-      document.getElementById('mjMetaGestorSub').textContent = 'Clique numa barra para abrir o detalhe daquele time';
-      mjCharts.metaGestor = new Chart(document.getElementById('mjChartMetaGestor'), {
-        type:'bar',
-        data:{ labels:teamRows.map(r=>r.name), datasets:[
-          {label:'Meta', data:teamRows.map(r=>r.meta), backgroundColor:'#cbd5e1', borderRadius:6, barPercentage:.6},
-          {label:'Integrado', data:teamRows.map(r=>r.int), backgroundColor:'#2E52D4', borderRadius:6, barPercentage:.6},
-        ]},
-        options:{ responsive:true, maintainAspectRatio:false,
+      document.getElementById('mjMetaGestorSub').textContent = 'Barra = integrado · traço = meta. Clique numa barra para abrir o detalhe daquele time';
+      mjCharts.metaGestor = window.__dsMetaChart(document.getElementById('mjChartMetaGestor'),
+        teamRows.map(r=>r.name), teamRows.map(r=>r.meta), teamRows.map(r=>r.int), teamRows.map(()=>'#2E52D4'), {
           onClick:(evt,els)=>{ if(!els||!els.length) return; const name = teamRows[els[0].index].name; setTimeout(()=>{ currentTeam = name; renderMetaJunho(); }, 0); },
           onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?'pointer':'default'; },
-          plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}}, scales:{y:{beginAtZero:true, grid:{color:'#eef1f6'}}, x:{grid:{display:false}, ticks:{font:{size:10}}}} }
-      });
+        });
 
       document.getElementById('mjGestorGridTitle').textContent = 'Desempenho por Time';
       document.getElementById('mjGestorGridSub').textContent = 'Clique num card pra abrir o detalhe completo do time — ou use o botão pra ver todos os gestores aqui mesmo';
       document.getElementById('mjGestorGrid').innerHTML = teamRows.map((r,i) => {
         const p = r.meta ? r.int/r.meta : 0;
         const cor = ['#2E52D4','#F26B21','#5B7CFA','#16B87A','#FFB81C'][i % 5];
-        return `<div class="gestor-card" style="cursor:pointer" role="button" tabindex="0" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}')" title="Ver detalhe deste time">
+        return `<div class="gestor-card" style="cursor:pointer" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}')" title="Ver detalhe deste time">
           <div class="avatar" style="background:${cor}">${iniciais(r.name)}</div><div class="name">${r.name}</div><div class="role">${MJ_TEAMS[r.name].members.length} gestores</div>
           <div class="total-pct" style="color:${pctColor(p)}">${pctf(p)}</div>
           <div class="total-label">${fmt0(r.int)} / ${fmt0(r.meta)} vidas (meta total)</div></div>`;
@@ -709,7 +538,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         });
         const rowsHtml = members.map(m => {
           const pm = m.total.meta ? m.total.int/m.total.meta : 0;
-          return `<div class="mj-team-row" role="button" tabindex="0" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver detalhe deste gestor">
+          return `<div class="mj-team-row" onclick="window.jumpToMetaJunho('${r.name.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver detalhe deste gestor">
             <div class="mj-tr-avatar" style="background:${m.cor}">${iniciais(m.nome)}</div>
             <div class="mj-tr-name">${m.nome}</div>
             <div class="mj-tr-bar"><div class="mj-tr-bar-fill" style="width:${Math.min(pm*100,100)}%; background:${pctColor(pm)}"></div></div>
@@ -718,7 +547,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           </div>`;
         }).join('');
         return `<div class="mj-team-expand ${isOpen?'open':''}">
-          <div class="mj-team-expand-head" style="border-left-color:${cor}" role="button" tabindex="0" onclick="window.__mjToggleTeamExpand('${r.name.replace(/'/g,"\\'")}')">
+          <div class="mj-team-expand-head" style="border-left-color:${cor}" onclick="window.__mjToggleTeamExpand('${r.name.replace(/'/g,"\\'")}')">
             <div class="mj-team-expand-title" style="color:${cor}"><span class="chev">${isOpen?'▾':'▸'}</span>${r.name} — ${pctf(p)}</div>
             <div class="mj-team-expand-sub">${fmt0(r.int)} / ${fmt0(r.meta)} vidas</div>
           </div>
@@ -733,21 +562,15 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('mjTeamsExpand').innerHTML = '';
 
     document.getElementById('mjMetaGestorTitle').textContent = `Meta vs. Integrado por Gestor — ${teamLabel}`;
-    document.getElementById('mjMetaGestorSub').textContent = 'Clique numa barra para ver o detalhe daquele gestor';
+    document.getElementById('mjMetaGestorSub').textContent = 'Barra = integrado · traço = meta. Clique numa barra para ver o detalhe daquele gestor';
     document.getElementById('mjGestorGridTitle').textContent = `Performance Individual por Gestor — ${teamLabel}`;
     document.getElementById('mjGestorGridSub').textContent = 'Quebra por categoria: Individual (IND) · Super Simples (SS) · PME · Administradora (ADM)';
 
-    mjCharts.metaGestor = new Chart(document.getElementById('mjChartMetaGestor'), {
-      type:'bar',
-      data:{ labels:members.map(m=>m.nome), datasets:[
-        {label:'Meta', data:members.map(m=>m.total.meta), backgroundColor:'#cbd5e1', borderRadius:6, barPercentage:.6},
-        {label:'Integrado', data:members.map(m=>m.total.int), backgroundColor:members.map(m=>m.nome===mjSelectedGestor?'#F26B21':'#2E52D4'), borderRadius:6, barPercentage:.6},
-      ]},
-      options:{ responsive:true, maintainAspectRatio:false,
+    mjCharts.metaGestor = window.__dsMetaChart(document.getElementById('mjChartMetaGestor'),
+      members.map(m=>m.nome), members.map(m=>m.total.meta), members.map(m=>m.total.int), members.map(m=>m.nome===mjSelectedGestor?'#F26B21':'#2E52D4'), {
         onClick:(evt, els)=>{ if(!els || !els.length) return; const idx = els[0].index; setTimeout(()=>{ mjSelectedGestor = (mjSelectedGestor===members[idx].nome) ? null : members[idx].nome; renderMetaJunho(); renderCorretoras(members[idx].nome); document.querySelectorAll('#mjCorretorasTabs .subtab-btn').forEach(b=>b.classList.toggle('active', b.dataset.g===members[idx].nome)); }, 0); },
         onHover:(evt,els)=>{ if(evt && evt.native && evt.native.target) evt.native.target.style.cursor = (els && els.length) ? 'pointer' : 'default'; },
-        plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}}, scales:{y:{beginAtZero:true, grid:{color:'#eef1f6'}}, x:{grid:{display:false}, ticks:{font:{size:10}}}} }
-    });
+      });
 
     document.getElementById('mjGestorGrid').innerHTML = members.map(m => {
       const pTotal = m.total.meta ? m.total.int/m.total.meta : 0;
@@ -756,7 +579,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       if (oppPct === Infinity) oppPct = 0;
       const miniCats = catKeys.filter(k=>k!==oppKey).map(k => { const c = m.cat[k]; const p = c.meta ? c.int/c.meta : 0; return `${k} ${pctf(p)}`; }).join(' · ');
       const ringR = 20, ringC = 2*Math.PI*ringR, ringOffset = ringC * (1 - Math.min(pTotal,1));
-      return `<div class="gestor-card" style="cursor:pointer" role="button" tabindex="0" onclick="window.showPendenciasModal('${m.nome.replace(/'/g,"\\'")}')" title="Ver pendências PME/PF">
+      return `<div class="gestor-card" style="cursor:pointer" onclick="window.showPendenciasModal('${m.nome.replace(/'/g,"\\'")}')" title="Ver pendências PME/PF">
         <div class="avatar" style="background:${m.cor}">${iniciais(m.nome)}</div><div class="name">${m.nome}</div><div class="role">Gestor(a) Comercial</div>
         <div class="ring-row">
           <svg width="56" height="56" viewBox="0 0 56 56">
@@ -791,7 +614,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     if (mjSelectedGestor){
       mjSelectedGestor = null;
     } else {
-      currentTeam = "ALL_TEAMS";
+      currentTeam = "Estevão Cardoso (Cauda Longa)";
+      if (!MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
     }
     renderMetaJunho();
   });
@@ -849,32 +673,6 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   };
   document.getElementById('btnCloseMjForecast').addEventListener('click', () => { document.getElementById('mjForecastModalOverlay').style.display = 'none'; });
   document.getElementById('mjForecastModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'mjForecastModalOverlay') e.currentTarget.style.display = 'none'; });
-
-  // Modal "Meta por Categoria" — pedido do Victor, 2026-09-30: no card "Meta do Gestor"/"Meta
-  // Total", mostrar também a meta (e o realizado) de cada categoria (Individual/Super Simples/
-  // PME/Administradora), não só o total somado. Mesmo padrão do forecast acima (ícone de
-  // expandir no card, dados prontos em mjMetaCatData a cada render, sem recalcular no clique).
-  // Cores/limiares (verde ≥100%, amarelo ≥70%, vermelho abaixo) reaproveitam pctColor/pctBg, já
-  // usadas no resto da tela (ex.: gráfico de % Atingimento por categoria).
-  window.__openMjMetaCat = function(){
-    const d = mjMetaCatData;
-    if (!d) return;
-    document.getElementById('mjMetaCatTitulo').textContent = d.titulo;
-    document.getElementById('mjMetaCatSub').textContent = d.mesLabel;
-    document.getElementById('mjMetaCatRows').innerHTML = d.rows.map(r => `
-      <div class="mjmc-row">
-        <div class="mjmc-icon" style="background:${pctColor(r.pct)};"><i class="${r.icon}" style="font-size:13px; color:#fff;"></i></div>
-        <div class="mjmc-body">
-          <div class="mjmc-top"><span class="mjmc-name">${r.label}</span><span class="mjmc-nums">${fmt0(r.int)} / ${fmt0(r.meta)} vidas</span></div>
-          <div class="mjmc-track"><div class="mjmc-fill" style="width:${Math.min(100, r.pct*100)}%; background:${pctColor(r.pct)};"></div></div>
-        </div>
-        <div class="mjmc-pct" style="color:${pctColor(r.pct)};">${pctf(r.pct)}</div>
-      </div>
-    `).join('');
-    document.getElementById('mjMetaCatModalOverlay').style.display = 'flex';
-  };
-  document.getElementById('btnCloseMjMetaCat').addEventListener('click', () => { document.getElementById('mjMetaCatModalOverlay').style.display = 'none'; });
-  document.getElementById('mjMetaCatModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'mjMetaCatModalOverlay') e.currentTarget.style.display = 'none'; });
 
   const MJ_MONTH_LABELS_PT = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro'};
   function monthLabelPt(yearMonth){
@@ -938,324 +736,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const teams = (month && MJ_TEAMS_BY_MONTH[month]) ? MJ_TEAMS_BY_MONTH[month] : MJ_TEAMS;
     return { teams, benchmark: MJ_BENCHMARK, corretoras: getCorretoras(month), naoAtribuido: getNaoAtribuido(month) };
   };
-  // Estrito: devolve os times de UM mês só se esse mês realmente foi importado OFICIALMENTE (null
-  // senão, inclusive pra mês reconstruído). getMetaJunhoData(month) acima cai no mês ao vivo quando
-  // o mês pedido não existe — certo pra as telas de mês único, errado pra somar trimestre.
+  // Estrito: devolve os times de UM mês só se esse mês realmente foi importado (null senão).
+  // getMetaJunhoData(month) acima cai no mês ao vivo quando o mês pedido não existe — certo pra
+  // as telas de mês único, errado pra somar trimestre (somaria o mês atual no lugar do ausente).
   window.getMetaJunhoTeamsStrict = function(month){ return MJ_SYNTH.has(month) ? null : (MJ_TEAMS_BY_MONTH[month] || null); };
   window.getMjCurrentTeam = function(){ return currentTeam; };
-
-  // ===== EXPORTAR DESEMPENHO COMERCIAL EM .XLSX (pedido do Victor, 2026-10-07) =====
-  // Gera o mês selecionado no MESMO formato do Excel "NDI SP - POR GESTOR - <MÊS> dd.mm.aaaa" dele, pra
-  // baixar todo dia e guardar o retrato do dia. Só as 3 abas principais (decisão dele): "NDI SP - <MÊS>"
-  // (por executivo/equipe), "EXPORT" (uma linha por corretora) e "META <MÊS>". Cores, bordas, mesclas,
-  // larguras e a escala de cor do % copiadas do arquivo de 06.10.2026. COM FÓRMULAS (pra simulação):
-  // - META <MÊS>: a cascata dele — total da diretora → categoria pelo % vertical (PF/SS/PME/ADESÃO) →
-  //   equipe pelo % → executivo pelo %. Cada % é derivado das metas do painel; se uma meta do painel não
-  //   seguir a cascata (diferença > 0,01), a célula vai com o NÚMERO, pra nunca sair meta diferente.
-  // - NDI SP: Meta = PROCV na aba META; Integrado = SOMASE na EXPORT; % e totais = fórmulas. Integrado
-  //   TOTAL = IND+SS+PME SEM ADM, igual ao arquivo dele (decisão do Victor); Meta TOTAL inclui ADM.
-  // - EXPORT: corretoras do painel naquele mês. Quando a soma das corretoras de um executivo não bate com
-  //   o Integrado dele (ex.: ADM por corretora só passou a ser guardado em 07/10), entra uma linha
-  //   "AJUSTE" do próprio executivo com a diferença — o total nunca fica diferente do painel.
-  // As abas têm os nomes do arquivo real, então um retrato baixado pode ser reimportado pelo campo normal.
-  window.exportDesempenhoXlsx = async function(month){
-    month = month || currentMonth;
-    const teams = MJ_TEAMS_BY_MONTH[month];
-    if (!teams || !Object.keys(teams).length) throw new Error('Não há dados do Desempenho Comercial para esse mês.');
-    if (!window.loadExcelJS) throw new Error('A biblioteca de planilhas não está disponível.');
-    const ExcelJS = await window.loadExcelJS();
-    const MESES = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-    const mesNome = MESES[Number(month.split('-')[1]) - 1];
-    const abaMain = 'NDI SP - ' + mesNome, abaMeta = 'META ' + mesNome;
-    const rawOf = nome => window.getGestorRawName ? window.getGestorRawName(nome) : String(nome).toUpperCase();
-    const corrMes = getCorretoras(month);
-    const naoAt = getNaoAtribuido(month) || {ind:0, ss:0, pme:0, adm:0};
-    const CATS = ['IND','SS','PME','ADM'];
-    const FILIAL_TXT = {'Plataforma':'PLATAFORMA','ABC':'ABC','Cauda Longa':'CAUDA LONGA','Digital':'DIGITAL','Interior':'INTERIOR'};
-    const teamList = Object.entries(teams).map(([label, td]) => {
-      const tipo = ((/\(([^)]*)\)\s*$/.exec(label) || [])[1]) || '';
-      return { label, td, filial: FILIAL_TXT[tipo] || tipo.toUpperCase(), senior: label.replace(/\s*\([^)]*\)\s*$/, '').toUpperCase() };
-    });
-
-    // ---------- EXPORT (linhas por corretora) ----------
-    const expRows = [];
-    let ajustes = 0;
-    teamList.forEach(t => t.td.members.forEach(m => {
-      const raw = rawOf(m.nome);
-      const lista = corrMes[m.nome] || [];
-      const soma = {ind:0, ss:0, pme:0, adm:0};
-      lista.forEach(c => {
-        const r = { c: String(c.c || ''), n: c.n || '', gestor: raw, ind: c.ind || 0, ss: c.ss || 0, pme: c.pme || 0, adm: c.adm || 0, filial: c.filial || '' };
-        soma.ind += r.ind; soma.ss += r.ss; soma.pme += r.pme; soma.adm += r.adm;
-        expRows.push(r);
-      });
-      const dif = { ind: (m.cat.IND.int || 0) - soma.ind, ss: (m.cat.SS.int || 0) - soma.ss, pme: (m.cat.PME.int || 0) - soma.pme, adm: (m.cat.ADM.int || 0) - soma.adm };
-      if (Object.values(dif).some(v => Math.abs(v) > 1e-9)){
-        ajustes++;
-        expRows.push({ c: '', n: 'AJUSTE — vendas sem detalhe por corretora', gestor: raw, ind: dif.ind, ss: dif.ss, pme: dif.pme, adm: dif.adm, filial: '', ajuste: true });
-      }
-    }));
-    // Sem executivo: corretoras guardadas sob um "gestor" que não é executivo de nenhuma equipe (ex.: o
-    // "#N/D" das corretoras fora do database, no Excel dele) saem uma por linha com GESTOR = "SEM
-    // EXECUTIVO"; o que faltar pra bater com o não-atribuído do painel vira uma linha agregada.
-    const membros = new Set(); teamList.forEach(t => t.td.members.forEach(m => membros.add(m.nome)));
-    const somaSem = {ind:0, ss:0, pme:0, adm:0};
-    Object.keys(corrMes).filter(g => !membros.has(g)).forEach(g => (corrMes[g] || []).forEach(c => {
-      const r = { c: String(c.c == null || c.c === 'null' ? '' : c.c), n: c.n || '', gestor: 'SEM EXECUTIVO', ind: c.ind || 0, ss: c.ss || 0, pme: c.pme || 0, adm: c.adm || 0, filial: c.filial || '' };
-      if (!r.c && !(r.ind || r.ss || r.pme || r.adm)) return;
-      somaSem.ind += r.ind; somaSem.ss += r.ss; somaSem.pme += r.pme; somaSem.adm += r.adm;
-      expRows.push(r);
-    }));
-    expRows.sort((a, b) => (a.ajuste === b.ajuste) ? a.c.localeCompare(b.c) : (a.ajuste ? 1 : -1));
-    const difSem = { ind: (naoAt.ind || 0) - somaSem.ind, ss: (naoAt.ss || 0) - somaSem.ss, pme: (naoAt.pme || 0) - somaSem.pme, adm: (naoAt.adm || 0) - somaSem.adm };
-    if (Object.values(difSem).some(v => Math.abs(v) > 1e-9)){
-      ajustes++;
-      expRows.push({ c: '', n: 'AJUSTE — corretoras sem executivo / fora do database (sem detalhe por corretora)', gestor: 'SEM EXECUTIVO', ind: difSem.ind, ss: difSem.ss, pme: difSem.pme, adm: difSem.adm, filial: '', ajuste: true });
-    }
-    const sumExp = (gestor, k) => expRows.reduce((s, r) => s + (r.gestor === gestor ? r[k] : 0), 0);
-
-    // ---------- estilos (copiados do arquivo real) ----------
-    const NAVY = 'FF1F3A93', FILIAL_FILL = 'FFB97034', PCT_FILL = 'FFE7EBF5', BRANCO = 'FFFFFFFF', PRETO = 'FF000000';
-    const solid = argb => ({ type:'pattern', pattern:'solid', fgColor:{ argb } });
-    const ln = (style, argb) => argb ? { style, color:{ argb } } : { style };
-    const center = { horizontal:'center', vertical:'middle' };
-    const F = (r, c) => r.getCell(c);
-    const set = (cell, value, result) => { cell.value = (typeof value === 'string' && value[0] === '=') ? { formula: value.slice(1), result } : value; };
-    const wb = new ExcelJS.Workbook();
-    wb.calcProperties = { fullCalcOnLoad: true };
-    // Abas criadas já na ordem do arquivo real (NDI SP, EXPORT, META); preenchidas abaixo.
-    const ws = wb.addWorksheet(abaMain, { views:[{ state:'frozen', ySplit:3, zoomScale:70, showGridLines:false }] });
-    const wsExp = wb.addWorksheet('EXPORT', { views:[{ zoomScale:80 }] });
-    const wsMeta = wb.addWorksheet(abaMeta, { views:[{ showGridLines:false }] });
-
-    // ---------- META <MÊS> ----------
-    [55, 21.7, 12, 12, 12, 12, 12, 8, 4, 4, 12, 8].forEach((w, i) => { wsMeta.getColumn(i + 1).width = w; });
-    const META_COL = { IND:'C', SS:'D', PME:'E', ADM:'F' };
-    const dirMetaCat = {}; CATS.forEach(k => { dirMetaCat[k] = teamList.reduce((s, t) => s + (t.td.total.cat[k].meta || 0), 0); });
-    const dirMetaTot = teamList.reduce((s, t) => s + (t.td.total.meta || 0), 0);
-    // layout: linha 1 cabeçalho, 2.. blocos (sênior + executivos + linha em branco), diretora no fim
-    let r = 3;
-    const blocks = teamList.map(t => { const b = { t, row: r, execRows: [] }; r++; t.td.members.forEach(() => { b.execRows.push(r); r++; }); r++; return b; });
-    const dirRow = r;
-    const vertRow = { IND:2, SS:3, PME:4, ADM:5 };
-    const h1 = wsMeta.getRow(1);
-    [['A','SP HAP NDI'],['C','IND'],['D','SS'],['E','PME'],['F','ADESÃO'],['G','TOTAL'],['H','%']].forEach(([c, v]) => { F(h1, c).value = v; });
-    'ABCDEFGH'.split('').forEach(c => { const x = F(h1, c); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; x.fill = solid('FF4F81BD'); x.alignment = { horizontal:'center' }; x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; });
-    F(h1, 'K').value = 'VERTICAL NDI'; wsMeta.mergeCells('K1:L1');
-    F(h1, 'K').font = { name:'Calibri', size:11, bold:true }; F(h1, 'K').fill = solid('FFFFFF00'); F(h1, 'K').alignment = { horizontal:'center' };
-    const pctVert = {}; CATS.forEach(k => { pctVert[k] = dirMetaTot ? dirMetaCat[k] / dirMetaTot * 100 : 0; });
-    [['IND','PF'],['SS','SS'],['PME','PME'],['ADM','ADESÃO']].forEach(([k, lbl]) => {
-      const row = wsMeta.getRow(vertRow[k]); F(row, 'K').value = lbl; F(row, 'L').value = pctVert[k];
-      ['K','L'].forEach(c => { F(row, c).border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; F(row, c).font = { name:'Calibri', size:11 }; });
-      F(row, 'L').numFmt = '0.##';
-    });
-    set(F(wsMeta.getRow(6), 'L'), '=SUM(L2:L5)', CATS.reduce((s, k) => s + pctVert[k], 0)); F(wsMeta.getRow(6), 'L').numFmt = '0.##';
-    const META_LIGHT = 'FFE6B9B8', META_NAME = 'FFD9D9D9';
-    const styleMetaRow = (row, kind) => {
-      'ABCDEFGH'.split('').forEach(c => {
-        const x = F(row, c);
-        x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') };
-        const nameCol = c === 'A' || c === 'B';
-        x.font = { name:'Calibri', size: nameCol ? 10 : 11, bold: kind !== 'exec' || c === 'G' };
-        x.alignment = { horizontal: c === 'A' ? 'left' : 'center', vertical:'middle' };
-        if (c >= 'C' && c <= 'G') x.numFmt = '#,##0';
-        if (kind === 'dir') x.fill = solid('FFFF0000');
-        else if (kind === 'team') { if (c !== 'H') x.fill = solid(META_LIGHT); }
-        else if (nameCol) x.fill = solid(META_NAME);
-        else if (c !== 'H') x.fill = solid(META_LIGHT);
-      });
-    };
-    const near = (a, b) => Math.abs((a || 0) - (b || 0)) <= 0.01;
-    const metaVal = {};  // valor final de cada célula de meta (pra conferir a cascata e alimentar o PROCV)
-    // diretora
-    const dRow = wsMeta.getRow(dirRow);
-    F(dRow, 'A').value = 'FABYANNA BOAVENTURA'; F(dRow, 'B').value = 'DIRETORA REGIONAL SP';
-    F(dRow, 'G').value = dirMetaTot; F(dRow, 'H').value = 100;
-    CATS.forEach(k => {
-      const viaFormula = dirMetaTot * pctVert[k] / 100;
-      if (near(viaFormula, dirMetaCat[k])) set(F(dRow, META_COL[k]), `=G${dirRow}*L${vertRow[k]}/100`, viaFormula);
-      else F(dRow, META_COL[k]).value = dirMetaCat[k];
-      metaVal['dir' + k] = near(viaFormula, dirMetaCat[k]) ? viaFormula : dirMetaCat[k];
-    });
-    styleMetaRow(dRow, 'dir');
-    blocks.forEach(b => {
-      const td = b.t.td, row = wsMeta.getRow(b.row);
-      const pctTeam = dirMetaTot ? (td.total.meta || 0) / dirMetaTot * 100 : 0;
-      F(row, 'A').value = 'GERENTE SENIOR: ' + b.t.senior; F(row, 'B').value = 'GERENTE SENIOR'; F(row, 'H').value = pctTeam;
-      const teamVal = {};
-      CATS.forEach(k => {
-        const viaFormula = pctTeam * metaVal['dir' + k] / 100;
-        if (near(viaFormula, td.total.cat[k].meta)) { set(F(row, META_COL[k]), `=H${b.row}*${META_COL[k]}${dirRow}/100`, viaFormula); teamVal[k] = viaFormula; }
-        else { F(row, META_COL[k]).value = td.total.cat[k].meta || 0; teamVal[k] = td.total.cat[k].meta || 0; }
-      });
-      set(F(row, 'G'), `=SUM(C${b.row}:F${b.row})`, CATS.reduce((s, k) => s + teamVal[k], 0));
-      F(row, 'H').numFmt = '0.##';
-      styleMetaRow(row, 'team');
-      const teamTot = CATS.reduce((s, k) => s + teamVal[k], 0);
-      td.members.forEach((m, i) => {
-        const er = b.execRows[i], erow = wsMeta.getRow(er);
-        const pctExec = teamTot ? (m.total.meta || 0) / teamTot * 100 : 0;
-        F(erow, 'A').value = rawOf(m.nome); F(erow, 'B').value = 'EXECUTIVO(A)'; F(erow, 'H').value = pctExec; F(erow, 'H').numFmt = '0.##';
-        let tot = 0;
-        CATS.forEach(k => {
-          const viaFormula = teamVal[k] * pctExec / 100;
-          let v;
-          if (near(viaFormula, m.cat[k].meta)) { set(F(erow, META_COL[k]), `=$${META_COL[k]}$${b.row}*H${er}/100`, viaFormula); v = viaFormula; }
-          else { v = m.cat[k].meta || 0; F(erow, META_COL[k]).value = v; }
-          metaVal[m.nome + '|' + k] = v; tot += v;
-        });
-        set(F(erow, 'G'), `=SUM(C${er}:F${er})`, tot);
-        metaVal[m.nome + '|TOT'] = tot;
-        styleMetaRow(erow, 'exec');
-      });
-    });
-
-    // ---------- EXPORT ----------
-    [60, 14.3, 61, 40.6, 20.7, 30, 31, 31, 15.1, 26.3].forEach((w, i) => { wsExp.getColumn(i + 1).width = w; });
-    const e1 = wsExp.getRow(1), e2 = wsExp.getRow(2);
-    ['CANAL','CODIGO','CORRETORA','GESTOR','01-INDIVIDUAL','02-PIM (IND/3-29 VIDAS)','03-MIDDLE I(30-99 VIDAS)','07-ADMINISTRADORA','Total','FILIAL'].forEach((v, i) => { e1.getCell(i + 1).value = v; });
-    e2.getCell(1).value = 'Código Corretora | Nome Corretora | Filial';
-    for (let c = 5; c <= 9; c++) e2.getCell(c).value = 'Vendas Novas';
-    const expFill = c => c === 1 ? 'FF002B7F' : (c <= 4 ? 'FF003DA5' : (c <= 8 ? 'FFFF6A00' : 'FF4D4D4D'));
-    [e1, e2].forEach(row => { for (let c = 1; c <= 10; c++){ const x = row.getCell(c); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; x.fill = solid(expFill(c)); x.alignment = { horizontal: c === 1 ? undefined : 'center', vertical:'middle' }; x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; } });
-    ['B1:B2','C1:C2','D1:D2','J1:J2'].forEach(m => wsExp.mergeCells(m));
-    expRows.forEach((er, i) => {
-      const rr = i + 3, row = wsExp.getRow(rr);
-      row.getCell(1).value = er.c ? `${er.c} - ${er.n}` : er.n;
-      row.getCell(2).value = er.c; row.getCell(3).value = er.n; row.getCell(4).value = er.gestor;
-      row.getCell(5).value = er.ind; row.getCell(6).value = er.ss; row.getCell(7).value = er.pme; row.getCell(8).value = er.adm;
-      set(row.getCell(9), `=SUM(E${rr}:H${rr})`, er.ind + er.ss + er.pme + er.adm);
-      row.getCell(10).value = er.filial;
-      for (let c = 1; c <= 10; c++){ const x = row.getCell(c); x.font = { name:'Calibri', size:11, italic: !!er.ajuste }; x.alignment = { horizontal: c === 1 ? undefined : 'center', vertical:'middle' }; if (c === 2 || c === 4 || c === 10) x.border = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') }; }
-    });
-    wsExp.autoFilter = { from:{ row:1, column:1 }, to:{ row: expRows.length + 2, column:10 } };
-
-    // ---------- NDI SP - <MÊS> ----------
-    [21.1, 51.1, 11.9, 14.9].concat(Array(13).fill(11.9)).forEach((w, i) => { ws.getColumn(i + 1).width = w; });
-    const META_IDX = { IND:3, SS:4, PME:5, ADM:6 };
-    const COLS = { IND:['C','D','E'], SS:['F','G','H'], PME:['I','J','K'], ADM:['L','M','N'] };
-    const EXP_COL = { IND:'E', SS:'F', PME:'G', ADM:'H' };
-    const CAT_KEY = { IND:'ind', SS:'ss', PME:'pme', ADM:'adm' };
-    const ALL = 'ABCDEFGHIJKLMNOPQ'.split('');
-    const styleRow = (row, kind) => {
-      ALL.forEach(c => {
-        const x = F(row, c);
-        const isPct = 'EHKN'.indexOf(c) >= 0, isQ = c === 'Q', isMeta = 'CFILO'.indexOf(c) >= 0;
-        const b = { top:ln('thin'), left:ln('thin'), bottom:ln('thin'), right:ln('thin') };
-        if (c === 'A') b.left = ln('thick', NAVY);
-        if (c === 'C') b.left = ln('medium', NAVY);
-        if (isPct) b.right = ln('medium', NAVY);
-        if (isQ) b.right = ln('thick', NAVY);
-        if (kind === 'total' || kind === 'obsTotal') b.bottom = ln('medium', NAVY);
-        if (kind === 'dir') { b.bottom = ln('thick', NAVY); }
-        x.border = b;
-        x.alignment = (c === 'A' && kind === 'dir') ? { vertical:'middle' } : { horizontal:'center', vertical:'middle', wrapText: c === 'A' };
-        if (c === 'A' && kind !== 'dir') { x.fill = solid(FILIAL_FILL); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; return; }
-        if (kind === 'total' || kind === 'dir' || (c === 'B' && (kind === 'obs' || kind === 'obsTotal'))) { x.fill = solid(NAVY); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; }
-        else if (kind === 'member' && (isPct || isQ)) { x.fill = solid(PCT_FILL); x.font = { name:'Calibri', size:11, bold:true }; }
-        else x.font = { name:'Calibri', size:11, bold: isQ };
-        if (isPct) x.numFmt = '0%';
-        else if (isQ) x.numFmt = '0.0%';
-        else if (isMeta || 'DGJMP'.indexOf(c) >= 0) x.numFmt = (kind === 'member') ? (isMeta ? '0' : 'General') : '#,##0';
-      });
-    };
-    // título + cabeçalho
-    const t1 = ws.getRow(1); t1.height = 30;
-    F(t1, 'A').value = 'HAPVIDA - NDI SP'; ws.mergeCells('A1:Q1');
-    F(t1, 'A').font = { name:'Calibri', size:18, bold:true, color:{ argb:'FF003DA5' } }; F(t1, 'A').alignment = center;
-    F(t1, 'A').border = { top:ln('thick', NAVY), left:ln('thick', NAVY), right:ln('thick', NAVY) };
-    const hdr = ws.getRow(3); hdr.height = 30;
-    ['FILIAL','GESTOR','META IND','INTEGRADO IND','% META IND','META SS','INTEGRADO SS','% META SS','META PME','INTEGRADO PME','% META PME','META ADM','INTEGRADO ADM','% META ADM','META TOTAL','INTEGRADO TOTAL','% META'].forEach((v, i) => { hdr.getCell(i + 1).value = v; });
-    ALL.forEach(c => { const x = F(hdr, c); x.font = { name:'Calibri', size:11, bold:true, color:{ argb:BRANCO } }; x.fill = solid(NAVY); x.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
-      x.border = { top:ln('thin'), left: c === 'A' ? ln('thick', NAVY) : (c === 'C' ? ln('medium', NAVY) : ln('thin')), bottom:ln('thin'), right: c === 'Q' ? ln('thick', NAVY) : ('EHKN'.indexOf(c) >= 0 ? ln('medium', NAVY) : ln('thin')) }; });
-    const pct = (a, b) => b ? a / b : 0;
-    const writeLine = (rr, vals) => {   // vals: {meta:{IND..}, int:{IND..}} já resolvidos + fórmulas
-      const row = ws.getRow(rr);
-      CATS.forEach(k => {
-        const [cm, ci, cp] = COLS[k];
-        set(F(row, cm), vals.fMeta[k], vals.meta[k]);
-        set(F(row, ci), vals.fInt[k], vals.int[k]);
-        set(F(row, cp), `=IFERROR(${ci}${rr}/${cm}${rr},0)`, pct(vals.int[k], vals.meta[k]));
-      });
-      const metaTot = CATS.reduce((s, k) => s + vals.meta[k], 0), intTot = vals.int.IND + vals.int.SS + vals.int.PME;
-      set(F(row, 'O'), vals.fMetaTot || `=SUM(C${rr},F${rr},I${rr},L${rr})`, metaTot);
-      set(F(row, 'P'), vals.fIntTot || `=SUM(D${rr},G${rr},J${rr})`, intTot);
-      set(F(row, 'Q'), `=IFERROR(P${rr}/O${rr},0)`, pct(intTot, metaTot));
-      return { meta: vals.meta, int: vals.int, metaTot, intTot };
-    };
-    let rr = 4;
-    const teamTotalRows = [], memberRanges = [];
-    const dirAcc = { meta:{IND:0,SS:0,PME:0,ADM:0}, int:{IND:0,SS:0,PME:0,ADM:0} };
-    teamList.forEach(t => {
-      const first = rr;
-      const acc = { meta:{IND:0,SS:0,PME:0,ADM:0}, int:{IND:0,SS:0,PME:0,ADM:0} };
-      t.td.members.forEach(m => {
-        const raw = rawOf(m.nome), row = ws.getRow(rr); row.height = 18;
-        F(row, 'B').value = raw;
-        const meta = {}, intv = {}, fMeta = {}, fInt = {};
-        CATS.forEach(k => {
-          meta[k] = metaVal[m.nome + '|' + k] || 0;
-          intv[k] = sumExp(raw, CAT_KEY[k]);
-          fMeta[k] = `=IFERROR(VLOOKUP($B${rr},'${abaMeta}'!$A:$H,${META_IDX[k]},FALSE),0)`;
-          fInt[k] = `=SUMIF(EXPORT!$D:$D,$B${rr},EXPORT!$${EXP_COL[k]}:$${EXP_COL[k]})`;
-          acc.meta[k] += meta[k]; acc.int[k] += intv[k];
-        });
-        writeLine(rr, { meta, int: intv, fMeta, fInt });
-        styleRow(row, 'member');
-        rr++;
-      });
-      const last = rr - 1, trow = ws.getRow(rr); trow.height = 18;
-      F(trow, 'B').value = 'TOTAL ' + t.senior;
-      const fSum = c => `=SUM(${c}${first}:${c}${last})`;
-      const fMeta = {}, fInt = {};
-      CATS.forEach(k => { fMeta[k] = fSum(COLS[k][0]); fInt[k] = fSum(COLS[k][1]); dirAcc.meta[k] += acc.meta[k]; dirAcc.int[k] += acc.int[k]; });
-      writeLine(rr, { meta: acc.meta, int: acc.int, fMeta, fInt, fMetaTot: fSum('O'), fIntTot: fSum('P') });
-      styleRow(trow, 'total');
-      F(ws.getRow(first), 'A').value = t.filial;
-      ws.mergeCells(`A${first}:A${rr}`);
-      teamTotalRows.push(rr); memberRanges.push([first, last]);
-      rr++;
-    });
-    // observações (não atribuído)
-    const obsRow = rr, obsTot = rr + 1;
-    const naoInt = {}; CATS.forEach(k => { naoInt[k] = sumExp('SEM EXECUTIVO', CAT_KEY[k]); });
-    const zeros = { IND:0, SS:0, PME:0, ADM:0 };
-    F(ws.getRow(obsRow), 'B').value = 'CORRETORAS SEM EXECUTIVO';
-    const fObs = {}; CATS.forEach(k => { fObs[k] = `=SUMIF(EXPORT!$D:$D,"SEM EXECUTIVO",EXPORT!$${EXP_COL[k]}:$${EXP_COL[k]})`; });
-    writeLine(obsRow, { meta: zeros, int: naoInt, fMeta: { IND:0, SS:0, PME:0, ADM:0 }, fInt: fObs });
-    styleRow(ws.getRow(obsRow), 'obs');
-    F(ws.getRow(obsTot), 'B').value = 'TOTAL';
-    const fObsT = {}, fObsTm = {}; CATS.forEach(k => { fObsT[k] = `=${COLS[k][1]}${obsRow}`; fObsTm[k] = `=${COLS[k][0]}${obsRow}`; });
-    writeLine(obsTot, { meta: zeros, int: naoInt, fMeta: fObsTm, fInt: fObsT, fMetaTot: `=O${obsRow}`, fIntTot: `=P${obsRow}` });
-    styleRow(ws.getRow(obsTot), 'obsTotal');
-    F(ws.getRow(obsRow), 'A').value = 'OBSERVAÇÕES'; ws.mergeCells(`A${obsRow}:A${obsTot}`);
-    // total da diretora
-    const dRowN = obsTot + 2, drow = ws.getRow(dRowN);
-    F(drow, 'A').value = 'TOTAL FABYANNA BOAVENTURA - NDI SP';
-    const lst = (c, extra) => `=SUM(${teamTotalRows.map(x => c + x).concat(extra ? [c + obsTot] : []).join(',')})`;
-    const fDm = {}, fDi = {}; CATS.forEach(k => { fDm[k] = lst(COLS[k][0], false); fDi[k] = lst(COLS[k][1], true); });
-    const dirInt = {}; CATS.forEach(k => { dirInt[k] = dirAcc.int[k] + naoInt[k]; });
-    writeLine(dRowN, { meta: dirAcc.meta, int: dirInt, fMeta: fDm, fInt: fDi, fMetaTot: lst('O', false), fIntTot: lst('P', true) });
-    styleRow(drow, 'dir');
-    // escala de cor do % (por bloco de executivos, igual ao arquivo)
-    memberRanges.forEach(([a, b]) => ws.addConditionalFormatting({ ref: `Q${a}:Q${b}`, rules: [{ type:'colorScale', priority:1,
-      cfvo: [{ type:'num', value:0.7 }, { type:'num', value:0.8 }, { type:'num', value:1 }], color: [{ argb:'FFF8696B' }, { argb:'FF63BE7B' }, { argb:'FF1E7A34' }] }] }));
-    const buf = await wb.xlsx.writeBuffer();
-    const hoje = new Date();
-    const dataBR = String(hoje.getDate()).padStart(2, '0') + '.' + String(hoje.getMonth() + 1).padStart(2, '0') + '.' + hoje.getFullYear();
-    const fileName = `NDI SP - POR GESTOR - ${mesNome} ${dataBR}.xlsx`;
-    window.downloadBlobFile(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
-    return { fileName, ajustes, corretoras: expRows.length };
-  };
-  document.getElementById('btnExportDesempenho').addEventListener('click', async () => {
-    const btn = document.getElementById('btnExportDesempenho');
-    if (btn.disabled) return;
-    const original = btn.innerHTML;
-    btn.disabled = true; btn.textContent = 'Gerando .xlsx…';
-    try { await window.exportDesempenhoXlsx(currentMonth); }
-    catch (e){ console.error(e); alert('Não consegui gerar o arquivo: ' + (e && e.message ? e.message : e)); }
-    finally { btn.disabled = false; btn.innerHTML = original; }
-  });
   // Re-renderiza a tela do Desempenho Comercial (usado pelo módulo de trimestre ao voltar pra visão mensal).
   window.mjRerender = function(){ renderMetaJunho(); };
   window.updateMetaJunhoData = function(newData){
@@ -1278,7 +763,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       MJ_BENCHMARK = newData.benchmark;
     }
     if (targetMonth === currentMonth) MJ_TEAMS = MJ_TEAMS_BY_MONTH[currentMonth];
-    if (currentTeam !== 'ALL_TEAMS' && !MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
+    if (!MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
     populateMonthSelect();
     renderMetaJunho();
   };
@@ -1301,7 +786,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     MJ_TEAMS = MJ_TEAMS_BY_MONTH[currentMonth];
     updateMonthHint();
     mjSelectedGestor = null;
-    if (currentTeam !== 'ALL_TEAMS' && !MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
+    if (!MJ_TEAMS[currentTeam]) currentTeam = Object.keys(MJ_TEAMS)[0];
     renderMetaJunho();
     // Comparativo → Assessorias também lê o mês de referência (via getCurrentMonth), então
     // precisa re-renderizar quando o usuário troca o mês no dropdown, senão fica mostrando
@@ -1414,47 +899,10 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let pendActiveTab = 'pme';
   let pendSelectedStatuses = new Set();
   let pendFinAberto = false; // grupo "Finalizadas" do painel de status aberto/fechado (sobrevive aos redesenhos)
-  // Vigência e Corretora com VÁRIAS escolhas (pedido do Victor, 2026-10-14: "poder escolher mais de um, tipo só setembro
-  // e outubro" / "selecionar duas corretoras em um único PDF"). Antes eram <select> de uma opção só. Vazio = todos.
-  // Mesma lógica de sempre entre filtros: mês E corretora E status E busca.
-  const pendMesSel = new Set(), pendCorSel = new Set();
-  const PEND_MES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const pendMesNome = m => { const p = String(m || '').split('-'); return p.length === 2 ? (PEND_MES_ABREV[Number(p[1]) - 1] || p[1]) + '/' + p[0].slice(2) : String(m || ''); };
-  const pendEsc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  // Texto do filtro pra relatórios/etiquetas ("Set/26 + Out/26", "2 corretoras: A, B")
-  // Tudo marcado (ex.: botão "Todos") = mesmo que nenhum filtro — o rótulo mostra "Todos os meses" / "Todas".
-  const pendTudoMarcado = { mes: false, cor: false };
-  function pendFiltroTexto(tipo, completo){
-    if (tipo === 'mes') return (pendMesSel.size && !pendTudoMarcado.mes) ? [...pendMesSel].sort().map(pendMesNome).join(' + ') : 'Todos os meses';
-    if (!pendCorSel.size || pendTudoMarcado.cor) return 'Todas as corretoras';
-    const l = [...pendCorSel].sort();
-    return (completo || l.length === 1) ? l.join(', ') : `${l.length} corretoras`;
-  }
-  function pendMultiFechar(){
-    ['pendMesLista','pendCorLista','pendRelMenu'].forEach(id => { const el = document.getElementById(id); if (el) el.hidden = true; });
-    ['pendMesBtn','pendCorBtn','pendPdfBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.setAttribute('aria-expanded','false'); });
-  }
-  // Desenha a lista de um dos dois filtros (chamada no renderPendencias). `contagem` = {valor: nº de propostas}.
-  function pendMultiRender(tipo, valores, contagem){
-    const sel = tipo === 'mes' ? pendMesSel : pendCorSel;
-    const opts = document.getElementById(tipo === 'mes' ? 'pendMesOpts' : 'pendCorOpts');
-    const q = tipo === 'cor' ? String(document.getElementById('pendCorBusca').value || '').trim().toUpperCase() : '';
-    const visiveis = valores.filter(v => !q || String(v).toUpperCase().indexOf(q) >= 0);
-    opts.innerHTML = visiveis.length ? visiveis.map(v => `<label class="pmulti-item"><input type="checkbox" value="${pendEsc(v)}"${sel.has(v) ? ' checked' : ''}><span>${pendEsc(tipo === 'mes' ? pendMesNome(v) : v)}</span><span class="pmulti-n">${(contagem[v] || 0).toLocaleString('pt-BR')}</span></label>`).join('')
-      : `<p class="pmulti-vazio">${q ? 'Nenhuma corretora com esse nome.' : 'Nada nesse recorte.'}</p>`;
-    opts.querySelectorAll('input').forEach(i => i.addEventListener('change', () => { i.checked ? sel.add(i.value) : sel.delete(i.value); renderPendencias(); }));
-    pendTudoMarcado[tipo] = valores.length > 0 && valores.every(v => sel.has(v));
-    const btn = document.getElementById(tipo === 'mes' ? 'pendMesBtn' : 'pendCorBtn');
-    btn.classList.toggle('on', sel.size > 0 && !pendTudoMarcado[tipo]);
-    document.getElementById(tipo === 'mes' ? 'pendMesResumo' : 'pendCorResumo').textContent =
-      tipo === 'mes' ? pendFiltroTexto('mes') : ((sel.size && !pendTudoMarcado.cor) ? pendFiltroTexto('cor') : 'Todas');
-  }
-  // Nome de exibição de cada "esteira" (campo de status.{campo}) — usado nos chips de filtro
-  // de Pendências PME, ver renderPendencias().
+  // Nome de exibição de cada "esteira" (campo de status.{campo}) — porta pro V2 o mesmo fix
+  // já aplicado no V1 (2026-09-29): "PENDENTE" (Ditec) e "pendencia" (Planium) pareciam
+  // duplicados nos chips, mas são esteiras diferentes.
   const PEND_STATUS_FIELD_LABELS = {planium:'Planium', cadastro:'Cadastro', ditec:'Ditec', bitix:'Bitix'};
-  // Reconstrói o rótulo legível ("Pendente · Ditec") a partir da chave guardada em
-  // pendSelectedStatuses ("ditec::PENDENTE") — usado no relatório em PDF, que lê
-  // pendSelectedStatuses fora do escopo de renderPendencias().
   function pendStatusKeyToLabel(k){
     const sep = k.indexOf('::');
     if (sep < 0) return k;
@@ -1524,10 +972,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // vem bonito, tipo do Desempenho Comercial) — precisa varrer as chaves do dicionário e
   // achar quais delas convertem pro mesmo nome bonito, senão a variante crua fica de fora.
   // gestorNome nulo/vazio = "todos os gestores" (pedido do Victor, 2026-09-29, "Consultar
-  // Funil", portado do V2 nesta mesma data): reaproveita a mesma função pra cada gestor
-  // conhecido, marcando cada proposta com o dono dela (_gestor) — só usado quando a tela
-  // mostra todo mundo junto, pra render a coluna Gestor. Não muda em nada o caminho de UM
-  // gestor específico (abaixo, inalterado).
+  // Funil"): reaproveita a mesma função pra cada gestor conhecido, marcando cada proposta
+  // com o dono dela (_gestor) — só usado quando a tela mostra todo mundo junto, pra render
+  // a coluna Gestor. Não muda em nada o caminho de UM gestor específico (abaixo, inalterado).
   function pendenciasDoGestor(dict, gestorNome, idField){
     if (!gestorNome){
       const friendlies = [...new Set(Object.keys(dict).map(k => window.getGestorFriendlyName ? window.getGestorFriendlyName(k) : k))].sort();
@@ -1588,17 +1035,19 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
     const list = pendActiveTab === 'pme' ? pme : pf;
     const dateField = pendActiveTab === 'pme' ? 'dataVigencia' : 'dataStatus';
-    // Vigência / Corretora com várias escolhas (2026-10-14) — tira da escolha o que não existe mais no recorte
-    const contMes = {}, contCor = {};
-    list.forEach(p => { const m = pendMonthOf(p[dateField]); if (m) contMes[m] = (contMes[m] || 0) + 1; if (p.corretora) contCor[p.corretora] = (contCor[p.corretora] || 0) + 1; });
-    const months = Object.keys(contMes).sort();
-    const corretoras = Object.keys(contCor).sort();
-    [...pendMesSel].forEach(m => { if (!contMes[m]) pendMesSel.delete(m); });
-    [...pendCorSel].forEach(c => { if (!contCor[c]) pendCorSel.delete(c); });
-    pendMultiRender('mes', months, contMes);
-    pendMultiRender('cor', corretoras, contCor);
-    const mesOk = d => !pendMesSel.size || pendMesSel.has(pendMonthOf(d));
-    const corOk = c => !pendCorSel.size || pendCorSel.has(c);
+    const months = [...new Set(list.map(p => pendMonthOf(p[dateField])).filter(Boolean))].sort();
+    const sel = document.getElementById('pendMonthFilter');
+    const prevVal = sel.value;
+    sel.innerHTML = '<option value="">Todos os meses</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
+    sel.value = months.includes(prevVal) ? prevVal : '';
+    const activeMonth = sel.value;
+
+    const corretoras = [...new Set(list.map(p => p.corretora).filter(Boolean))].sort();
+    const corSel = document.getElementById('pendCorretoraFilter');
+    const prevCor = corSel.value;
+    corSel.innerHTML = '<option value="">Todas</option>' + corretoras.map(c => `<option value="${c}">${c}</option>`).join('');
+    corSel.value = corretoras.includes(prevCor) ? prevCor : '';
+    const activeCorretora = corSel.value;
 
     // Cada chip carrega o par {campo, valor} — dois status com o mesmo texto mas de campos
     // diferentes (ex.: REANALISE no Ditec e no Bitix) viram chips distintos, nunca fundidos.
@@ -1743,26 +1192,23 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const pmeStatusOk = p => p._extra
       ? (pendActiveTab === 'pme' && ((!!selPorArea.planium && bateFiltro(p)) || (!!searchRaw && pendSelectedStatuses.size === 0)))
       : (pendActiveTab !== 'pme' || pendSelectedStatuses.size === 0 || bateFiltro(p));
-    const pmeFiltered = pmeComExtras.filter(p => mesOk(p.dataVigencia) && corOk(p.corretora) && pmeStatusOk(p) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
+    const pmeFiltered = pmeComExtras.filter(p => (!activeMonth || pendMonthOf(p.dataVigencia) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && pmeStatusOk(p) && (!searchRaw || String(p.proposta||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.beneficiarios||0) - (b.beneficiarios||0)));
-    const pfFiltered = pf.filter(p => mesOk(p.dataStatus) && corOk(p.corretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || bateFiltro(p)) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
+    const pfFiltered = pf.filter(p => (!activeMonth || pendMonthOf(p.dataStatus) === activeMonth) && (!activeCorretora || p.corretora === activeCorretora) && (pendActiveTab !== 'pf' || pendSelectedStatuses.size === 0 || bateFiltro(p)) && (!searchRaw || String(p.orcamento||'').toLowerCase().indexOf(searchRaw) >= 0))
       .sort((a,b) => pendSortDir * ((a.vidas||0) - (b.vidas||0)));
     pendLastPmeFiltered = pmeFiltered;
     pendLastPfFiltered = pfFiltered;
-    // "Baixar relatório" (2026-10-14): o que está filtrado na tela, em PDF (direto) ou Excel — agora também com
-    // "Todos os gestores" (o relatório ganha a coluna Gestor). Desligado só quando o filtro não traz nada.
-    const nTela = pendActiveTab === 'pme' ? pmeFiltered.length : pfFiltered.length;
-    const relBtn = document.getElementById('pendPdfBtn');
-    relBtn.disabled = !nTela;
-    relBtn.style.opacity = relBtn.disabled ? '.5' : '';
-    relBtn.style.cursor = relBtn.disabled ? 'default' : 'pointer';
-    relBtn.title = nTela ? `Relatório com ${nTela} ${pendActiveTab === 'pme' ? 'propostas' : 'orçamentos'} do filtro atual (PDF ou Excel)` : 'Nada no filtro atual';
-    // "Baixar funil (Excel)": funil INTEIRO de todos os gestores, sem os filtros da tela (PME ou PF, conforme a aba)
+    // "Baixar relatório" continua exigindo UM gestor específico (ver comentário em
+    // pendGerarPDF) — em "todos os gestores" fica desabilitado, não só sem fazer nada ao clicar.
+    document.getElementById('pendPdfBtn').disabled = !gestorNome || (pendActiveTab === 'pme' ? !pmeFiltered.length : !pfFiltered.length);
+    document.getElementById('pendPdfBtn').style.opacity = document.getElementById('pendPdfBtn').disabled ? '.5' : '';
+    document.getElementById('pendPdfBtn').style.cursor = document.getElementById('pendPdfBtn').disabled ? 'default' : 'pointer';
+    document.getElementById('pendPdfBtn').title = gestorNome ? '' : 'Selecione um gestor específico pra baixar o relatório';
+    // Planilha .xlsx: só PME, com qualquer gestor (inclusive "todos")
     const xlsxBtn = document.getElementById('pendXlsxBtn');
-    const nFunil = pendActiveTab === 'pme' ? Object.values(PENDENCIAS_PME || {}).reduce((s, a) => s + (a || []).length, 0) : Object.values(PENDENCIAS_PF || {}).reduce((s, a) => s + (a || []).length, 0);
-    xlsxBtn.disabled = !nFunil;
-    xlsxBtn.title = pendActiveTab === 'pme' ? 'Funil PME inteiro (todos os gestores, sem os filtros da tela) com as abas DINÂMICA, ESTEIRA DITEC, RESULTADO FINAL, PLANIUM e T6140B'
-      : 'Funil PF inteiro (todos os gestores, sem os filtros da tela) com a aba DINÂMICA por gestor e status';
+    xlsxBtn.style.display = pendActiveTab === 'pme' ? '' : 'none';
+    xlsxBtn.disabled = !pmeFiltered.length;
+    xlsxBtn.title = `Baixa as ${pmeFiltered.length} propostas da tela (com os filtros aplicados) + aba DINÂMICA por gestor`;
 
     document.getElementById('pendCountPme').textContent = pmeFiltered.reduce((s,p)=>s+(p.beneficiarios||0),0);
     document.getElementById('pendCountPf').textContent = pfFiltered.reduce((s,p)=>s+(p.vidas||0),0);
@@ -1770,40 +1216,15 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       ? pmeFiltered.reduce((s,p)=>s+(p.beneficiarios||0),0)
       : pfFiltered.reduce((s,p)=>s+(p.vidas||0),0);
     document.getElementById('pendBeneficiariosTotal').textContent = `Total de beneficiários (filtro atual): ${beneficiariosTotal}`;
-    // Estado vazio com nome do filtro ativo + botão "Limpar filtros" — sugestão de polimento
-    // visual aprovada por Victor 2026-10-01 (demonstrativo "Polimento Visual"), aplicada aqui
-    // porque é o único lugar do app com estado de filtro conhecido o bastante (mês/corretora/
-    // status/busca, todos locais a renderPendencias) pra montar a mensagem e o botão de verdade,
-    // em vez de um texto genérico "nenhum resultado encontrado".
-    const pendFilterParts = [];
-    if (pendMesSel.size) pendFilterParts.push(pendFiltroTexto('mes'));
-    if (pendCorSel.size) pendFilterParts.push(pendFiltroTexto('cor'));
-    if (pendSelectedStatuses.size) pendFilterParts.push(pendSelectedStatuses.size === 1 ? '1 status' : pendSelectedStatuses.size+' status');
-    if (searchRaw) pendFilterParts.push(`busca "${searchRaw}"`);
-    const pendHasActiveFilters = pendFilterParts.length > 0;
-    const pendEmptyRow = (colspan, label) => `<tr><td colspan="${colspan}"><div class="pend-empty">
-        <span class="pend-empty-ic"><i class="ic-search"></i></span>
-        <strong>Nenhuma ${label} com esse filtro</strong>
-        <p>${pendHasActiveFilters ? 'Filtros ativos: '+pendFilterParts.join(' · ')+'.' : 'Não há pendências cadastradas pra esse gestor no momento.'}</p>
-        ${pendHasActiveFilters ? '<button type="button" class="btn-reset pend-empty-clear">Limpar filtros</button>' : ''}
-      </div></td></tr>`;
     document.getElementById('pendPmeBody').innerHTML = pmeFiltered.length ? pmeFiltered.map(p => `
-      <tr><td>${p.proposta}</td><td class="num">${p.beneficiarios}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td>
+      <tr><td>${p.proposta}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td>
         <span class="tag ${p.status.planium==='pendencia'?'react':'noelig'}" title="Planium: ${p.status.planium||'—'}">${pendPlaniumView(p)}</span>${pendImplantaAmanha(p) ? '<span class="pend-amanha">Implanta amanhã</span>' : ''}
         <div style="font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.6;">${['cadastro','ditec'].filter(k=>pendTxt(p.status[k])).map(k=>`${k.charAt(0).toUpperCase()+k.slice(1)}: <b>${pendSemLogin(p.status[k])}</b>`).join(' · ')}</div>
-      </td><td>${p.dataReceb}</td><td>${p.dataVigencia}</td></tr>
-    `).join('') : pendEmptyRow(showGestorCol?7:6, 'pendência PME/SS');
+      </td><td class="num">${p.beneficiarios}</td><td>${p.dataReceb}</td><td>${p.dataVigencia}</td></tr>
+    `).join('') : `<tr><td colspan="${showGestorCol?7:6}" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma pendência PME/SS para este filtro.</td></tr>`;
     document.getElementById('pendPfBody').innerHTML = pfFiltered.length ? pfFiltered.map(p => `
-      <tr><td>${p.orcamento}</td><td class="num">${p.vidas}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td><span class="tag react">${p.status}</span></td><td>${p.dataStatus}</td></tr>
-    `).join('') : pendEmptyRow(showGestorCol?6:5, 'pendência PF');
-    document.querySelectorAll('#pendPmeBody .pend-empty-clear, #pendPfBody .pend-empty-clear').forEach(btn => {
-      btn.addEventListener('click', () => {
-        pendMesSel.clear(); pendCorSel.clear();
-        document.getElementById('pendPropostaSearch').value = '';
-        pendSelectedStatuses.clear();
-        renderPendencias();
-      });
-    });
+      <tr><td>${p.orcamento}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td><span class="tag react">${p.status}</span></td><td class="num">${p.vidas}</td><td>${p.dataStatus}</td></tr>
+    `).join('') : `<tr><td colspan="${showGestorCol?6:5}" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma pendência PF para este filtro.</td></tr>`;
   }
 
   // Painel de status: abre/fecha animado (classe .open; .just-opened só na abertura, pra as áreas entrarem
@@ -1828,7 +1249,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('pendTabPf').classList.remove('active');
     document.getElementById('pendPmeSection').style.display = '';
     document.getElementById('pendPfSection').style.display = 'none';
-    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
+    document.getElementById('pendMonthFilter').value = '';
+    document.getElementById('pendCorretoraFilter').value = '';
     document.getElementById('pendPropostaSearch').value = '';
     pendSelectedStatuses.clear();
     // opts.amanha: veio do cartão "Implanta amanhã" do Resumo do Dia — já abre filtrado nisso.
@@ -1839,33 +1261,17 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   };
   document.getElementById('btnClosePend').addEventListener('click', () => { document.getElementById('pendModalOverlay').style.display = 'none'; });
   document.getElementById('pendModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'pendModalOverlay') document.getElementById('pendModalOverlay').style.display = 'none'; });
-  window.__kb(document.getElementById('pendStatusClear')).addEventListener('click', () => { pendSelectedStatuses.clear(); renderPendencias(); });
-  // Vigência / Corretora com várias escolhas (2026-10-14): abre/fecha as listas, busca, "marcar todos"/"limpar".
-  [['pendMesBtn','pendMesLista'], ['pendCorBtn','pendCorLista']].forEach(([b, l]) => {
-    document.getElementById(b).addEventListener('click', (e) => {
-      e.stopPropagation();
-      const lista = document.getElementById(l), abrir = lista.hidden;
-      pendMultiFechar();
-      lista.hidden = !abrir; document.getElementById(b).setAttribute('aria-expanded', String(abrir));
-      if (abrir && l === 'pendCorLista') document.getElementById('pendCorBusca').focus();
-    });
-    document.getElementById(l).addEventListener('click', (e) => e.stopPropagation());
-  });
-  document.getElementById('pendCorBusca').addEventListener('input', () => renderPendencias());
-  document.getElementById('pendMesTodos').addEventListener('click', () => { document.querySelectorAll('#pendMesOpts input').forEach(i => pendMesSel.add(i.value)); renderPendencias(); });
-  document.getElementById('pendCorTodos').addEventListener('click', () => { document.querySelectorAll('#pendCorOpts input').forEach(i => pendCorSel.add(i.value)); renderPendencias(); });
-  document.getElementById('pendMesLimpa').addEventListener('click', () => { pendMesSel.clear(); renderPendencias(); });
-  document.getElementById('pendCorLimpa').addEventListener('click', () => { pendCorSel.clear(); renderPendencias(); });
-  document.getElementById('pendModal').addEventListener('click', () => pendMultiFechar());
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pendMultiFechar(); });
+  document.getElementById('pendStatusClear').addEventListener('click', () => { pendSelectedStatuses.clear(); renderPendencias(); });
+  document.getElementById('pendMonthFilter').addEventListener('change', renderPendencias);
+  document.getElementById('pendCorretoraFilter').addEventListener('change', renderPendencias);
   document.getElementById('pendPropostaSearch').addEventListener('input', renderPendencias);
-  // Troca o gestor SEM fechar o popup — pedido do Victor, 2026-09-29 ("Consultar Funil"),
-  // portado do V2: dropdown vazio = todos os gestores juntos, mesma variável que já controlava
-  // tudo o resto.
+  // Troca o gestor SEM fechar o popup — pedido do Victor, 2026-09-29 ("Consultar Funil"):
+  // dropdown vazio = todos os gestores juntos, mesma variável que já controlava tudo o resto.
   document.getElementById('pendGestorFilter').addEventListener('change', (e) => {
     pendCurrentGestor = e.target.value || null;
     document.getElementById('pendModalGestor').textContent = pendCurrentGestor || 'Todas as equipes';
-    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
+    document.getElementById('pendMonthFilter').value = '';
+    document.getElementById('pendCorretoraFilter').value = '';
     pendSelectedStatuses.clear();
     renderPendencias();
   });
@@ -1876,199 +1282,111 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     window.showPendenciasModal(null);
   });
 
-  // ===== "Baixar relatório" (2026-10-14, pedido do Victor) =====
-  // Relatório do que está FILTRADO na tela (gestor, vigências, corretoras, status, busca), em PDF ou Excel — o menu do
-  // botão escolhe. Antes era uma página HTML que a pessoa tinha que salvar como PDF pelo Ctrl+P; agora o PDF é gerado
-  // direto (jsPDF + autoTable, carregados do cdnjs só no clique — o login não fica mais lento). Com mais de uma corretora,
-  // o relatório sai separado por corretora (cabeçalho + subtotal de cada uma) e o total geral no fim. Funciona também em
-  // "Todos os gestores" (aí o relatório ganha a coluna Gestor). O funil inteiro vai pelo "Baixar funil (Excel)".
-  let pendJsPdfPromise = null;
-  function pendLoadJsPdf(){
-    if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) return Promise.resolve(window.jspdf.jsPDF);
-    if (!pendJsPdfPromise){
-      const carrega = src => new Promise((res, rej) => {
-        const s = document.createElement('script'); s.src = src;
-        s.onload = res; s.onerror = () => rej(new Error('Falha ao baixar a biblioteca de PDF'));
-        document.head.appendChild(s);
-      });
-      pendJsPdfPromise = carrega('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
-        .then(() => carrega('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'))
-        .then(() => { if (!(window.jspdf && window.jspdf.jsPDF)) throw new Error('jsPDF não carregou'); return window.jspdf.jsPDF; })
-        .catch(e => { pendJsPdfPromise = null; throw e; });
-    }
-    return pendJsPdfPromise;
-  }
-  const pendDataBR = iso => iso ? String(iso).slice(0,10).split('-').reverse().join('/') : '—';
-  // Monta o conteúdo do relatório a partir do que está na tela (mesma lista da tabela)
-  function pendRelatorioDados(){
+  // "Baixar relatório" — mesmo padrão de PDF-via-HTML do Ranking (rkmGerarPDF, removido em
+  // 2026-09-04: casava por nome de corretora entre extrato de vendas e funil, o que não é
+  // confiável — "AFFINITY" vendida como QUALI PLANOS no BI, registrada como F8 no Planium).
+  // Aqui não tem esse problema: já está tudo filtrado por GESTOR (que os dois sistemas
+  // concordam), então baixa exatamente o que está na tela — sem tentar casar nome nenhum.
+  function pendGerarPDF(){
+    if (!pendCurrentGestor) return;
     const isPme = pendActiveTab === 'pme';
     const rows = (isPme ? pendLastPmeFiltered : pendLastPfFiltered).slice();
-    const gestor = pendCurrentGestor ? (window.getGestorFriendlyName ? window.getGestorFriendlyName(pendCurrentGestor) : pendCurrentGestor) : 'Todas as equipes';
-    const comGestor = !pendCurrentGestor;
-    const vidasDe = p => isPme ? (p.beneficiarios || 0) : (p.vidas || 0);
-    const dataDe = p => isPme ? (p.dataVigencia || '') : (p.dataStatus || '');
-    rows.sort((a,b) => String(a.corretora||'').localeCompare(String(b.corretora||'')) || dataDe(b).localeCompare(dataDe(a)));
-    const grupos = [], idx = {};
-    rows.forEach(p => { const c = p.corretora || '(sem corretora)'; if (!(c in idx)){ idx[c] = grupos.length; grupos.push({ nome: c, rows: [] }); } grupos[idx[c]].rows.push(p); });
-    const cols = isPme
-      ? ['Proposta', ...(comGestor ? ['Gestor'] : []), 'Corretora', 'Recebido', 'Vigência', 'Planium', 'Cadastro', 'Ditec', 'Vidas']
-      : ['Orçamento', ...(comGestor ? ['Gestor'] : []), 'Corretora', 'Data status', 'Status', 'Vidas'];
-    const linha = p => isPme
-      ? [String(p.proposta), ...(comGestor ? [p._gestor || ''] : []), p.corretora || '', pendDataBR(p.dataReceb), pendDataBR(p.dataVigencia),
-         pendPlaniumView(p) + (pendImplantaAmanha(p) ? ' · implanta amanhã' : ''), pendSemLogin(p.status.cadastro) || '—', pendSemLogin(p.status.ditec) || '—', vidasDe(p)]
-      : [String(p.orcamento), ...(comGestor ? [p._gestor || ''] : []), p.corretora || '', pendDataBR(p.dataStatus), p.status || '', vidasDe(p)];
-    const busca = document.getElementById('pendPropostaSearch').value.trim();
-    const filtros = [
-      `${isPme ? 'Vigência' : 'Data status'}: ${pendFiltroTexto('mes')}`,
-      `Corretora: ${pendFiltroTexto('cor', true)}`,
-      `Status: ${pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'Todos os status'}`,
-    ].concat(busca ? [`Busca: "${busca}"`] : []);
-    const total = rows.reduce((s,p) => s + vidasDe(p), 0);
-    const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g, '.');
-    const nomeBase = `Pendencias ${isPme ? 'PME' : 'PF'} - ${gestor} - ${hoje}`.replace(/[\\/:*?"<>|]+/g, ' ').trim();
-    const qtd = n => `${n.toLocaleString('pt-BR')} ${isPme ? (n === 1 ? 'proposta' : 'propostas') : (n === 1 ? 'orçamento' : 'orçamentos')}`;
-    return { qtd, isPme, rows, gestor, comGestor, grupos, separar: grupos.length > 1, cols, linha, vidasDe, filtros, total, nomeBase };
-  }
-  const pendCorStatus = st => {
-    const s = String(st || '').toLowerCase();
-    if (/implant|conclu|liberad|assinado|processado/.test(s)) return [22,184,122];
-    if (/pend/.test(s)) return [242,107,33];
-    if (/cancel|recusad|devolv/.test(s)) return [245,54,74];
-    return null;
-  };
+    if (!rows.length) return;
+    const esc = t => String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const dataBR = iso => iso ? String(iso).split('-').reverse().join('/') : '—';
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    const fmtN = n => Math.round(n||0).toLocaleString('pt-BR');
+    const stColor = st => {
+      const s = String(st||'').toLowerCase();
+      if (s.indexOf('implant')>=0 || s.indexOf('concluid')>=0 || s.indexOf('liberad')>=0 || s.indexOf('assinado')>=0 || s.indexOf('processado')>=0) return '#16B87A';
+      if (s.indexOf('pend')>=0) return '#F26B21';
+      if (s.indexOf('cancel')>=0 || s.indexOf('recusad')>=0 || s.indexOf('devolv')>=0) return '#F5364A';
+      return '#56608F';
+    };
+    if (isPme) rows.sort((a,b) => (b.dataVigencia||'').localeCompare(a.dataVigencia||''));
+    else rows.sort((a,b) => (b.dataStatus||'').localeCompare(a.dataStatus||''));
+    const total = rows.reduce((s,p)=>s+(isPme?(p.beneficiarios||0):(p.vidas||0)), 0);
+    const mesFiltroTxt = document.getElementById('pendMonthFilter').value || 'Todos os meses';
+    const corFiltroTxt = document.getElementById('pendCorretoraFilter').value || 'Todas as corretoras';
+    const stsFiltroTxt = pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'Todos os status';
 
-  async function pendRelatorioPdf(){
-    const d = pendRelatorioDados(); if (!d.rows.length) return;
-    const jsPDF = await pendLoadJsPdf();
-    const doc = new jsPDF({ orientation: d.isPme ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
-    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 32;
-    const NAVY = [16,30,99], AZUL = [29,51,168], CINZA = [86,96,143], FUNDO = [238,242,253];
-    const fmtN = n => Math.round(n || 0).toLocaleString('pt-BR');
-    // Cabeçalho
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...NAVY);
-    doc.text(`Relatório de Pendências ${d.isPme ? 'PME/SS' : 'PF'}`, M, M + 10);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...CINZA);
-    doc.text(d.gestor, M, M + 26);
-    doc.setFontSize(8.5);
-    doc.text(['Hapvida NotreDame Intermédica · NDI SP', 'Emitido em ' + new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })], W - M, M + 8, { align: 'right' });
-    const filtrosTxt = doc.splitTextToSize(d.filtros.join('   ·   '), W - 2 * M);
-    doc.text(filtrosTxt, M, M + 42);
-    let y = M + 42 + filtrosTxt.length * 10 + 4;
-    doc.setDrawColor(...AZUL); doc.setLineWidth(2); doc.line(M, y, W - M, y);
-    y += 16;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...NAVY);
-    doc.text(`${d.qtd(d.rows.length)}   ·   ${fmtN(d.total)} vidas${d.separar ? `   ·   ${d.grupos.length} corretoras` : ''}`, M, y);
-    y += 8;
-    // Corpo — separado por corretora quando há mais de uma
-    const nCol = d.cols.length, iVidas = nCol - 1;
-    const iStatus = d.cols.indexOf(d.isPme ? 'Planium' : 'Status');
-    const body = [];
-    if (d.separar){
-      d.grupos.forEach(g => {
-        const v = g.rows.reduce((s,p) => s + d.vidasDe(p), 0);
-        body.push([{ content: `${g.nome}  —  ${d.qtd(g.rows.length)} · ${fmtN(v)} vidas`, colSpan: nCol, styles: { fillColor: FUNDO, textColor: AZUL, fontStyle: 'bold', fontSize: 8 } }]);
-        g.rows.forEach(p => body.push(d.linha(p)));
-      });
-    } else {
-      d.rows.forEach(p => body.push(d.linha(p)));
+    const linhas = isPme ? rows.map(p => `<tr>
+      <td>${esc(p.proposta)}</td>
+      <td>${esc(p.corretora)}</td>
+      <td class="c">${dataBR(p.dataReceb)}</td>
+      <td class="c">${dataBR(p.dataVigencia)}</td>
+      <td class="c"><span class="st" style="color:${stColor(pendPlaniumView(p))};border-color:${stColor(pendPlaniumView(p))}33;background:${stColor(pendPlaniumView(p))}14;">${esc(pendPlaniumView(p))}</span>${pendImplantaAmanha(p) ? '<div class="am">Implanta amanhã</div>' : ''}</td>
+      <td class="c">${esc(pendSemLogin(p.status.cadastro)) || '—'}</td>
+      <td class="c">${esc(pendSemLogin(p.status.ditec)) || '—'}</td>
+      <td class="c b">${p.beneficiarios||0}</td>
+    </tr>`).join('') : rows.map(p => `<tr>
+      <td>${esc(p.orcamento)}</td>
+      <td>${esc(p.corretora)}</td>
+      <td class="c">${dataBR(p.dataStatus)}</td>
+      <td class="c"><span class="st" style="color:${stColor(p.status)};border-color:${stColor(p.status)}33;background:${stColor(p.status)}14;">${esc(p.status)||'—'}</span></td>
+      <td class="c b">${p.vidas||0}</td>
+    </tr>`).join('');
+    const headers = isPme
+      ? `<th style="width:10%">Proposta</th><th style="width:25%">Corretora</th><th style="width:10%;text-align:center">Recebido</th><th style="width:10%;text-align:center">Vigência</th><th style="width:17%;text-align:center">Planium</th><th style="width:13%;text-align:center">Cadastro</th><th style="width:10%;text-align:center">DITEC</th><th style="width:5%;text-align:center">Vidas</th>`
+      : `<th style="width:13%">Orçamento</th><th style="width:32%">Corretora</th><th style="width:17%;text-align:center">Data Status</th><th style="width:20%;text-align:center">Status</th><th style="width:8%;text-align:center">Vidas</th>`;
+    const colspanTotal = isPme ? 7 : 4;
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatório de Pendências ${isPme?'PME':'PF'} — ${esc(pendCurrentGestor)}</title>
+<style>
+@page{size:A4 portrait;margin:10mm}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;color:#131C4F;font-size:9px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1D33A8;padding-bottom:8px;margin-bottom:12px}
+.hd h1{font-size:15px;color:#101E63;letter-spacing:-.3px}
+.hd .sb{font-size:10px;color:#56608F;margin-top:3px}
+.hd .rt{text-align:right;font-size:8.5px;color:#56608F;line-height:1.5}
+.hd .rt b{color:#101E63;font-size:10px}
+.kp{display:flex;gap:8px;margin-bottom:12px}
+.kp div{flex:1;border:1px solid #E3E9F8;border-radius:7px;padding:7px 9px;background:#F8FAFF}
+.kp .l{font-size:7.5px;font-weight:700;color:#56608F;text-transform:uppercase;letter-spacing:.4px}
+.kp .v{font-size:14px;font-weight:800;color:#101E63;margin-top:2px}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{background:#101E63;color:#fff;font-size:7px;text-transform:uppercase;letter-spacing:.3px;padding:5px 4px;text-align:left}
+td{padding:4px;border-bottom:1px solid #E8EDF7;font-size:8px;overflow-wrap:break-word}
+tr:nth-child(even) td{background:#F8FAFF}
+td.c{text-align:center}td.b{font-weight:700}
+.am{margin-top:2px;font-size:6.5px;font-weight:800;color:#16B87A;text-transform:uppercase;letter-spacing:.3px}
+.st{display:inline-block;padding:1px 5px;border-radius:20px;border:1px solid;font-size:7px;font-weight:700;text-transform:capitalize;white-space:nowrap}
+tfoot td{background:#EEF2FD;font-weight:800;font-size:9px;border-top:2px solid #1D33A8}
+.ft{margin-top:12px;font-size:7.5px;color:#8B93B8;border-top:1px solid #E3E9F8;padding-top:6px;display:flex;justify-content:space-between}
+@media print{.noprint{display:none}}
+.noprint{position:fixed;top:10px;right:10px;background:#1D33A8;color:#fff;border:0;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+</style></head><body>
+<button class="noprint" onclick="window.print()">🖨️ Salvar como PDF (Ctrl+P)</button>
+<div class="hd">
+  <div><h1>Relatório de Pendências ${isPme?'PME/SS':'PF'}</h1><div class="sb">${esc(pendCurrentGestor)}</div></div>
+  <div class="rt"><b>Hapvida NDI SP</b><br>Corretora: ${esc(corFiltroTxt)} · Mês: ${esc(mesFiltroTxt)}<br>Status: ${esc(stsFiltroTxt)}<br>Emitido em ${hoje}</div>
+</div>
+<div class="kp">
+  <div><div class="l">Registros</div><div class="v">${rows.length}</div></div>
+  <div><div class="l">Vidas</div><div class="v">${fmtN(total)}</div></div>
+</div>
+<table>
+  <thead><tr>${headers}</tr></thead>
+  <tbody>${linhas}</tbody>
+  <tfoot><tr><td colspan="${colspanTotal}">Total — ${rows.length} registro(s)</td><td class="c">${fmtN(total)}</td></tr></tfoot>
+</table>
+<div class="ft"><span>Hapvida NotreDame Intermédica · Diretoria Regional SP · NDI SP</span><span>Fonte: Relatório ${isPme?'PME (PLANIUM)':'PF'} · Documento gerado automaticamente</span></div>
+</body></html>`;
+    try {
+      const blob = new Blob(['﻿' + html], {type:'text/html;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const nomeArq = 'Pendencias_' + (isPme?'PME':'PF') + '_' + String(pendCurrentGestor).replace(/[^A-Za-z0-9]+/g,'_').slice(0,40) + '.html';
+      const a = document.createElement('a');
+      a.href = url; a.download = nomeArq;
+      document.body.appendChild(a); a.click(); a.remove();
+      if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', nomeArq); // registro de acessos (item 4)
+      setTimeout(()=>URL.revokeObjectURL(url), 10000);
+    } catch(err){
+      alert('Erro ao gerar o arquivo: ' + err.message);
     }
-    const colStyles = {}; colStyles[iVidas] = { halign: 'right', fontStyle: 'bold', cellWidth: 38 };
-    doc.autoTable({
-      startY: y + 6, head: [d.cols], body,
-      foot: [[{ content: `Total — ${d.rows.length} registro(s)`, colSpan: nCol - 1 }, { content: fmtN(d.total), styles: { halign: 'right' } }]],
-      theme: 'grid', showFoot: 'lastPage', margin: { left: M, right: M, bottom: 36 },
-      styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 3, overflow: 'linebreak', lineColor: [227,233,248], lineWidth: 0.5, textColor: [19,28,79] },
-      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
-      footStyles: { fillColor: FUNDO, textColor: NAVY, fontStyle: 'bold', fontSize: 8.5 },
-      alternateRowStyles: { fillColor: [248,250,255] },
-      columnStyles: colStyles,
-      didParseCell: data => {
-        if (data.section === 'body' && data.column.index === iStatus && typeof data.cell.raw === 'string'){
-          const c = pendCorStatus(data.cell.raw); if (c){ data.cell.styles.textColor = c; data.cell.styles.fontStyle = 'bold'; }
-        }
-      },
-      didDrawPage: () => {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...CINZA);
-        doc.text(`Fonte: funil ${d.isPme ? 'PME (Planium + T6140B)' : 'PF (T221ORCAM)'} · gerado pelo Painel Comercial`, M, H - 18);
-        doc.text(`Página ${doc.internal.getNumberOfPages()}`, W - M, H - 18, { align: 'right' });
-      },
-    });
-    doc.save(`${d.nomeBase}.pdf`);
-    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', `${d.nomeBase}.pdf`); // registro de acessos (item 4)
   }
-
-  async function pendRelatorioXlsx(){
-    const d = pendRelatorioDados(); if (!d.rows.length) return;
-    const ExcelJS = await pendLoadExcelJS();
-    const wb = new ExcelJS.Workbook(); wb.creator = 'Painel Comercial — Cauda Longa NDI SP';
-    const ws = wb.addWorksheet('RELATÓRIO', { views: [{ state: 'frozen', ySplit: 5 }] });
-    const NAVY = 'FF101E63', AZUL = 'FF1D33A8', FUNDO = 'FFEEF2FD', CINZA = 'FFE3E9F8';
-    const borda = { top:{style:'thin',color:{argb:CINZA}}, bottom:{style:'thin',color:{argb:CINZA}}, left:{style:'thin',color:{argb:CINZA}}, right:{style:'thin',color:{argb:CINZA}} };
-    const nCol = d.cols.length;
-    ws.mergeCells(1, 1, 1, nCol); ws.getCell(1,1).value = `Relatório de Pendências ${d.isPme ? 'PME/SS' : 'PF'} — ${d.gestor}`;
-    ws.getCell(1,1).font = { bold: true, size: 13, color: { argb: NAVY } };
-    ws.mergeCells(2, 1, 2, nCol); ws.getCell(2,1).value = d.filtros.join('   ·   ');
-    ws.getCell(2,1).font = { italic: true, size: 9, color: { argb: 'FF56608F' } };
-    ws.mergeCells(3, 1, 3, nCol); ws.getCell(3,1).value = `${d.qtd(d.rows.length)} · ${d.total.toLocaleString('pt-BR')} vidas · emitido em ${new Date().toLocaleString('pt-BR')}`;
-    ws.getCell(3,1).font = { size: 9, color: { argb: 'FF56608F' } };
-    const cab = ws.getRow(5); d.cols.forEach((h, i) => { const c = cab.getCell(i + 1); c.value = h; c.font = { bold:true, color:{argb:'FFFFFFFF'}, size:10 }; c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} }; c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }; c.border = borda; });
-    cab.height = 26;
-    const largura = { 'Proposta':12, 'Orçamento':14, 'Gestor':30, 'Corretora':42, 'Recebido':12, 'Vigência':12, 'Data status':13, 'Planium':26, 'Status':26, 'Cadastro':20, 'Ditec':16, 'Vidas':9 };
-    d.cols.forEach((h, i) => { ws.getColumn(i + 1).width = largura[h] || 14; });
-    const ehData = d.cols.map(h => /Recebido|Vigência|Data status/.test(h));
-    const paraXl = (v, i) => {
-      if (ehData[i]){ const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(v)); return m ? new Date(Date.UTC(+m[3], +m[2]-1, +m[1])) : ''; }
-      if (i === 0 && /^\d+$/.test(String(v))) return Number(v);
-      return v;
-    };
-    let r = 6;
-    const escreve = p => {
-      const row = ws.getRow(r++);
-      d.linha(p).forEach((v, i) => { const c = row.getCell(i + 1); c.value = paraXl(v, i); c.border = borda; if (ehData[i]) { c.numFmt = 'dd/mm/yyyy'; c.alignment = { horizontal:'center' }; } });
-      row.getCell(nCol).font = { bold: true };
-    };
-    const faixa = (txt, v, cor) => {
-      const row = ws.getRow(r++);
-      ws.mergeCells(row.number, 1, row.number, nCol - 1);
-      row.getCell(1).value = txt; row.getCell(nCol).value = v;
-      for (let i = 1; i <= nCol; i++){ const c = row.getCell(i); c.font = { bold: true, color: { argb: cor === NAVY ? 'FFFFFFFF' : AZUL } }; c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: cor } }; c.border = borda; }
-    };
-    if (d.separar){
-      d.grupos.forEach(g => {
-        const v = g.rows.reduce((s,p) => s + d.vidasDe(p), 0);
-        faixa(`${g.nome} — ${d.qtd(g.rows.length)}`, v, FUNDO);
-        g.rows.forEach(escreve);
-      });
-    } else {
-      d.rows.forEach(escreve);
-    }
-    faixa(`TOTAL — ${d.rows.length} registro(s)`, d.total, NAVY);
-    const buf = await wb.xlsx.writeBuffer();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    a.download = `${d.nomeBase}.xlsx`;
-    document.body.appendChild(a); a.click();
-    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', a.download); // registro de acessos (item 4)
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-  }
-
-  // Botão "Baixar relatório" abre o menu PDF / Excel
-  document.getElementById('pendPdfBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const m = document.getElementById('pendRelMenu'), abrir = m.hidden;
-    pendMultiFechar();
-    m.hidden = !abrir; e.currentTarget.setAttribute('aria-expanded', String(abrir));
-    if (abrir){ const op = m.querySelector('.prel-op'); if (op) op.focus(); }
-  });
-  document.getElementById('pendRelMenu').addEventListener('click', (e) => e.stopPropagation());
-  document.querySelectorAll('#pendRelMenu .prel-op').forEach(op => op.addEventListener('click', async () => {
-    pendMultiFechar();
-    const btn = document.getElementById('pendPdfBtn'), orig = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando...';
-    try { if (op.dataset.fmt === 'pdf') await pendRelatorioPdf(); else await pendRelatorioXlsx(); }
-    catch(err){ alert('Não consegui gerar o relatório: ' + err.message); }
-    finally { btn.innerHTML = orig; btn.disabled = false; }
-  }));
+  document.getElementById('pendPdfBtn').addEventListener('click', pendGerarPDF);
 
   // ===== "Baixar .xlsx" do funil PME (pedido do Victor, 2026-10-09) =====
   // Decisões: (1) exporta EXATAMENTE o que está na tela (gestor/mês/corretora/status/busca — pendLastPmeFiltered);
@@ -2085,6 +1403,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       pendExcelJsPromise = new Promise((resolve, reject) => {
         const s = document.createElement('script');
         s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+        // Item 8 de segurança (28/10/2026): impressão digital oficial do cdnjs — arquivo adulterado não roda.
+        s.integrity = 'sha512-dlPw+ytv/6JyepmelABrgeYgHI0O+frEwgfnPdXDTOIZz+eDgfW07QXG02/O8COfivBdGNINy+Vex+lYmJ5rxw=='; s.crossOrigin = 'anonymous';
         s.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('ExcelJS não carregou'));
         s.onerror = () => { pendExcelJsPromise = null; reject(new Error('Falha ao baixar a biblioteca de planilhas')); };
         document.head.appendChild(s);
@@ -2105,6 +1425,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       pendJsZipPromise = new Promise((resolve, reject) => {
         const s = document.createElement('script');
         s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        s.integrity = 'sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=='; s.crossOrigin = 'anonymous'; // item 8
         s.onload = () => window.JSZip ? resolve(window.JSZip) : reject(new Error('JSZip não carregou'));
         s.onerror = () => { pendJsZipPromise = null; reject(new Error('Falha ao baixar a biblioteca de compactação')); };
         document.head.appendChild(s);
@@ -2203,10 +1524,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     return null;
   }
 
-  // "Baixar funil (Excel)" da aba PME (2026-10-14, Victor: "baixar o funil inteiro por excel padrão"): TODAS as propostas
-  // em aberto de TODOS os gestores, sem os filtros da tela (o que está filtrado vai pelo "Baixar relatório").
   async function pendBaixarXlsx(){
-    const rows = pendenciasDoGestor(PENDENCIAS_PME, null, 'proposta');
+    const rows = pendLastPmeFiltered.slice();
     if (!rows.length) return;
     const btn = document.getElementById('pendXlsxBtn');
     const txtOrig = btn.innerHTML;
@@ -2260,8 +1579,14 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       // clique não abria os detalhes). Mesma montagem da planilha original: DINÂMICA = GESTOR × PLANIUM, soma de
       // BENEFICIARIOS (+ filtros IMPLANTA AMANHÃ e BITIX); ESTEIRA DITEC = GESTOR × DITEC com filtros DATA VIGÊNCIA,
       // CADASTRO e BITIX. As duas leem a aba RESULTADO FINAL e o Excel as monta ao abrir (pendAddPivots).
+      const filtros = [
+        document.getElementById('pendGestorFilter').value || 'Todos os gestores',
+        document.getElementById('pendMonthFilter').value ? 'vigência ' + document.getElementById('pendMonthFilter').value : 'todos os meses',
+        document.getElementById('pendCorretoraFilter').value || 'todas as corretoras',
+        pendSelectedStatuses.size ? [...pendSelectedStatuses].map(pendStatusKeyToLabel).join(', ') : 'todos os status',
+      ];
       const nota = (sh, col) => {
-        sh.getCell(1, col).value = `Funil PME inteiro: todos os gestores, todas as vigências e corretoras, em análise/pendência (${rows.length} propostas).`;
+        sh.getCell(1, col).value = 'Filtro do painel: ' + filtros.join(' · ');
         sh.getCell(2, col).value = 'Gerado em ' + new Date().toLocaleString('pt-BR') + '. Se a tabela aparecer vazia, clique em "Habilitar Edição".';
         [1,2].forEach(r => { sh.getCell(r, col).font = { italic:true, size:9, color:{ argb:'FF56608F' } }; });
       };
@@ -2325,79 +1650,23 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         { sheetIndex:2, name:'Tabela dinâmica3', row:'GESTOR', col:'DITEC', pages:['DATA VIGÊNCIA','CADASTRO','BITIX'], data:'BENEFICIARIOS', dataName:'Vidas', rowCaption:'EXECUTIVO' },
       ]});
       const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g,'.');
+      const quem = pendCurrentGestor ? String(pendCurrentGestor).replace(/[\\/:*?"<>|]+/g,' ').trim() : 'Todas as equipes';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `Funil PME - completo - ${hoje}.xlsx`;
+      a.download = `Funil PME - ${quem} - ${hoje}.xlsx`;
       document.body.appendChild(a); a.click();
       if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', a.download); // registro de acessos (item 4)
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     } catch(err){
       alert('Não consegui gerar a planilha: ' + err.message);
     } finally {
-      btn.innerHTML = txtOrig; btn.disabled = false;
+      btn.innerHTML = txtOrig; btn.disabled = !pendLastPmeFiltered.length;
     }
   }
-
-  // "Baixar funil (Excel)" da aba PF (2026-10-14): todos os orçamentos de todos os gestores, sem os filtros da tela.
-  // Abas: DINÂMICA (tabela dinâmica de verdade GESTOR × STATUS, soma de VIDAS, duplo clique abre o detalhe) e
-  // RESULTADO (um orçamento por linha), mesma técnica do PME (pendAddPivots).
-  async function pendBaixarFunilPf(){
-    const rows = pendenciasDoGestor(PENDENCIAS_PF, null, 'orcamento');
-    if (!rows.length) return;
-    const btn = document.getElementById('pendXlsxBtn');
-    const txtOrig = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando...';
-    try {
-      const ExcelJS = await pendLoadExcelJS();
-      const dataXl = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||'')); return m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : null; };
-      const gestorRaw = p => (window.getGestorRawName ? window.getGestorRawName(p._gestor) : String(p._gestor || '')).toUpperCase();
-      rows.sort((a,b) => gestorRaw(a).localeCompare(gestorRaw(b)) || String(a.corretora||'').localeCompare(String(b.corretora||'')));
-      const wb = new ExcelJS.Workbook();
-      wb.creator = 'Painel Comercial — Cauda Longa NDI SP';
-      const NAVY = 'FF101E63', VERDE = 'FF16B87A', CINZA = 'FFE3E9F8';
-      const borda = { top:{style:'thin',color:{argb:CINZA}}, bottom:{style:'thin',color:{argb:CINZA}}, left:{style:'thin',color:{argb:CINZA}}, right:{style:'thin',color:{argb:CINZA}} };
-      const estiloCab = cell => { cell.font = { bold:true, color:{argb:'FFFFFFFF'}, size:10 }; cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} }; cell.alignment = { vertical:'middle', horizontal:'center', wrapText:true }; cell.border = borda; };
-      const wd = wb.addWorksheet('DINÂMICA'); // sheet1 — a tabela dinâmica é ligada aqui
-      const ws = wb.addWorksheet('RESULTADO', { views:[{ state:'frozen', ySplit:1 }] });
-      const COLS = [['ORÇAMENTO',16], ['GESTOR',36], ['CORRETORA',44], ['STATUS',28], ['VIDAS',9], ['DATA STATUS',14]];
-      ws.columns = COLS.map(([h,w]) => ({ header:h, width:w }));
-      ws.getRow(1).height = 28; ws.getRow(1).eachCell(estiloCab);
-      rows.forEach(p => {
-        const num = /^\d+$/.test(String(p.orcamento)) ? Number(p.orcamento) : p.orcamento;
-        const r = ws.addRow([num, gestorRaw(p), p.corretora || '', p.status || '', p.vidas || 0, dataXl(p.dataStatus)]);
-        r.getCell(6).numFmt = 'dd/mm/yyyy';
-        [1,5,6].forEach(c => { r.getCell(c).alignment = { horizontal:'center' }; });
-      });
-      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:COLS.length } };
-      wd.getColumn(1).width = 36;
-      wd.getCell(1, 12).value = `Funil PF inteiro: todos os gestores, todos os status e corretoras (${rows.length} orçamentos).`;
-      wd.getCell(2, 12).value = 'Gerado em ' + new Date().toLocaleString('pt-BR') + '. Se a tabela aparecer vazia, clique em "Habilitar Edição".';
-      [1,2].forEach(r => { wd.getCell(r, 12).font = { italic:true, size:9, color:{ argb:'FF56608F' } }; });
-      wb.views = [{ activeTab: 0 }];
-      wb.worksheets.forEach(s => { s.properties.tabColor = { argb: s.name === 'DINÂMICA' ? VERDE : NAVY }; });
-      const buf = await wb.xlsx.writeBuffer();
-      const cab = COLS.map(c => c[0]);
-      const linhas = rows.map(p => [p.orcamento, gestorRaw(p), p.corretora || '', p.status || '', p.vidas || 0, p.dataStatus || '']);
-      const blob = await pendAddPivots(buf, { sourceSheet:'RESULTADO', headers:cab, rows:linhas, pivots:[
-        { sheetIndex:1, name:'Tabela dinâmica1', row:'GESTOR', col:'STATUS', pages:['CORRETORA'], data:'VIDAS', dataName:'Soma de VIDAS' },
-      ]});
-      const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g,'.');
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `Funil PF - completo - ${hoje}.xlsx`;
-      document.body.appendChild(a); a.click();
-      if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', a.download); // registro de acessos (item 4)
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-    } catch(err){
-      alert('Não consegui gerar a planilha: ' + err.message);
-    } finally {
-      btn.innerHTML = txtOrig; btn.disabled = false;
-    }
-  }
-  document.getElementById('pendXlsxBtn').addEventListener('click', () => { pendMultiFechar(); if (pendActiveTab === 'pf') pendBaixarFunilPf(); else pendBaixarXlsx(); });
+  document.getElementById('pendXlsxBtn').addEventListener('click', pendBaixarXlsx);
 
   document.querySelectorAll('#pendModal thead th[data-k]').forEach(th => {
-    window.__kb(th).addEventListener('click', () => {
+    th.addEventListener('click', () => {
       pendSortDir *= -1;
       document.querySelectorAll('#pendModal thead th[data-k]').forEach(h => h.setAttribute('data-dir', pendSortDir>0?'asc':'desc'));
       renderPendencias();
@@ -2407,7 +1676,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     pendActiveTab = 'pme';
     document.getElementById('pendTabPme').classList.add('active'); document.getElementById('pendTabPf').classList.remove('active');
     document.getElementById('pendPmeSection').style.display = ''; document.getElementById('pendPfSection').style.display = 'none';
-    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
+    document.getElementById('pendMonthFilter').value = '';
+    document.getElementById('pendCorretoraFilter').value = '';
     document.getElementById('pendPropostaSearch').value = '';
     pendSelectedStatuses.clear();
     renderPendencias();
@@ -2416,7 +1686,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     pendActiveTab = 'pf';
     document.getElementById('pendTabPf').classList.add('active'); document.getElementById('pendTabPme').classList.remove('active');
     document.getElementById('pendPfSection').style.display = ''; document.getElementById('pendPmeSection').style.display = 'none';
-    pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
+    document.getElementById('pendMonthFilter').value = '';
+    document.getElementById('pendCorretoraFilter').value = '';
     document.getElementById('pendPropostaSearch').value = '';
     pendSelectedStatuses.clear();
     renderPendencias();
@@ -2427,7 +1698,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // dos dados em vez de lista fixa, então acompanha sozinho se algum gestor entrar/sair.
   // Montada NA HORA (2026-10-13): antes era uma constante calculada só quando a página abria — depois de importar o
   // funil, quem não estava nos dados da abertura (ex.: Agatha Amaral, Bianca, Fabio, Carlos Eduardo, VENDA INTERNA)
-  // ficava fora de todo o Resumo do Dia (cartões, "Total pra Atuar" e "Implanta amanhã"; achado no V2 em 13/10).
+  // ficava fora de todo o Resumo do Dia (cartões, "Total pra Atuar" e "Implanta amanhã": 317 × 460 propostas em 13/10).
   const resumoGestores = () => [...new Set([...Object.keys(PENDENCIAS_PME || {}), ...Object.keys(PENDENCIAS_PF || {})])].sort();
   // Mapa gestor → equipe, mesmo critério já usado em outras partes do painel (Conquista
   // Premiada). Fica duplicado aqui (em vez de compartilhado) porque vive num <script> isolado —
@@ -2493,7 +1764,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   function renderResumoPme(gestores){
     document.getElementById('resumoCards').innerHTML = gestores.map(g => {
       const s = resumoPmeStats(g);
-      return `<div class="resumo-card" style="cursor:pointer" role="button" tabindex="0" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pme')" title="Ver detalhes de ${g}">
+      return `<div class="resumo-card" style="cursor:pointer" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pme')" title="Ver detalhes de ${g}">
         <div class="rc-head"><div class="rc-avatar">${initialsOf(g)}</div><div class="rc-name">${g}</div></div>
         <div class="rc-stats">
           <div class="rc-stat"><div class="rc-label">Em Funil</div><div class="rc-value" style="color:var(--navy);">${s.funil}</div></div>
@@ -2514,7 +1785,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       const rows = PENDENCIAS_PF[g] || [];
       const porStatus = statuses.map(s => rows.filter(p=>p.status===s).reduce((sum,p)=>sum+(p.vidas||0),0));
       const total = porStatus.reduce((a,b)=>a+b,0);
-      return `<tr style="cursor:pointer" role="button" tabindex="0" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pf')" title="Ver detalhes de ${g}"><td class="name">${g}</td>${porStatus.map(v=>`<td class="num">${v||''}</td>`).join('')}<td class="num" style="font-weight:700;">${total}</td></tr>`;
+      return `<tr style="cursor:pointer" onclick="window.__openResumoDetail('${g.replace(/'/g,"\\'")}','pf')" title="Ver detalhes de ${g}"><td class="name">${g}</td>${porStatus.map(v=>`<td class="num">${v||''}</td>`).join('')}<td class="num" style="font-weight:700;">${total}</td></tr>`;
     }).join('');
     document.getElementById('resumoPfTable').innerHTML = thead + '<tbody>' + tbody + '</tbody>';
   }
@@ -2627,7 +1898,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   });
 })();
 
-// ===== extraído de index.html linhas 3598-6566 =====
+// ===== extraído de index.html linhas 3529-6516 =====
 /* =========================================================
    VIEW 2 — ELEGIBILIDADE & REATIVAÇÃO (dados e lógica isolados em IIFE)
    ========================================================= */
@@ -2649,34 +1920,51 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   const MONTH_LABELS = buildMonthLabels((eligSampleRow && eligSampleRow.m) ? eligSampleRow.m.length : 19);
   window.MONTH_LABELS = MONTH_LABELS;
   let totalMonths = MONTH_LABELS.length;
-  // Índice global (mesma base 0=Jan/25 de MONTH_LABELS) a partir do qual a equipe ESCOPADA
-  // (window.__eligTeamScope__) realmente tem dado real — as 3 equipes novas (Digital,
-  // Plataforma SP, Plataforma ABC/Alto Tietê/BX) só entraram na base em Jan/26, então os
-  // meses de 2025 nos arrays delas são zero-padding (ver padFront em parseEligibilidadeWorkbook),
-  // não meses "sem elegíveis" de verdade. Setado mais abaixo, depois que o escopo é conhecido;
-  // 0 = sem restrição (Cauda Longa e visão sem escopo continuam vendo desde Jan/25).
-  let eligDataStartIdx = 0;
-  // Baldes de Ano/Semestre/Trimestre por CALENDÁRIO, para qualquer ano (índice 0 = Jan/25). Até
-  // 2026-10-07 eram fixos em 2025/2026: em Jan/27 o "Ano 2026" engolia Jan/27, o "2º Semestre/26"
-  // ficava com 7 meses e surgia um "5º Trimestre/26". O último balde pode ser parcial (ano/semestre/
-  // trimestre em andamento), como sempre foi.
-  function buildCalendarBuckets(size, labelOf){
-    const out = [];
-    for (let start = 0; start < totalMonths; start += size){
-      const len = Math.min(size, totalMonths - start);
-      out.push({ label: labelOf(start), months: Array.from({length: len}, (_, i) => start + i) });
-    }
-    return out;
-  }
-  const bucketYY = start => String(2025 + Math.floor(start / 12)).slice(2);
   function buildYearBuckets(){
-    return buildCalendarBuckets(12, start => String(2025 + start / 12));
+    const y26months = Array.from({length: totalMonths-12}, (_,i)=>12+i);
+    const complete26 = totalMonths >= 24;
+    const lastLabel = MONTH_LABELS[totalMonths-1].split('/')[0];
+    return [
+      {label:'2025', months:[0,1,2,3,4,5,6,7,8,9,10,11]},
+      {label: '2026', months: y26months},
+    ];
   }
   function buildSemestreBuckets(){
-    return buildCalendarBuckets(6, start => `${(start % 12) / 6 + 1}º Semestre/${bucketYY(start)}`);
+    const sems = [
+      {label:'1º Semestre/25', months:[0,1,2,3,4,5]},
+      {label:'2º Semestre/25', months:[6,7,8,9,10,11]},
+    ];
+    const months26 = totalMonths - 12;
+    if (months26 > 0){
+      const sem1Len = Math.min(6, months26);
+      const sem1Months = Array.from({length:sem1Len}, (_,i)=>12+i);
+      const sem1Complete = months26 >= 6;
+      sems.push({label: '1º Semestre/26', months: sem1Months});
+      if (months26 > 6){
+        const sem2Months = Array.from({length:months26-6}, (_,i)=>18+i);
+        sems.push({label:'2º Semestre/26', months: sem2Months});
+      }
+    }
+    return sems;
   }
   function buildTrimestreBuckets(){
-    return buildCalendarBuckets(3, start => `${(start % 12) / 3 + 1}º Trimestre/${bucketYY(start)}`);
+    const tris = [
+      {label:'1º Trimestre/25', months:[0,1,2]},
+      {label:'2º Trimestre/25', months:[3,4,5]},
+      {label:'3º Trimestre/25', months:[6,7,8]},
+      {label:'4º Trimestre/25', months:[9,10,11]},
+    ];
+    const months26 = totalMonths - 12;
+    let triNum = 1;
+    for (let start = 0; start < months26; start += 3){
+      const len = Math.min(3, months26-start);
+      const monthsArr = Array.from({length:len}, (_,i)=>12+start+i);
+      const complete = len === 3;
+      const lastM = MONTH_LABELS[12+start+len-1].split('/')[0];
+      tris.push({label: `${triNum}º Trimestre/26`, months: monthsArr});
+      triNum++;
+    }
+    return tris;
   }
   const PERIOD_DEFS = {
     ano: buildYearBuckets(),
@@ -2684,14 +1972,6 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     trimestre: buildTrimestreBuckets(),
     mensal: MONTH_LABELS.map((label,i) => ({label, months:[i]})),
   };
-  // Trimestre vigente (último balde de PERIOD_DEFS.trimestre, mesmo parcial — é o que
-  // applyCorretorasToEligibilidade usa pra d.el/d.rk/d.meta3tri) e o trimestre anterior a ele.
-  // Substituem os rótulos fixos "3TRI26"/"2TRI26" do modo "Todos os meses", que travaram no
-  // 3º trimestre quando Outubro abriu o 4TRI26 (achado 2026-10-06). Sempre lidos na hora
-  // (PERIOD_DEFS.trimestre é refeito quando um mês novo abre).
-  const curTriDef = () => { const t = PERIOD_DEFS.trimestre; return t[t.length - 1] || null; };
-  const prevTriDef = () => { const t = PERIOD_DEFS.trimestre; return t[t.length - 2] || null; };
-  const triShort = def => def ? def.label.replace(/^(\d)º Trimestre\/(\d\d)$/, '$1TRI$2') : '';
   // Recalcula MONTH_LABELS/PERIOD_DEFS quando a Elegibilidade é atualizada NA MESMA
   // sessão (sem recarregar a página) e o arquivo novo já tem mais meses do que o painel
   // conhecia até então. Sem isso, um mês novo (ex.: Agosto) só apareceria nos filtros de
@@ -2709,22 +1989,6 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     PERIOD_DEFS.semestre = buildSemestreBuckets();
     PERIOD_DEFS.trimestre = buildTrimestreBuckets();
     PERIOD_DEFS.mensal = MONTH_LABELS.map((label,i) => ({label, months:[i]}));
-    applyEligDataStartTrim();
-  }
-  // Remove dos seletores de período (Ano/Semestre/Trimestre/Mensal) os meses anteriores a
-  // eligDataStartIdx — pra uma equipe escopada cujo histórico real só começa depois de Jan/25
-  // (zero-padding, ver comentário acima), evita oferecer um "2025" ou "1º Trimestre/25" que na
-  // prática não tem nenhum dado real por trás. Chamada de novo dentro de refreshMonthDerivedState
-  // porque essa reconstrói PERIOD_DEFS do zero a cada import.
-  function applyEligDataStartTrim(){
-    if (!eligDataStartIdx) return;
-    const trim = list => list
-      .map(b => Object.assign({}, b, { months: b.months.filter(m => m >= eligDataStartIdx) }))
-      .filter(b => b.months.length);
-    PERIOD_DEFS.ano = trim(PERIOD_DEFS.ano);
-    PERIOD_DEFS.semestre = trim(PERIOD_DEFS.semestre);
-    PERIOD_DEFS.trimestre = trim(PERIOD_DEFS.trimestre);
-    PERIOD_DEFS.mensal = trim(PERIOD_DEFS.mensal);
   }
   // Intervalo personalizado (De/Até) — monta uma entrada sintética PERIOD_DEFS.custom[0] com
   // os meses do intervalo escolhido, pra reaproveitar 100% do código que já existe (rótulos,
@@ -2816,14 +2080,13 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
     // displayTotal/displayMeta = números do período EXATO escolhido (ex.: só Setembro, se foi
     // isso que o usuário filtrou em Mensal) — SEMPRE calculados, nunca substituídos pelo
-    // trimestre. Achado real 2026-09-30 (Victor, corretora QUALI PLANOS): filtrando por Mensal/
-    // Setembro, o card "Set/26 Atual" mostrava 3.778 — o total do 3TRI inteiro (Jul+Ago+Set), não
-    // o de setembro sozinho (1.280) — a quebra por categoria logo abaixo do card, que sempre usou
-    // esses mesmos meses literais (nunca teve esse bug), foi o que expôs a diferença. Usados só
-    // pelos cards "Atual/Meta/Gap" (rotulados com o período exato selecionado); a classificação
-    // de Elegibilidade/Ranking abaixo continua sempre por TRIMESTRE oficial (ver isCurrentPeriod
-    // logo abaixo) — são duas perguntas diferentes ("quanto vendeu NESSE período" vs "está
-    // elegível pela regra oficial, que é sempre trimestral"), não devem se misturar.
+    // trimestre. Achado real 2026-09-30 (Victor, mesmo bug confirmado no V1, corretora QUALI
+    // PLANOS): filtrando por Mensal/Setembro, o card "Set/26 Atual" mostrava o total do 3TRI
+    // inteiro, não o de setembro sozinho — a quebra por categoria logo abaixo do card, que
+    // sempre usou esses mesmos meses literais, foi o que expôs a diferença. Usados só pelos
+    // cards "Atual/Meta/Gap" (rotulados com o período exato selecionado); a classificação de
+    // Elegibilidade/Ranking abaixo continua sempre por TRIMESTRE oficial (ver isCurrentPeriod
+    // logo abaixo) — são duas perguntas diferentes, não devem se misturar.
     const displayTotal = selectedMonths.reduce((s,i)=>s+(d.m[i]||0), 0);
     const displayPrevMonths = getPrevEquivalentMonths(selectedMonths);
     const displayPrevTotal = displayPrevMonths ? displayPrevMonths.reduce((s,i)=>s+(d.m[i]||0), 0) : 0;
@@ -2855,22 +2118,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }
     const periodTotal = displayTotal;
     const rk = computeRankingFromVolume(periodTotal, selectedMonths);
-    let el = (displayMeta > 0 && periodTotal >= displayMeta) ? 1 : 0;
-    // Mês único, já superado como "mês vigente" (ex.: Agosto depois que Setembro chegou) —
-    // achado real 2026-09-09 (Victor: "se você olhar na planilha que tem a coluna de agosto,
-    // vai ver que a quantidade de elegíveis não bate"). O "el" calculado acima (mês isolado vs
-    // mês anterior × fator) é uma conta PRÓPRIA — nunca foi a régua oficial da Hapvida (sempre
-    // por trimestre, ver o branch isCurrentPeriod acima) e por isso nunca batia com o arquivo
-    // mestre real (92 elegíveis reais vs 106 inventados, no caso de Agosto). Quando existe um
-    // retrato salvo de "qual era a classificação oficial quando esse mês ainda era o vigente"
-    // (d.elByMonth[idx], gravado por updateEligibilidadeData/applyCorretorasToEligibilidade —
-    // ver comentários lá), usa ele no lugar — meta/factor continuam os mesmos de sempre (só
-    // informativos aqui, nenhuma tela soma/usa esse "meta" pra decidir "el"). Só se aplica a mês
-    // único (não a trimestre/semestre/ano explícito, que continuam como estavam — não reportado
-    // como problema, não mexido por segurança).
-    if (selectedMonths.length === 1 && d.elByMonth && d.elByMonth[selectedMonths[0]] !== undefined){
-      el = d.elByMonth[selectedMonths[0]];
-    }
+    const el = (displayMeta > 0 && periodTotal >= displayMeta) ? 1 : 0;
     return { periodTotal, meta: displayMeta, el, rk, factor: displayFactor, displayTotal, displayMeta, isCurrentPeriod };
   }
 
@@ -3002,53 +2250,12 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   }
 
   let DATA = window.__DASH_DATA__.DATA;
-  // Restringe Elegibilidade por equipe pra Executivo/Sênior escopado (window.__eligTeamScope__,
-  // setado no login — ver index.html). Corretora "Sem Gestor Atribuído" ou de um gestor fora do
-  // mapa abaixo não tem equipe pra comparar — fica de fora de QUALQUER escopo restrito (mais
-  // seguro que aparecer pra todo mundo por padrão).
-  // IMPORTANTE (achado real 2026-09-28): isto usada a filtrar a variável DATA em si, direto na
-  // carga — só que window.getEligibilidadeData() (usada pelo "Publicar" E por outras abas —
-  // Visão Geral, Ranking, reconciliação de Propostas) lê essa MESMA variável. Resultado: uma
-  // sessão escopada (ex.: Alexandre, restrito à Plataforma SP) que clicasse em Publicar por
-  // QUALQUER motivo sobrescrevia a Elegibilidade inteira só com a fatia da equipe dela — foi
-  // exatamente isso que apagou Digital/Plataforma SP/ABC da produção. Correção: DATA nunca mais
-  // é filtrada — fica sempre completa (é a única base usada pra mesclar import, publicar, e
-  // por qualquer outra aba). A restrição por equipe agora só entra na hora de MOSTRAR a
-  // Elegibilidade na tela, via scopedData() (função abaixo), usada em applyFilters/EL_GESTORES/
-  // RANKS_PRESENT/Conquista Premiada — os únicos lugares que renderizam esta aba pra o usuário.
-  const ELIG_GESTOR_TEAM = {
-    'Agatha Sakamoto':'CAUDA LONGA', 'Patricia Monks':'CAUDA LONGA', 'Jonathan Leal':'CAUDA LONGA', 'Pablo Amora':'CAUDA LONGA',
-    'Erika de Sousa Silva':'PLATAFORMA SP', 'Camila Alves Pertinhez':'PLATAFORMA SP', 'Lais dos Santos Martins':'PLATAFORMA SP', 'Wilder Coca Patzi':'PLATAFORMA SP',
-    'Karollainny Rangel de Sousa Lopes':'DIGITAL', 'Daniela Novais dos Santos':'DIGITAL', 'Amanda dos Santos Sobral':'DIGITAL', 'Maxuel Pimentel Nobrega':'DIGITAL',
-    'Vivian de Cassia Ambrosio':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Guilherme de Lima Musachi':'PLATAFORMA ABC/ALTO TIETÊ/BX', 'Izabele de Oliveira da Silva':'PLATAFORMA ABC/ALTO TIETÊ/BX',
-  };
-  // Só pra EXIBIÇÃO — nunca usar isto como base de merge/publicação, só DATA (completa) pode
-  // ser usada pra isso. Recalcula toda vez que é chamada, então sempre reflete DATA atual
-  // (inclusive depois de um import no meio da sessão).
-  function scopedData(){
-    return window.__eligTeamScope__ ? DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === window.__eligTeamScope__) : DATA;
-  }
-  // Mês global (0=Jan/25) em que cada equipe realmente passou a ter histórico na base —
-  // Cauda Longa está desde o início (Jan/25); as 3 equipes novas entraram só em Jan/26
-  // (índice 12), confirmado nos arquivos reais delas (9 meses, Jan-Set/26). Usado só pra
-  // limpar os seletores de período de meses "fantasmas" (zero-padding) — não afeta os
-  // números em si, que já vêm certos.
-  const ELIG_TEAM_DATA_START = {
-    'CAUDA LONGA': 0,
-    'PLATAFORMA SP': 12,
-    'DIGITAL': 12,
-    'PLATAFORMA ABC/ALTO TIETÊ/BX': 12,
-  };
-  eligDataStartIdx = window.__eligTeamScope__ ? (ELIG_TEAM_DATA_START[window.__eligTeamScope__] || 0) : 0;
-  applyEligDataStartTrim();
   let RANKDATA = window.__DASH_DATA__.RANKDATA;
   // Carteira (código→gestor) publicada junto com o resto — antes só existia na memória da
   // aba onde foi importada, então tinha que ser subida de novo toda vez que alguém abria o
-  // dashboard pra atualizar o dia (Victor, 2026-09-09: "quando eu importo apenas a planilha
-  // do BI, ele está pedindo a planilha do banco de dados"). Mesmo fix já validado e em
-  // produção no V2 desde 2026-08-27 — só faltava portar pro V1, ver comentário no FS_SECTIONS
-  // em index.html. Agora subir ela uma vez (ou quando ela mudar de verdade) já basta: fica
-  // disponível pra todo mundo a partir da próxima publicação.
+  // dashboard pra atualizar o dia. Agora, subir ela uma vez (ou quando ela mudar de verdade)
+  // já basta: fica disponível pra todo mundo a partir da próxima publicação. Ver conversa
+  // 2026-08-27 — Victor: "eu teria que subir toda vez o banco de dados né".
   window.CARTEIRA_MAP = window.__DASH_DATA__.CARTEIRA_MAP || null;
   // Sem o campo do vendedor (vd): no Planium ele vem quase sempre como número de 10–11 dígitos (CPF do vendedor) e
   // só ia pro "Baixar .xlsx" — tirado na revisão de segurança (item 5, Victor, 26/10/2026). Limpa também o que já
@@ -3076,62 +2283,33 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // que raramente batiam com o que a planilha do sênior mostrava. Aqui os dois lados
   // (ontem E hoje) vêm sempre da mesma importação, então nunca desencontram.
   let CONV_ONTEM_HOJE = window.__DASH_DATA__.CONV_ONTEM_HOJE || {};
-  // ── Retrato do dia (v2, 14/10/2026 — pedido do Victor: "com o que eu já importo diariamente, já é possível guardar
-  // os dados", sem a planilha Crescimento Geral). Um retrato por DIA (data local), por gestor (nome cru da Carteira),
-  // com as 3 colunas que a Crescimento compara ontem × hoje — mesmas regras dela, conferidas número a número com a
-  // planilha de 24/09/2026:
-  //  - f (Funil): vidas em análise + pendência (status da Planium) com VIGÊNCIA no mês do retrato ou no anterior — é a
-  //    Planilha1 do "Relatório PME automatizado" (24/09: 3.650 = extratos crus Ago+Set, exato);
-  //  - a (Assinatura): vidas do extrato de notificadas (aguardando assinatura), gestor pelo CNPJ da corretora na Carteira;
-  //  - r (Ranking): vendas novas do mês no extrato "Corretoras" do BI, IND+SS+PME+ADM ("Total" do BI) — só muda quando o
-  //    extrato vem nessa importação; senão repete o do retrato anterior (ver rk).
-  // Importar de novo no mesmo dia só refaz o retrato de hoje (sempre com o estado atual do painel). "Ontem" = o último
-  // retrato de um dia ANTERIOR (segunda compara com sexta). Vai pro Firestore no Publicar (seção DAILY_SNAPSHOTS).
-  // Retratos do formato antigo (sem v:2, outra regra de funil) são descartados — nunca se misturam com os novos.
-  const RETRATO_V = 2;
-  const dataLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  Object.keys(DAILY_SNAPSHOTS).forEach(k => { if (!DAILY_SNAPSHOTS[k] || DAILY_SNAPSHOTS[k].v !== RETRATO_V) delete DAILY_SNAPSHOTS[k]; });
-  // Retrato de 13/10/2026 (ponto de partida da Conversao): ficava embutido aqui; desde 22/10/2026 so existe no Firestore,
-  // dentro de DAILY_SNAPSHOTS (publicado em 14/10). Item 3 de seguranca: nenhum numero da empresa no app.js publico.
-  function retratoMesesFunil(dataISO){
-    const [y, m] = dataISO.split('-').map(Number);
-    const ant = m === 1 ? `${y-1}-12` : `${y}-${String(m-1).padStart(2,'0')}`;
-    return [ant, `${y}-${String(m).padStart(2,'0')}`];
-  }
-  function computeGestorSnapshotNow(dataISO, rankByRaw){
+  function computeGestorSnapshotNow(){
     const assinaturaData = (window.getPendenciasData ? window.getPendenciasData().assinatura : {}) || {};
-    const meses = new Set(retratoMesesFunil(dataISO));
-    const g = {};
-    const slot = nome => (g[nome] = g[nome] || { f:0, a:0, r:0 });
-    (PROPOSTAS||[]).forEach(p => {
-      if (!p.g || !/pend|analis/i.test(String(p.st||'')) || !meses.has(String(p.vg||'').slice(0,7))) return;
-      slot(p.g).f += (p.bn||0);
+    const rankByGestor = {};
+    (RANKDATA||[]).forEach(r => { if (r.g) rankByGestor[r.g] = (rankByGestor[r.g]||0) + (r.cur||0); });
+    const gestores = [...new Set(PROPOSTAS.map(p=>p.g).filter(Boolean).concat(Object.keys(assinaturaData)).concat(Object.keys(rankByGestor)))];
+    const snap = {};
+    gestores.forEach(g => {
+      const ps = PROPOSTAS.filter(p=>p.g===g);
+      const funilAtivo = ps.filter(p=>/pend|analis/i.test(p.st)).reduce((s,p)=>s+(p.bn||0),0);
+      const assinatura = (assinaturaData[g]||[]).reduce((s,r)=>s+(r.beneficiarios||0),0);
+      const implantadas = ps.filter(p=>/implant/i.test(p.st)).length;
+      snap[g] = { funilAtivo, assinatura, ranking: rankByGestor[g]||0, implantadas, totalPropostas: ps.length };
     });
-    Object.keys(assinaturaData).forEach(nome => { slot(nome).a += (assinaturaData[nome]||[]).reduce((s,r)=>s+(r.beneficiarios||0),0); });
-    // Ranking: o desta importação, ou o do último retrato (o extrato do BI nem sempre vem junto)
-    let rk = rankByRaw, rkData = dataISO;
-    if (!rk){
-      const ant = Object.keys(DAILY_SNAPSHOTS).filter(d => d <= dataISO).sort().pop();
-      if (ant){ rk = {}; rkData = DAILY_SNAPSHOTS[ant].rk || ant; Object.keys(DAILY_SNAPSHOTS[ant].g).forEach(n => { if (DAILY_SNAPSHOTS[ant].g[n].r) rk[n] = DAILY_SNAPSHOTS[ant].g[n].r; }); }
-    }
-    Object.keys(rk||{}).forEach(nome => { slot(nome).r = Math.round(rk[nome]); });
-    return { v: RETRATO_V, em: new Date().toISOString(), meses: [...meses], rk: rk ? rkData : null, g };
+    return snap;
   }
-  function saveDailySnapshot(rankByRaw){
-    const hoje = dataLocalISO(new Date());
-    DAILY_SNAPSHOTS[hoje] = computeGestorSnapshotNow(hoje, rankByRaw || null);
+  function saveDailySnapshot(){
+    const hoje = new Date().toISOString().slice(0,10);
+    DAILY_SNAPSHOTS[hoje] = computeGestorSnapshotNow();
     // Mantém só os últimos 60 dias — suficiente pra qualquer comparação de período, sem o
     // data.json crescer sem limite.
     const datas = Object.keys(DAILY_SNAPSHOTS).sort();
     while (datas.length > 60){ delete DAILY_SNAPSHOTS[datas.shift()]; }
   }
-  // { hoje: {data, ...retrato}, ontem: {data, ...retrato} | null } — "hoje" = o retrato mais recente (pode ser de ontem,
-  // se ainda não importaram nada hoje); "ontem" = o último retrato de um dia anterior a ele.
-  function getRetratosOntemHoje(){
-    const datas = Object.keys(DAILY_SNAPSHOTS).sort();
-    if (!datas.length) return null;
-    const dh = datas[datas.length-1], doo = datas.length > 1 ? datas[datas.length-2] : null;
-    return { hoje: Object.assign({ data: dh }, DAILY_SNAPSHOTS[dh]), ontem: doo ? Object.assign({ data: doo }, DAILY_SNAPSHOTS[doo]) : null };
+  function getYesterdaySnapshot(){
+    const hoje = new Date().toISOString().slice(0,10);
+    const datas = Object.keys(DAILY_SNAPSHOTS).filter(d => d < hoje).sort();
+    return datas.length ? DAILY_SNAPSHOTS[datas[datas.length-1]] : null;
   }
   function slaAddDU(d,n){ let c=new Date(d), a=0; while(a<n){ c.setDate(c.getDate()+1); if (c.getDay()!==0 && c.getDay()!==6) a++; } return c; }
   function slaDuDiff(a,b){ let c=0, cur=new Date(a); while(cur<b){ if (cur.getDay()!==0 && cur.getDay()!==6) c++; cur.setDate(cur.getDate()+1); } return c; }
@@ -3156,81 +2334,12 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
   const fmt0 = n => Math.round(n).toLocaleString('pt-BR');
   const RANK_ORDER = ["Bronze 1","Bronze 2","Bronze 3","Bronze 4","Bronze 5","Bronze 6","Não Classificado"];
-  const EL_GESTORES = [...new Set(scopedData().map(d=>d.g))].sort();
-  const RANKS_PRESENT = RANK_ORDER.filter(r => scopedData().some(d=>d.rk===r));
+  const EL_GESTORES = [...new Set(DATA.map(d=>d.g))].sort();
+  const RANKS_PRESENT = RANK_ORDER.filter(r => DATA.some(d=>d.rk===r));
 
-  // Filtro de Gestor virou multi-seleção (checkboxes num painel, não mais um <select> —
-  // ver CSS .fgb-* em index.html) pra quem enxerga vários gestores poder comparar 2+ ao
-  // mesmo tempo em vez de só "Todos" ou um por vez (pedido do Victor, 2026-09-17).
-  // selectedGestores vazio = "Todos", mesmo significado de sempre — todo o resto do código
-  // (applyFilters, gráficos "por gestor" que já agrupam dinamicamente os `rows`/`filtered`
-  // restantes por d.g) segue funcionando certo com 2+ gestores sem precisar de mudança,
-  // porque nunca dependia de ter exatamente 1 selecionado.
-  let selectedGestores = new Set();
-  const fGestorBtn = document.getElementById('fGestorBtn');
-  const fGestorPanel = document.getElementById('fGestorPanel');
-  const fGestorOptions = document.getElementById('fGestorOptions');
-  const fGestorAllCb = document.getElementById('fGestorAllCb');
-  function gestorLabelText(){
-    if (selectedGestores.size === 0) return 'Todos';
-    if (selectedGestores.size === 1) return [...selectedGestores][0];
-    return selectedGestores.size + ' gestores selecionados';
-  }
-  function syncGestorUI(){
-    fGestorBtn.textContent = gestorLabelText();
-    fGestorBtn.title = selectedGestores.size > 1 ? [...selectedGestores].join(', ') : '';
-    fGestorAllCb.checked = selectedGestores.size === 0;
-    const grp = fGestorBtn.closest('.f-group'); if (grp) grp.classList.toggle('is-filtered', selectedGestores.size > 0);
-  }
-  function syncGestorCheckboxes(){
-    fGestorOptions.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = selectedGestores.has(EL_GESTORES[Number(cb.dataset.gi)]); });
-    syncGestorUI();
-  }
-  // Chamada no clique numa barra "por gestor" (drill-down pra 1 gestor só) e no
-  // jumpToElegibilidade (vindo de outra aba) — substitui a seleção inteira.
-  function setSelectedGestores(list){
-    selectedGestores = new Set(list);
-    syncGestorCheckboxes();
-  }
-  // Reconstrói a lista de checkboxes a partir de EL_GESTORES — chamada no carregamento
-  // inicial e de novo a cada import (EL_GESTORES pode ganhar um gestor novo). Descarta da
-  // seleção qualquer gestor que não exista mais na base (nome mudou/equipe removida).
-  function renderGestorOptions(){
-    selectedGestores = new Set([...selectedGestores].filter(g => EL_GESTORES.includes(g)));
-    fGestorOptions.innerHTML = EL_GESTORES.map((g,i) => `<label class="fgb-option"><input type="checkbox" data-gi="${i}"> ${g}</label>`).join('');
-    fGestorOptions.querySelectorAll('input[type=checkbox]').forEach(cb => {
-      const g = EL_GESTORES[Number(cb.dataset.gi)];
-      cb.checked = selectedGestores.has(g);
-      cb.addEventListener('change', () => {
-        if (cb.checked) selectedGestores.add(g); else selectedGestores.delete(g);
-        syncGestorUI();
-        page = 1; renderActive();
-      });
-    });
-    syncGestorUI();
-  }
-  renderGestorOptions();
-  fGestorBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const willOpen = fGestorPanel.style.display === 'none';
-    fGestorPanel.style.display = willOpen ? 'block' : 'none';
-    fGestorBtn.setAttribute('aria-expanded', String(willOpen));
-  });
-  fGestorPanel.addEventListener('click', e => e.stopPropagation());
-  document.addEventListener('click', () => {
-    fGestorPanel.style.display = 'none';
-    fGestorBtn.setAttribute('aria-expanded', 'false');
-  });
-  fGestorAllCb.addEventListener('change', () => {
-    if (fGestorAllCb.checked){ setSelectedGestores([]); page = 1; renderActive(); }
-    else if (selectedGestores.size === 0){
-      // Não deixa desmarcar "Todos" sem nada pra colocar no lugar (viraria "nenhum gestor").
-      fGestorAllCb.checked = true;
-    }
-  });
-  // Nome mantido só por causa dos 2 pontos (import de arquivo novo) que ainda chamam essa
-  // função pelo nome antigo — reaproveita renderGestorOptions() por trás.
-  function syncGestorLocalOptions(){ renderGestorOptions(); }
+  const selGestor = document.getElementById('fGestor');
+  EL_GESTORES.forEach(g => { const o=document.createElement('option'); o.value=g; o.textContent=g; selGestor.appendChild(o); });
+  function syncGestorLocalOptions(){ /* filtro local removido - unificado no filtro principal */ }
   const selRank = document.getElementById('fRank');
   RANKS_PRESENT.forEach(r => { const o=document.createElement('option'); o.value=r; o.textContent=r; selRank.appendChild(o); });
 
@@ -3239,65 +2348,17 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // inteira pra essa fatia — igual clicar numa barra do gráfico "Elegibilidade por Gestor" já
   // fazia. Clicar de novo no mesmo card limpa o filtro (toggle). null = nenhum filtro de KPI ativo.
   let activeKpiFilter = null; // null | 'eleg' | 'quase' | 'risco' | 'distantes'
-  // "Zero vendas nos últimos 3 meses" lido direto de d.m (atualizado a cada extrato). Até 2026-10-07
-  // usava d.u3, calculado só no upload da planilha de Elegibilidade — corretora que voltou a vender
-  // depois disso continuava na lista de reativação.
-  const vendasUltimos3 = d => { const m = d.m || []; return (m[m.length-1]||0) + (m[m.length-2]||0) + (m[m.length-3]||0); };
-  window.vendasUltimos3 = vendasUltimos3;
-  // d.u3 também aparece na tabela/detalhe e na ordenação — mantido igual a vendasUltimos3 (aqui na
-  // carga, e de novo em applyCorretorasToEligibilidade/updateEligibilidadeData).
-  (DATA || []).forEach(d => { d.u3 = vendasUltimos3(d); });
-  // Oportunidade de reativação — UMA regra só, seguindo o período do filtro (Victor, 2026-10-13: "quando eu filtro por
-  // tri ou mês, os dados não se adaptam"; antes banner/caixinha usavam sempre os 3 últimos meses e o cartão/Top 15
-  // outra regra, sem o corte). Corte de 20 vidas mantido (decisão do Victor).
-  //  - "Todos os meses": ≥ 20 vidas no histórico e zero nos 3 últimos meses (como sempre).
-  //  - Com período: ≥ 20 vidas ANTES do período e zero DENTRO dele. Potencial = o que vendeu antes do período;
-  //    tempo parado = meses entre a última venda e o fim do período.
-  function reactCtx(d, periodMonths){
-    const m = d.m || [];
-    if (!periodMonths || !periodMonths.length){
-      return { ok: vendasUltimos3(d) === 0 && d.tot >= 20, pot: d.tot || 0, parado: monthsSinceLastSale(d) };
-    }
-    const ini = Math.min.apply(null, periodMonths), fim = Math.max.apply(null, periodMonths);
-    let antes = 0, ult = -1;
-    for (let i = 0; i < ini; i++){ const v = m[i] || 0; antes += v; if (v > 0) ult = i; }
-    const noPeriodo = periodMonths.reduce((s, i) => s + (m[i] || 0), 0);
-    return { ok: antes >= 20 && noPeriodo === 0, pot: antes, parado: ult >= 0 ? fim - ult : fim + 1 };
-  }
-  function isReactivation(d){ return reactCtx(d, getPeriodMonths()).ok; }
-  const reactPot = d => reactCtx(d, getPeriodMonths()).pot;
-  const reactParado = d => reactCtx(d, getPeriodMonths()).parado;
-
-  // Destaca visualmente (classe .is-filtered, ver CSS) os campos de filtro da Elegibilidade
-  // que estão com valor diferente do padrão — mesmo critério de "fatia estreita" que
-  // isAnyFilterActive() já usa, só que por campo em vez de agregado (pedido do Victor,
-  // 2026-09-09). Chamada de dentro de applyFilters() pra rodar em toda troca de filtro e
-  // também no carregamento inicial da aba, sem precisar de listeners próprios.
-  function updateActiveFilterHighlights(){
-    const fields = [
-      [document.getElementById('fEleg'), document.getElementById('fEleg').value !== ''],
-      [selRank, selRank.value !== ''],
-      [document.getElementById('fSearch'), document.getElementById('fSearch').value.trim() !== '']
-    ];
-    fields.forEach(function(pair){
-      var grp = pair[0].closest('.f-group');
-      if (grp) grp.classList.toggle('is-filtered', pair[1]);
-    });
-    var reactBox = document.getElementById('fReact');
-    var reactGroup = reactBox.closest('.f-toggle');
-    if (reactGroup) reactGroup.classList.toggle('is-filtered', reactBox.checked);
-  }
+  function isReactivation(d){ return d.u3 === 0 && d.tot >= 20; }
 
   function applyFilters(){
-    updateActiveFilterHighlights();
-    const el = document.getElementById('fEleg').value, rk = selRank.value;
+    const g = selGestor.value, el = document.getElementById('fEleg').value, rk = selRank.value;
     const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
     // No modo assessorias, a busca filtra assessorias (aplicada em aggregateAssessorias), não corretoras
     const q = (typeof elMode !== 'undefined' && elMode === 'assessorias') ? '' : norm(document.getElementById('fSearch').value);
     const onlyReact = document.getElementById('fReact').checked;
     const periodMonthsFilter = getPeriodMonths();
-    return scopedData().filter(d => {
-      if (selectedGestores.size && !selectedGestores.has(d.g)) return false;
+    return DATA.filter(d => {
+      if (g && d.g !== g) return false;
       const calc = periodMonthsFilter ? computePeriodElegRank(d, periodMonthsFilter) : null;
       if (el !== '' && String(calc ? calc.el : d.el) !== el) return false;
       if (rk && (calc ? calc.rk : d.rk) !== rk) return false;
@@ -3323,7 +2384,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   }
 
   function isAnyFilterActive(){
-    return !!(selectedGestores.size || document.getElementById('fEleg').value || selRank.value ||
+    return !!(selGestor.value || document.getElementById('fEleg').value || selRank.value ||
       document.getElementById('fSearch').value.trim() || document.getElementById('fReact').checked || activeKpiFilter);
   }
 
@@ -3342,8 +2403,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     'Erika de Sousa Silva':'#0EA5E9','Camila Alves Pertinhez':'#8B5CF6','Lais dos Santos Martins':'#EC4899','Wilder Coca Patzi':'#14B8A6',
     'Karollainny Rangel de Sousa Lopes':'#F59E0B','Daniela Novais dos Santos':'#EF4444','Amanda dos Santos Sobral':'#6366F1','Maxuel Pimentel Nobrega':'#84CC16',
     'Vivian de Cassia Ambrosio':'#06B6D4','Guilherme de Lima Musachi':'#A855F7','Izabele de Oliveira da Silva':'#F97316'};
-  // Gráfico horizontal "por gestor": com 15 gestores a altura fixa (280px) fazia o Chart.js
-  // pular rótulos (barra sem nome) — cresce a caixa conforme o número de gestores.
+  // Gráfico horizontal "por gestor": com 15 gestores (4 equipes) a altura fixa fazia o Chart.js
+  // pular rótulos (barra sem nome) — cresce a caixa conforme o número de gestores. Portado do
+  // V1, 2026-09-28.
   function fitGestorChartHeight(n){
     const box = document.getElementById('chartElGestor').parentElement;
     box.style.height = Math.max(280, n * 28 + 60) + 'px';
@@ -3355,8 +2417,6 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('chartDrilldownOverlay').style.display = 'flex';
     const sorted = [...list].sort((a,b)=>b.tot-a.tot);
     const totalVidas = sorted.reduce((s,d)=>s+d.tot,0);
-    const thTotDrill = document.getElementById('thTotMesesDrilldown');
-    if (thTotDrill && sorted.length && sorted[0].m) thTotDrill.textContent = `Total ${sorted[0].m.length}M`;
     document.getElementById('chartDrilldownTitle').textContent = `${title} (${sorted.length} corretora${sorted.length!==1?'s':''})`;
     document.getElementById('chartDrilldownSub').textContent = `${fmt0(totalVidas)} vidas em potencial · clique em uma linha para ver a evolução mensal`;
 
@@ -3391,7 +2451,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         <td class="num">${monthsSinceLastSale(d)} meses</td>
       </tr>`).join('');
     document.querySelectorAll('#chartDrilldownBody tr').forEach(tr => {
-      window.__kb(tr).addEventListener('click', () => showDetail(tr.dataset.c));
+      tr.addEventListener('click', () => showDetail(tr.dataset.c));
     });
   }
   document.getElementById('chartDrilldownClose').addEventListener('click', () => {
@@ -3426,9 +2486,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       const prev = getPrevEquivalentMonths(periodMonths);
       return prev ? computePeriodElegRank(d, prev) : null;
     }
-    // Trimestre anterior ao vigente, recalculado (era fixo em [15,16,17] = 2TRI26).
-    const prevTri = prevTriDef();
-    return prevTri ? computePeriodElegRank(d, prevTri.months) : null;
+    return computePeriodElegRank(d, [15,16,17]); // 2TRI26 recalculado (trimestre anterior ao ciclo vigente)
   }
   function faixaIdx(ctx){
     if (!(ctx.meta > 0)) return -1; // sem meta (sem histórico no período anterior)
@@ -3448,27 +2506,42 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
   function aggregateAssessorias(filtered){
     const periodMonths = getPeriodMonths();
+    const byCodigo = {};
+    filtered.forEach(d => { byCodigo[d.c] = d; });
     const groups = {};
-    // Agrupa pela assessoria UNIFICADA (window.assCanon, 2026-10-13): grafias diferentes da mesma assessoria
-    // viram uma linha só; cada corretora continua na assessoria gravada nela.
-    const nomeGrupo = {};
     filtered.forEach(d => {
-      const can = window.assCanon ? window.assCanon(d.ass, d.acod) : (d.ass ? { key: d.ass, nome: d.ass } : null);
-      const key = can ? can.key : '__SEM__';
-      if (can) nomeGrupo[key] = can.nome;
+      const key = d.ass || '__SEM__';
       (groups[key] = groups[key] || []).push({ d, ctx: assCtx(d, periodMonths) });
     });
     let aggs = Object.entries(groups).map(([key, rows]) => {
-      const n = rows.length;
-      const eleg = rows.filter(r=>r.ctx.el===1).length;
-      const vidas = rows.reduce((s,r)=>s+r.ctx.periodTotal,0);
-      const meta = rows.reduce((s,r)=>s+(r.ctx.meta||0),0);
-      // código da assessoria: o mais comum entre as corretoras do grupo
-      const contCod = {};
-      if (key !== '__SEM__') rows.forEach(r => { const c = String(r.d.acod||'').trim(); if (c && c !== '0') contCod[c] = (contCod[c]||0) + 1; });
-      const acod = Object.keys(contCod).sort((a,b)=>contCod[b]-contCod[a])[0] || '';
-      return { key, acod, name: key==='__SEM__'?'Sem assessoria vinculada':(nomeGrupo[key] || key), rows, n, eleg,
-        vidas, meta, pctEl: n?eleg/n*100:0, ating: meta>0?vidas/meta*100:0 };
+      // código da assessoria: pega o mais comum entre as corretoras do grupo
+      const acod = key==='__SEM__' ? '' : (rows.map(r=>r.d.acod).find(x=>x && String(x).trim() !== '0') || '');
+      // Inclui o código direto da assessoria (a própria corretora-âncora, ex.: assessoria "F8"
+      // tem código direto 0540 — confirmado com o Victor 2026-09-28) na soma do grupo. Ela não
+      // aparece com "ass" apontando pra si mesma, então sem isso ficava de fora da conta —
+      // mas continua aparecendo normal na tabela de Corretoras (não sai de lá, só passa a
+      // TAMBÉM contar no agregado da assessoria). O código direto é o próprio valor de COD_ASS
+      // que as multinotas do grupo já carregam (acod acima) — não existe tabela de referência
+      // separada pra isso, é só procurar esse código entre as corretoras normais.
+      const anchorD = (acod && byCodigo[acod]) ? byCodigo[acod] : null;
+      const rowsComAncora = (anchorD && !rows.some(r => r.d.c === anchorD.c))
+        ? rows.concat([{ d: anchorD, ctx: assCtx(anchorD, periodMonths) }])
+        : rows;
+      const n = rowsComAncora.length;
+      const eleg = rowsComAncora.filter(r=>r.ctx.el===1).length;
+      const vidas = rowsComAncora.reduce((s,r)=>s+r.ctx.periodTotal,0);
+      const meta = rowsComAncora.reduce((s,r)=>s+(r.ctx.meta||0),0);
+      // Elegibilidade/gap/classificação da ASSESSORIA COMO UM TODO — mesma fórmula da
+      // corretora individual (computePeriodElegRank/computeRankingFromVolume), só que aplicada
+      // no total somado (vidas/meta de todas as multinotas + a âncora), não "quantas corretoras
+      // do grupo são elegíveis individualmente" (isso já existia acima, é o pctEl). Pedido do
+      // Victor, 2026-09-28.
+      const eraMonths = periodMonths || (rowsComAncora[0] ? [rowsComAncora[0].d.m.length - 1] : [0]);
+      const elGroup = (meta > 0 && vidas >= meta) ? 1 : 0;
+      const rkGroup = computeRankingFromVolume(vidas, eraMonths);
+      const gapGroup = vidas - meta;
+      return { key, acod, name: key==='__SEM__'?'Sem assessoria vinculada':key, rows: rowsComAncora, n, eleg,
+        vidas, meta, pctEl: n?eleg/n*100:0, ating: meta>0?vidas/meta*100:0, elGroup, rkGroup, gapGroup };
     });
     // Busca por nome ou código da assessoria (só no modo assessorias)
     const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
@@ -3549,6 +2622,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const sorted = reais.concat(semv);
     document.getElementById('assRankBody').innerHTML = sorted.map(a=>{
       const cls = a.pctEl>=10?'good':(a.pctEl>0?'warn':'zero');
+      const elCls = a.key==='__SEM__' ? 'zero' : (a.elGroup ? 'good' : 'zero');
+      const elLabel = a.key==='__SEM__' ? '—' : (a.elGroup ? 'Elegível' : 'Não elegível');
       return `<tr data-k="${a.key.replace(/"/g,'&quot;')}">
         <td><div class="ass-rank-name">${a.name}</div>${a.acod?`<span style="font-size:10px;color:var(--muted);">cód. ${a.acod}</span>`:''}</td>
         <td class="num">${fmt0(a.n)}</td>
@@ -3556,9 +2631,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         <td class="num">${fmt0(a.eleg)}</td>
         <td class="num"><span class="ass-rank-pct ${cls}">${a.pctEl.toFixed(1)}%</span></td>
         <td class="num">${a.meta>0?a.ating.toFixed(0)+'%':'—'}</td>
+        <td class="num">${a.key==='__SEM__'?'—':`<span class="ass-rank-pct ${elCls}">${elLabel}</span>`}</td>
+        <td class="num">${a.key==='__SEM__'?'—':a.rkGroup}</td>
       </tr>`;
     }).join('');
-    document.querySelectorAll('#assRankBody tr').forEach(tr=>window.__kb(tr).addEventListener('click',()=>openAssDetail(tr.dataset.k)));
+    document.querySelectorAll('#assRankBody tr').forEach(tr=>tr.addEventListener('click',()=>openAssDetail(tr.dataset.k)));
   }
 
   function openAssDetail(key){
@@ -3579,7 +2656,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   function renderAssessoriaDetail(agg, periodMonths){
     const detail = document.getElementById('assDetail');
     document.getElementById('assDetailTitle').textContent = agg.name;
-    const { rows, n, eleg, vidas, meta, pctEl, ating } = agg;
+    const { rows, n, eleg, vidas, meta, pctEl, ating, elGroup, rkGroup, gapGroup } = agg;
     const gestoresSet = [...new Set(rows.map(r=>shortGestorAss(r.d.g)))];
     const cycleTxt = periodMonths ? 'no período' : 'ciclo oficial';
     const kpis = `
@@ -3588,13 +2665,17 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         <div class="ass-kpi" style="--ak:var(--accent-mint)"><div class="ak-label">Vidas Produzidas</div><div class="ak-val">${fmt0(vidas)}</div><div class="ak-sub">${cycleTxt}</div></div>
         <div class="ass-kpi" style="--ak:${pctEl>=10?'var(--accent-mint)':'var(--accent-gold)'}"><div class="ak-label">% Elegíveis</div><div class="ak-val">${pctEl.toFixed(1)}%</div><div class="ak-sub">${eleg} de ${n} corretoras</div></div>
         <div class="ass-kpi" style="--ak:${ating>=100?'var(--accent-mint)':'var(--accent-coral)'}"><div class="ak-label">Atingimento da Meta</div><div class="ak-val">${meta>0?ating.toFixed(0)+'%':'—'}</div><div class="ak-sub">${fmt0(vidas)} / ${fmt0(meta)} vidas</div></div>
+        <div class="ass-kpi" style="--ak:${elGroup?'var(--accent-mint)':'var(--accent-coral)'}"><div class="ak-label">Elegibilidade da Assessoria</div><div class="ak-val">${elGroup?'Elegível':'Não elegível'}</div><div class="ak-sub">${rkGroup} · gap ${gapGroup>=0?'+':''}${fmt0(gapGroup)} vidas</div></div>
       </div>`;
     const maxVidas = Math.max.apply(null, rows.map(r=>r.ctx.periodTotal).concat([1]));
     const sorted = rows.slice().sort((a,b)=>b.ctx.periodTotal - a.ctx.periodTotal);
     const tableRows = sorted.map(r => {
       const barW = (r.ctx.periodTotal/maxVidas*100).toFixed(1);
+      // Marca visualmente a corretora-âncora (código direto da assessoria) — ela conta na soma
+      // acima mas é fácil esquecer que ela também é uma corretora normal, não só um "total".
+      const isAnchor = agg.acod && r.d.c === agg.acod;
       return `<tr class="clickable" data-c="${r.d.c}">
-        <td><div class="ass-corr-name">${r.d.n}</div><span style="font-size:10px;color:var(--muted);">${shortGestorAss(r.d.g)}</span></td>
+        <td><div class="ass-corr-name">${r.d.n}${isAnchor?' <span style="font-size:10px;font-weight:700;color:var(--primary-light);">(código direto)</span>':''}</div><span style="font-size:10px;color:var(--muted);">${shortGestorAss(r.d.g)}</span></td>
         <td><span class="ass-rank-chip">${r.ctx.rk}</span></td>
         <td class="num">${fmt0(r.ctx.periodTotal)}</td>
         <td><div class="ass-mini-bar"><i style="width:${barW}%"></i></div></td>
@@ -3613,7 +2694,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           </table>
         </div>
       </div>`;
-    detail.querySelectorAll('tr.clickable').forEach(tr => window.__kb(tr).addEventListener('click', ()=>showDetail(tr.dataset.c, {fromAssessoria: agg.name})));
+    detail.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', ()=>showDetail(tr.dataset.c, {fromAssessoria: agg.name})));
   }
 
   const shortAssName = name => { name = String(name); return name.length > 26 ? name.slice(0,24)+'…' : name; };
@@ -3636,8 +2717,10 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   document.querySelectorAll('#elViewSwitch .vs-btn').forEach(b=>b.addEventListener('click',()=>setElMode(b.dataset.mode)));
   document.getElementById('assDetailBack').addEventListener('click', closeAssDetail);
   document.querySelectorAll('#assRankTable thead th').forEach((th,i)=>{
-    const keys=['name','n','vidas','eleg','pctEl','ating'];
-    window.__kb(th).addEventListener('click',()=>{ const k=keys[i]; if(assCurrentSort===k) assCurrentDir*=-1; else {assCurrentSort=k; assCurrentDir=(k==='name'?1:-1);} renderAssRankTable(aggregateAssessorias(applyFilters())); });
+    // 'elGroup'/'vidas' (não 'rkGroup') — classificação é função direta do volume, então
+    // ordenar por vidas já dá a mesma ordem, sem precisar de uma tabela de ranks pra comparar.
+    const keys=['name','n','vidas','eleg','pctEl','ating','elGroup','vidas'];
+    th.addEventListener('click',()=>{ const k=keys[i]; if(assCurrentSort===k) assCurrentDir*=-1; else {assCurrentSort=k; assCurrentDir=(k==='name'?1:-1);} renderAssRankTable(aggregateAssessorias(applyFilters())); });
   });
 
   // Conquista Premiada — visão geral da campanha (independe dos filtros da tela;
@@ -3647,7 +2730,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   const CQG_PP = 15;
 
   function conquistaRowsAll(){
-    return scopedData().map(d => { const cq = computeConquistaFull(d); return cq ? Object.assign({d}, cq) : null; }).filter(Boolean);
+    return DATA.map(d => { const cq = computeConquistaFull(d); return cq ? Object.assign({d}, cq) : null; }).filter(Boolean);
   }
 
   function applyConquistaFilters(rows){
@@ -3689,7 +2772,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       </tr>`).join('') || `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:16px;">Nenhuma corretora encontrada com esses filtros.</td></tr>`;
     document.getElementById('cqgPagInfo').textContent = `Página ${cqgPage+1} de ${totalPag} (${filtered.length} resultado(s))`;
     document.querySelectorAll('#cqgTableBody tr[data-c]').forEach(tr => {
-      window.__kb(tr).addEventListener('click', () => { closeConquistaModal(); showDetail(tr.dataset.c); });
+      tr.addEventListener('click', () => { closeConquistaModal(); showDetail(tr.dataset.c); });
     });
   }
 
@@ -3726,7 +2809,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.querySelectorAll('#cqgKpiRow .cqg-kpi[data-cqi]').forEach(el => {
       const k = kpis[Number(el.dataset.cqi)];
       if (!k || !k.eleg) return;
-      window.__kb(el).addEventListener('click', () => {
+      el.addEventListener('click', () => {
         cqgFilterEleg = (cqgFilterEleg === k.eleg) ? '' : k.eleg;
         document.getElementById('cqgFEleg').value = cqgFilterEleg;
         cqgPage = 0;
@@ -3736,7 +2819,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
     const gestorGrid = document.getElementById('cqgGestorGrid');
     // "Sem Gestor Atribuído" fica de fora dos cards (mas continua nos KPIs gerais acima).
-    const gestorNames = [...new Set(scopedData().map(d=>d.g))].filter(g => g !== 'Sem Gestor Atribuído').sort();
+    const gestorNames = [...new Set(DATA.map(d=>d.g))].filter(g => g !== 'Sem Gestor Atribuído').sort();
     gestorGrid.innerHTML = gestorNames.map(g => {
       const gRows = rows.filter(r => r.d.g === g);
       const gEleg = gRows.filter(r => r.isEligible);
@@ -3765,10 +2848,10 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       </div>`;
     }).join('');
     gestorGrid.querySelectorAll('.cqg-top3-row').forEach(el => {
-      window.__kb(el).addEventListener('click', (e) => { e.stopPropagation(); closeConquistaModal(); showDetail(el.dataset.c); });
+      el.addEventListener('click', (e) => { e.stopPropagation(); closeConquistaModal(); showDetail(el.dataset.c); });
     });
     gestorGrid.querySelectorAll('.cqg-card').forEach(el => {
-      window.__kb(el).addEventListener('click', () => {
+      el.addEventListener('click', () => {
         const g = el.dataset.g;
         cqgFilterGestor = (cqgFilterGestor === g) ? '' : g;
         document.getElementById('cqgFGestor').value = cqgFilterGestor;
@@ -3840,25 +2923,23 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       document.getElementById('execEvolPanel').style.display = 'none';
       document.getElementById('reactTablePanel').style.display = '';
 
-      // Potencial e tempo parado seguem o período do filtro (reactCtx, 2026-10-13)
       const n = filtered.length;
-      const totalVidas = filtered.reduce((s,d)=>s+reactPot(d),0);
+      const totalVidas = filtered.reduce((s,d)=>s+d.tot,0);
       const media = n ? totalVidas / n : 0;
-      const maisPotencial = n ? filtered.reduce((a,b)=> reactPot(a) > reactPot(b) ? a : b) : null;
-      const mediaInativa = n ? filtered.reduce((s,d)=>s+reactParado(d),0) / n : 0;
-      const periodoReact = getPeriodMonths();
+      const maisPotencial = n ? filtered.reduce((a,b)=> a.tot > b.tot ? a : b) : null;
+      const mediaInativa = n ? filtered.reduce((s,d)=>s+monthsSinceLastSale(d),0) / n : 0;
 
       const kpiDefs = [
         { bar:'#F26B21', ico:'<i class=ic-target></i>', icoBg:'rgba(242,107,33,.12)', color:'#F26B21',
-          label:'Corretoras em Oportunidade', value: fmt0(n), pct: periodoReact ? 'vendiam antes, zero no período' : 'histórico relevante, zero produção recente',
+          label:'Corretoras em Oportunidade', value: fmt0(n), pct:'histórico relevante, zero produção recente',
           list: filtered, title:'Oportunidades de reativação' },
         { bar:'#1D33A8', ico:'<i class=ic-trend></i>', icoBg:'rgba(29,51,168,.10)', color:'#101E63',
-          label:'Vidas Históricas em Potencial', value: fmt0(totalVidas), pct: n?('média de '+fmt0(media)+' por corretora'+(periodoReact?' (antes do período)':'')):'0' },
+          label:'Vidas Históricas em Potencial', value: fmt0(totalVidas), pct: n?('média de '+fmt0(media)+' por corretora'):'0' },
         { bar:'#16B87A', ico:'<i class=ic-award></i>', icoBg:'rgba(22,184,122,.12)', color:'#16B87A',
-          label:'Maior Potencial Único', value: maisPotencial?fmt0(reactPot(maisPotencial)):'—', pct: maisPotencial?maisPotencial.n:'—',
+          label:'Maior Potencial Único', value: maisPotencial?fmt0(maisPotencial.tot):'—', pct: maisPotencial?maisPotencial.n:'—',
           list: maisPotencial ? [maisPotencial] : null, title: maisPotencial ? maisPotencial.n : '' },
         { bar:'#FFB81C', ico:'<i class=ic-alarm></i>', icoBg:'rgba(255,184,28,.16)', color:'#a5690f',
-          label:'Tempo Médio Inativo', value: mediaInativa.toFixed(1)+' meses', pct: periodoReact ? 'da última venda até o fim do período' : 'desde a última venda' },
+          label:'Tempo Médio Inativo', value: mediaInativa.toFixed(1)+' meses', pct:'desde a última venda' },
       ];
       document.getElementById('execKpiRow').innerHTML = kpiDefs.map((k,i)=>`
         <div class="exec-kpi ${k.list?'clickable':''}" data-i="${i}" style="--ek-bar:${k.bar}; --ek-ico-bg:${k.icoBg}; --ek-color:${k.color};" ${k.list?'title="Clique para ver as corretoras"':''}>
@@ -3870,7 +2951,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       document.querySelectorAll('#execKpiRow .exec-kpi[data-i]').forEach(el => {
         const k = kpiDefs[Number(el.dataset.i)];
         if (!k || !k.list) return;
-        window.__kb(el).addEventListener('click', () => {
+        el.addEventListener('click', () => {
           if (k.list.length === 1) showDetail(k.list[0].c);
           else showChartDrilldown(k.title, k.list);
         });
@@ -3888,29 +2969,27 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         data:{ labels: reactGestorNames.map(shortGestor), datasets:[{ data: reactGestorNames.map(g=>reactByGestor[g].length),
           backgroundColor: reactGestorNames.map(g=>GESTOR_COLORS[g]||'#94a3b8'), borderRadius:7, maxBarThickness:34 }] },
         options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
-          onClick:(evt,els)=>{ if(!els||!els.length) return; setSelectedGestores([reactGestorNames[els[0].index]]); render(); },
+          onClick:(evt,els)=>{ if(!els||!els.length) return; selGestor.value = reactGestorNames[els[0].index]; render(); },
           onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?'pointer':'default'; },
           plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
             const g = reactGestorNames[c.dataIndex]; const l = reactByGestor[g];
-            const potg = l.reduce((s,d)=>s+reactPot(d),0);
+            const potg = l.reduce((s,d)=>s+d.tot,0);
             return [`${l.length} oportunidade(s)`, `${fmt0(potg)} vidas em potencial`, 'Clique para filtrar'];
           }}}},
           scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{autoSkip:false, font:{size:11, weight:'600'}}} } }
       });
 
-      const sortedReact = [...filtered].sort((a,b)=>reactPot(b)-reactPot(a));
+      const sortedReact = [...filtered].sort((a,b)=>b.tot-a.tot);
       document.getElementById('reactTableBody').innerHTML = sortedReact.length ? sortedReact.map(d => `
         <tr class="clickable" data-c="${d.c}">
           <td class="name">${d.n}</td>
           <td>${shortGestor(d.g)}</td>
-          <td class="num">${fmt0(reactPot(d))}</td>
-          <td>${reactParado(d)} meses</td>
+          <td class="num">${fmt0(d.tot)}</td>
+          <td>${monthsSinceLastSale(d)} meses</td>
         </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px;">Nenhuma corretora encontrada com esses filtros.</td></tr>`;
-      document.querySelectorAll('#reactTableBody tr[data-c]').forEach(tr => window.__kb(tr).addEventListener('click', () => showDetail(tr.dataset.c)));
+      document.querySelectorAll('#reactTableBody tr[data-c]').forEach(tr => tr.addEventListener('click', () => showDetail(tr.dataset.c)));
 
-      window.__execInsights = n ? [{ico:'<i class=ic-target></i>', text: periodoReact
-        ? `<b>${fmt0(n)} corretoras</b> que vendiam antes (≥ 20 vidas) ficaram zeradas no período — <b>${fmt0(totalVidas)} vidas</b> de histórico em potencial de reativação.`
-        : `<b>${fmt0(n)} corretoras</b> com histórico relevante estão sem vender há pelo menos 3 meses — <b>${fmt0(totalVidas)} vidas</b> em potencial de reativação.`}] : [];
+      window.__execInsights = n ? [{ico:'<i class=ic-target></i>', text:`<b>${fmt0(n)} corretoras</b> com histórico relevante estão sem vender há pelo menos 3 meses — <b>${fmt0(totalVidas)} vidas</b> em potencial de reativação.`}] : [];
       return;
     }
     document.getElementById('heatmapPanel').style.display = '';
@@ -3923,20 +3002,10 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const periodMonths = getPeriodMonths();
     const periodType = document.getElementById('fPeriodType').value;
     const periodIdx = Number(document.getElementById('fPeriodValue').value);
-    const cycleLabel = periodMonths ? ((PERIOD_DEFS[periodType][periodIdx]||{}).label || 'período') : ('Ciclo vigente (' + triShort(curTriDef()) + ')');
-    // Rótulo da base de comparação do chip "vs ...": o delta compara com os N meses imediatamente
-    // anteriores (N = nº de meses do período, getPrevEquivalentMonths). Com trimestre COMPLETO é o
-    // trimestre anterior; com trimestre parcial (ex.: só Outubro) é só o(s) mês(es) antes — rotular
-    // como "3º Trimestre" era enganoso (corrigido 2026-10-06).
-    const prevLabel = (() => {
-      if (!periodMonths) return triShort(prevTriDef());
-      const pe = getPrevEquivalentMonths(periodMonths);
-      if (periodType === 'trimestre' && periodMonths.length < 3 && pe && pe.length){
-        const ml = i => (window.MONTH_LABELS && window.MONTH_LABELS[i]) || ('mês ' + i);
-        return pe.length === 1 ? ml(pe[0]) : (ml(pe[0]) + ' a ' + ml(pe[pe.length - 1]));
-      }
-      return (PERIOD_DEFS[periodType][periodIdx-1]||{}).label || 'período anterior';
-    })();
+    const cycleLabel = periodMonths ? ((PERIOD_DEFS[periodType][periodIdx]||{}).label || 'período') : 'Ciclo oficial (3TRI26)';
+    const prevLabel = periodMonths
+      ? ((PERIOD_DEFS[periodType][periodIdx-1]||{}).label || 'período anterior')
+      : '2TRI26';
     const periodFactor = periodMonths ? (isNewEra(periodMonths) ? 0.80 : 1.10) : 0.80;
     const factorTxt = periodFactor === 0.80 ? '×0,80' : '×1,10';
     const recalcSuffix = ' <span class="recalc-tag">Recalc. ' + factorTxt + '</span>';
@@ -3968,22 +3037,27 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // sem contexto isso parece "não achei nada". Deixa isso explícito antes dos cards.
     const searchQ = document.getElementById('fSearch').value.trim();
     const searchBanner = document.getElementById('execSearchBanner');
-    // Qualquer filtro que restrinja a uma fatia específica (busca por nome/código, clique num
-    // dos cards de KPI, ou os dropdowns de Elegibilidade/Ranking) faz os gráficos de % pararem
-    // de fazer sentido: com poucas corretoras eles ficam vazios, e com uma categoria inteira já
-    // pré-selecionada (ex.: "Não Elegíveis") o resultado vira meio óbvio/redundante — os
-    // dropdowns causavam esse mesmo problema mas não entravam nessa checagem. Troca por algo
-    // direto: cards por corretora quando sobra pouca gente, ou um resumo por gestor quando a
-    // fatia ainda é grande (mesmo comportamento já validado pros outros casos).
+    // Qualquer filtro que restrinja a uma fatia específica (busca por nome/código, um dos
+    // cards de KPI, OU os dropdowns de Elegibilidade/Ranking) faz os gráficos de % pararem
+    // de fazer sentido: com poucas corretoras eles ficam vazios, e com uma categoria inteira
+    // já pré-selecionada (ex.: "Não Elegíveis") o resultado vira meio óbvio/redundante —
+    // "Elegibilidade por Gestor" mostra 0% pra todo mundo, o funil zera a última etapa, etc.
+    // Achado em 2026-08-28 (Victor: "os mesmos gráficos zerados, sem sentido"): os dropdowns
+    // de Elegibilidade e Ranking causavam exatamente esse mesmo problema que já tinha sido
+    // resolvido pra busca/clique-no-card — só não incluíam esses dois filtros na checagem.
+    // Troca por algo direto: cards por corretora quando sobra pouca gente, ou um resumo por
+    // gestor quando a fatia ainda é grande (mesmo comportamento já validado pros outros casos).
     const elFilterActive = document.getElementById('fEleg').value !== '';
     const rkFilterActive = selRank.value !== '';
     const isNarrowed = !!(searchQ || activeKpiFilter || elFilterActive || rkFilterActive);
     const smallSlice = isNarrowed && n > 0 && n <= 8;
     const bigSlice = isNarrowed && n > 8;
     // Rótulo do filtro ativo, pra título das duas views "fatia estreita" (smallSlice/bigSlice)
-    // — cobre os 4 jeitos de chegar numa fatia restrita: card de KPI, busca por texto, e os
-    // dropdowns de Elegibilidade e Ranking. Precisa vir ANTES do bloco "if (smallSlice)" logo
-    // abaixo, que já usa essa variável.
+    // — cobre os 4 jeitos de chegar numa fatia restrita: card de KPI, busca por texto, e
+    // agora também os dropdowns de Elegibilidade e Ranking (ver comentário do isNarrowed acima).
+    // Precisa vir ANTES do bloco "if (smallSlice)" logo abaixo, que já usa essa variável —
+    // declará-la só lá embaixo (perto do "if (bigSlice)") quebrava render() inteiro com
+    // ReferenceError sempre que smallSlice desse true, silenciosamente (achado testando).
     const narrowedLabel = searchQ ? `"${searchQ}"`
       : activeKpiFilter ? ({ eleg:'Elegíveis', quase:'Quase Elegíveis (76–99%)', risco:'Em Risco', distantes:'Não Elegíveis (distantes)' }[activeKpiFilter] || activeKpiFilter)
       : elFilterActive ? (document.getElementById('fEleg').selectedOptions[0].text)
@@ -4043,7 +3117,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
             ${r.ctx.el===1 ? '<span class="tag elig">Elegível</span>' : '<span class="tag noelig">Não elegível</span>'}
           </div>
           <div class="sr-stats">
-            <div class="sr-stat"><div class="sr-label">Total ${r.d.m ? r.d.m.length : 17}M</div><div class="sr-value" style="color:var(--navy);">${fmt0(r.d.tot)}</div></div>
+            <div class="sr-stat"><div class="sr-label">Total 17M</div><div class="sr-value" style="color:var(--navy);">${fmt0(r.d.tot)}</div></div>
             <div class="sr-stat"><div class="sr-label">${cycleLabel} Atual</div><div class="sr-value" style="color:var(--primary-light);">${fmt0(r.ctx.periodTotal)}</div></div>
             <div class="sr-stat"><div class="sr-label">Meta ${cycleLabel}</div><div class="sr-value" style="color:#a5690f;">${fmt0(r.ctx.meta)}</div></div>
             <div class="sr-stat"><div class="sr-label">Gap</div><div class="sr-value" style="color:${gap>=0?'#16B87A':'#F5364A'};">${gap>=0?'+':''}${fmt0(gap)}</div></div>
@@ -4056,7 +3130,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       // pra dentro do card. Clicar de novo no card já aberto fecha; clicar em outro card
       // move o painel pra lá (só um aberto por vez).
       document.querySelectorAll('#execSearchResultsCards .search-result-card').forEach(card => {
-        window.__kb(card).addEventListener('click', () => {
+        card.addEventListener('click', () => {
           const panel = document.getElementById('detailPanel');
           const jaAbertoAqui = panel.classList.contains('show') && panel.parentElement === card;
           if (jaAbertoAqui){ panel.classList.remove('show'); return; }
@@ -4116,19 +3190,13 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         label:'Não Elegíveis (distantes)', value: fmt0(distantes.length), pct: n?(distantes.length/n*100).toFixed(1)+'% do total':'0%',
         delta:'<span class="ek-delta flat">abaixo de 76% da meta</span>',
         note:'Foco em reativação estrutural', list: distantes, title:'Não elegíveis abaixo de 76% da meta — '+cycleLabel },
-      // color omitido de propósito (2026-10-01, achado da auditoria de contraste): era '#101E63'
-      // fixo (igual à --navy do modo claro) — os outros 4 cards usam cor semântica (verde/amarelo/
-      // laranja/vermelho) que faz sentido ficar igual nos dois temas, mas "Total de Corretoras"
-      // não tem significado de cor nenhum, só pegava o navy por engano. --ek-color some, .ek-value
-      // cai no próprio fallback do CSS (var(--ek-color, var(--navy))) — que já é escuro no claro e
-      // claro no escuro sozinho.
-      { key:null, bar:'#1D33A8', ico:'<i class=ic-users></i>', icoBg:'rgba(29,51,168,.10)',
+      { key:null, bar:'#1D33A8', ico:'<i class=ic-users></i>', icoBg:'rgba(29,51,168,.10)', color:'#101E63',
         label:'Total de Corretoras', value: fmt0(n), pct:'100% do filtro atual',
         delta:'<span class="ek-delta flat">base analisada</span>', note:'', list:null },
     ];
     document.getElementById('execKpiRow').innerHTML = kpiDefs.map((k,i)=>{
       const isActive = k.key && activeKpiFilter === k.key;
-      return `<div class="exec-kpi ${k.key?'clickable':''}" data-i="${i}" style="--ek-bar:${k.bar}; --ek-ico-bg:${k.icoBg};${k.color?` --ek-color:${k.color};`:''} ${isActive?'box-shadow:0 0 0 2.5px '+k.bar+'; transform:translateY(-1px);':''}" ${k.key?`title="${isActive?'Clique para limpar o filtro':'Clique para filtrar o dashboard por essa fatia'}"`:''}>
+      return `<div class="exec-kpi ${k.key?'clickable':''}" data-i="${i}" style="--ek-bar:${k.bar}; --ek-ico-bg:${k.icoBg}; --ek-color:${k.color}; ${isActive?'box-shadow:0 0 0 2.5px '+k.bar+'; transform:translateY(-1px);':''}" ${k.key?`title="${isActive?'Clique para limpar o filtro':'Clique para filtrar o dashboard por essa fatia'}"`:''}>
         <div class="ek-ico">${k.ico}</div>
         <div class="ek-label">${k.label}${isActive?' <span style="font-size:9.5px; font-weight:800; letter-spacing:.3px;">● FILTRANDO</span>':''}</div>
         <div class="ek-value">${k.value}</div>
@@ -4146,7 +3214,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       </div>`;
     document.querySelectorAll('#execKpiRow .exec-kpi[data-i]').forEach(el => {
       const k = kpiDefs[Number(el.dataset.i)];
-      if (k && k.key) window.__kb(el).addEventListener('click', () => {
+      if (k && k.key) el.addEventListener('click', () => {
         activeKpiFilter = (activeKpiFilter === k.key) ? null : k.key;
         page = 1;
         renderActive();
@@ -4189,7 +3257,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       data:{ labels: gestorNames.map(shortGestor), datasets:[{ data: gestorPcts,
         backgroundColor: gestorNames.map(g=>GESTOR_COLORS[g]||'#94a3b8'), borderRadius:7, maxBarThickness:34 }] },
       options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
-        onClick:(evt,els)=>{ if(!els||!els.length) return; setSelectedGestores([gestorNames[els[0].index]]); render(); },
+        onClick:(evt,els)=>{ if(!els||!els.length) return; selGestor.value = gestorNames[els[0].index]; render(); },
         onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?'pointer':'default'; },
         plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
           const g = gestorNames[c.dataIndex]; const l = byGestor[g];
@@ -4218,7 +3286,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('heatmapTable').innerHTML = hmHtml;
     document.getElementById('heatmapSub').innerHTML = `Corretoras por gestor em cada faixa de atingimento da meta — ${cycleLabel} · clique numa célula` + (periodMonths ? recalcSuffix : '');
     document.getElementById('heatmapLegend').innerHTML = hmCols.map((c,i)=>`<span><i style="background:${hmColors[i]};"></i>${c}</span>`).join('') + '<span style="margin-left:auto;">Intensidade = concentração dentro do gestor</span>';
-    document.querySelectorAll('#heatmapTable .hm-cell').forEach(td => window.__kb(td).addEventListener('click', () => {
+    document.querySelectorAll('#heatmapTable .hm-cell').forEach(td => td.addEventListener('click', () => {
       const key = td.dataset.k; const [g, ci] = key.split('|');
       showChartDrilldown(`${shortGestor(g)} — faixa ${hmCols[Number(ci)]}`, (hmLists[key]||[]).map(r=>r.d));
     }));
@@ -4246,7 +3314,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       fHtml += `<div class="funnel-stage"><div class="funnel-bar-area"><div class="funnel-bar" data-i="${i}" style="width:${w}%; background:${s.color};">${fmt0(s.list.length)}</div></div><div class="funnel-meta"><b>${s.label}</b><span>${s.sub} · ${pct}% do total</span></div></div>`;
     });
     document.getElementById('funnelWrap').innerHTML = fHtml;
-    document.querySelectorAll('#funnelWrap .funnel-bar').forEach(b => window.__kb(b).addEventListener('click', () => {
+    document.querySelectorAll('#funnelWrap .funnel-bar').forEach(b => b.addEventListener('click', () => {
       const s = stages[Number(b.dataset.i)]; showChartDrilldown('Funil — '+s.label, s.list.map(r=>r.d));
     }));
 
@@ -4283,7 +3351,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         <div class="p-gap"><b>${a.toFixed(0)}%</b><span>faltam ${fmt0(gap)}</span></div>
       </div>`;
     }).join('') : '<div class="loss-empty"><i class=ic-check></i> Nenhuma corretora não-elegível com meta definida neste filtro.</div>';
-    document.querySelectorAll('#proxList .prox-row').forEach(el => window.__kb(el).addEventListener('click', ()=>showDetail(el.dataset.c)));
+    document.querySelectorAll('#proxList .prox-row').forEach(el => el.addEventListener('click', ()=>showDetail(el.dataset.c)));
 
     // ---- Maiores crescimentos do período ----
     document.getElementById('gainSub').innerHTML = `Comparado a <b>${prevLabel}</b> — reconhecimento para reforçar em campo` + recalcSuffix;
@@ -4296,7 +3364,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       </div>`;
     }).join('') + (gained.length>8?`<div style="font-size:11px; color:var(--muted); text-align:center; padding-top:4px;">+ ${gained.length-8} corretora(s) — use os filtros para ver todas</div>`:'')
       : '<div class="loss-empty"><i class=ic-check></i> Nenhuma corretora com crescimento na comparação com '+prevLabel+'.</div>';
-    document.querySelectorAll('#gainList .gain-row').forEach(el => window.__kb(el).addEventListener('click', ()=>showDetail(el.dataset.c)));
+    document.querySelectorAll('#gainList .gain-row').forEach(el => el.addEventListener('click', ()=>showDetail(el.dataset.c)));
 
     // ---- Evolução trimestral (recalculada) ----
     const lastIdx = MONTH_LABELS.length - 1;
@@ -4355,10 +3423,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     } else {
       t2Sum = isLatestMonthMode ? filtered.reduce((s,d)=>s+(d.m[d.m.length-1]||0),0) : filtered.reduce((s,d)=>s+d.t2,0);
       metaSum = isLatestMonthMode ? filtered.reduce((s,d)=>s+(d.meta3tri||0),0) : filtered.reduce((s,d)=>s+d.meta,0);
-      const curTriKpi = curTriDef();
-      periodLabelKpi = isLatestMonthMode
-        ? (triShort(curTriKpi) + ((curTriKpi && curTriKpi.months.length < 3) ? ' (parcial)' : '') + ' vs Meta')
-        : '2TRI26 vs Meta'; // mês antigo: coluna oficial da planilha de Elegibilidade (ciclo 2TRI26)
+      periodLabelKpi = isLatestMonthMode ? '3TRI26 (parcial) vs Meta' : '2TRI26 vs Meta';
     }
     const eligCount = periodMonthsKpi ? filtered.filter(d=>computePeriodElegRank(d, periodMonthsKpi).el===1).length : filtered.filter(d=>d.el===1).length;
     const eligPct = filtered.length ? (eligCount/filtered.length*100) : 0;
@@ -4369,21 +3434,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const filtersActive = isAnyFilterActive();
     document.getElementById('reactBanner').style.display = filtersActive ? 'none' : '';
     if (!filtersActive) {
-      // Texto do aviso calculado (era fixo: "17 meses" e "Abr–Jun/26"). Segue o período do filtro (2026-10-13).
-      const reactDescEl = document.getElementById('reactDesc');
-      const pmBanner = getPeriodMonths();
-      const rotMes = i => MONTH_LABELS[i] || '';
-      const faixa = (a, b) => { const x = rotMes(a), y = rotMes(b); return a === b ? x : (x.split('/')[1] === y.split('/')[1] ? (x.split('/')[0] + '–' + y) : (x + '–' + y)); };
-      if (pmBanner){
-        const iniB = Math.min.apply(null, pmBanner), fimB = Math.max.apply(null, pmBanner);
-        if (reactDescEl) reactDescEl.textContent = `Corretoras que vendiam antes do período (≥ 20 vidas até ${rotMes(iniB - 1) || 'o início'}) e ficaram com zero vendas em ${faixa(iniB, fimB)}. Ponto de partida ideal para ações comerciais e visitas presenciais.`;
-      } else {
-        const nMesesReact = MONTH_LABELS.length - eligDataStartIdx;
-        if (reactDescEl) reactDescEl.textContent = `Corretoras com histórico relevante de produção (≥ 20 vidas em ${nMesesReact} meses) e zero vendas nos últimos 3 meses (${faixa(Math.max(0, MONTH_LABELS.length - 3), MONTH_LABELS.length - 1)}). Ponto de partida ideal para ações comerciais e visitas presenciais.`;
-      }
       document.getElementById('reactCount').textContent = reactList.length;
-      document.getElementById('reactPotential').textContent = fmt0(reactList.reduce((s,d)=>s+reactPot(d),0));
-      document.getElementById('reactPeak').textContent = reactList.length ? fmt0(Math.max(...reactList.map(reactPot))) : '0';
+      document.getElementById('reactPotential').textContent = fmt0(reactList.reduce((s,d)=>s+d.tot,0));
+      document.getElementById('reactPeak').textContent = reactList.length ? fmt0(Math.max(...reactList.map(d=>d.tot))) : '0';
     }
 
     // ===== Situação de Atividade da Carteira (distinto do flag "Elegível" da campanha) =====
@@ -4391,11 +3444,13 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const periodType = document.getElementById('fPeriodType').value;
     const periodLabel = periodType === 'all' ? 'todos os meses' : (PERIOD_DEFS[periodType][Number(document.getElementById('fPeriodValue').value)] || {}).label || '';
     const showAbsoluteCharts = !periodMonths;
-    // Mesma regra do banner/caixinha (reactCtx, já segue o período) — antes aqui era outra, sem o corte de 20 vidas.
-    const reactListEffective = reactList;
-    const gestorLabel = selectedGestores.size === 0 ? 'todos os gestores'
-      : selectedGestores.size === 1 ? [...selectedGestores][0]
-      : [...selectedGestores].map(shortGestor).join(', ');
+    const reactListEffective = showAbsoluteCharts ? reactList : filtered.filter(d => {
+      const minMonthPeriod = Math.min.apply(null, periodMonths);
+      const hadHistoryBefore = d.m.slice(0, minMonthPeriod).some(v=>v>0);
+      const periodTotalReact = periodMonths.reduce((s,i)=>s+(d.m[i]||0),0);
+      return hadHistoryBefore && periodTotalReact === 0;
+    });
+    const gestorLabel = selGestor.value || 'todos os gestores';
     document.getElementById('segmentacaoSub').textContent = `Quem vende agora, quem já vendeu e parou, e quem nunca vendeu — gestor: ${gestorLabel} · clique numa fatia`;
     document.getElementById('inatividadeSub').textContent = `Há quanto tempo cada corretora parou de vender — gestor: ${gestorLabel} · clique numa barra`;
     const inPeriod = d => (periodMonths || Array.from({length:18},(_,i)=>i)).some(i => d.m[i] > 0);
@@ -4410,10 +3465,10 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       {icon:"<i class=ic-target></i>", label:periodLabelKpi, value: fmt0(t2Sum)+' / '+fmt0(metaSum), sub: t2Sum>=metaSum ? 'Meta batida' : 'Faltam '+fmt0(metaSum-t2Sum)+' vidas', cls: t2Sum>=metaSum?'pos':'neg'},
       {icon:"<i class=ic-cart></i>", label:`Sem Produção (${periodLabel})`, value: fmt0(semProducao.length), sub: filtered.length?((semProducao.length/filtered.length*100).toFixed(1)+'% da base'):'0%', cls:'warn', action:()=>showChartDrilldown(`Sem Produção — ${periodLabel}`, semProducao)},
       {icon:"<i class=ic-alarm></i>", label:'Inativas > 90 dias', value: fmt0(inativas90.length), sub:'Sem venda há mais de 3 meses', cls:'neg', action:()=>showChartDrilldown('Inativas há mais de 90 dias', inativas90)},
-      {icon:"<i class=ic-target></i>", label:'Oportunidades de Reativação', value: reactListEffective.length.toLocaleString('pt-BR'), sub: fmt0(reactListEffective.reduce((s,d)=>s+reactPot(d),0))+' vidas em potencial', cls:'warn'},
+      {icon:"<i class=ic-target></i>", label:'Oportunidades de Reativação', value: reactListEffective.length.toLocaleString('pt-BR'), sub: fmt0(reactListEffective.reduce((s,d)=>s+d.tot,0))+' vidas em potencial', cls:'warn'},
     ];
     document.getElementById('elKpiRow').innerHTML = kpis.map((k,i)=>`<div class="kpi" ${k.action?'style="cursor:pointer" title="Clique para ver as corretoras"':''} data-idx="${i}"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.cls}">${k.sub}</div></div>`).join('');
-    document.querySelectorAll('#elKpiRow .kpi').forEach((el,i) => { if (kpis[i].action) window.__kb(el).addEventListener('click', kpis[i].action); });
+    document.querySelectorAll('#elKpiRow .kpi').forEach((el,i) => { if (kpis[i].action) el.addEventListener('click', kpis[i].action); });
 
     renderExecutive(filtered);
 
@@ -4587,7 +3642,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           type:'bar',
           data:{ labels: gestorNames2, datasets:[{ label:'Corretoras', data: gestorNames2.map(g=>byGestor[g].length), backgroundColor: gestorNames2.map(g=>GESTOR_COLORS[g]||'#94a3b8'), borderRadius:5 }] },
           options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, onClick:(evt, els)=>{ if(!els || !els.length) return; const idx = els[0].index; setTimeout(()=>{ showChartDrilldown('Reativação — '+gestorNames2[idx], byGestor[gestorNames2[idx]]); }, 0); }, onHover:(evt,els)=>{ if(evt && evt.native && evt.native.target) evt.native.target.style.cursor = (els && els.length) ? 'pointer' : 'default'; }, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
-              const g = c.label; const vidas = fmt0((byGestor[g]||[]).reduce((s,d)=>s+reactPot(d),0));
+              const g = c.label; const vidas = fmt0((byGestor[g]||[]).reduce((s,d)=>s+d.tot,0));
               return [`${c.raw} corretora(s)`, `${vidas} vidas em potencial`, 'Clique para ver a lista'];
             }}}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{stepSize:1}}, y:{grid:{display:false}} } }
         });
@@ -4595,7 +3650,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         document.getElementById('reactChartTitle').textContent = 'Tempo desde a Última Venda';
         document.getElementById('reactSub').textContent = 'Quanto mais recente a queda, mais fácil a reativação — clique numa barra para ver as corretoras';
         const byDormancy = {}; DORMANCY_ORDER.forEach(b=>byDormancy[b]=[]);
-        filtered.forEach(d => { byDormancy[dormancyBucket(reactParado(d))].push(d); }); // até o fim do período (2026-10-13)
+        filtered.forEach(d => { byDormancy[dormancyBucket(monthsSinceLastSale(d))].push(d); });
         destroyChart('react');
         const reactCanvas = document.getElementById('chartReact');
         const reactEmpty = document.getElementById('reactEmptyState');
@@ -4605,7 +3660,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           type:'bar',
           data:{ labels: DORMANCY_ORDER, datasets:[{ label:'Corretoras', data: DORMANCY_ORDER.map(b=>byDormancy[b].length), backgroundColor: ['#FFB81C','#F26B21','#F5364A','#9a3412'], borderRadius:5 }] },
           options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, onClick:(evt, els)=>{ if(!els || !els.length) return; const idx = els[0].index; setTimeout(()=>{ const b = DORMANCY_ORDER[idx]; showChartDrilldown('Parado há '+b, byDormancy[b]); }, 0); }, onHover:(evt,els)=>{ if(evt && evt.native && evt.native.target) evt.native.target.style.cursor = (els && els.length) ? 'pointer' : 'default'; }, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{
-              const b = c.label; const vidas = fmt0((byDormancy[b]||[]).reduce((s,d)=>s+reactPot(d),0));
+              const b = c.label; const vidas = fmt0((byDormancy[b]||[]).reduce((s,d)=>s+d.tot,0));
               return [`${c.raw} corretora(s)`, `${vidas} vidas em potencial`, 'Clique para ver a lista'];
             }}}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{stepSize:1}}, y:{grid:{display:false}} } }
         });
@@ -4632,9 +3687,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{font:{size:10}}} } }
         });
 
-        const topReact = [...reactListEffective].sort((a,b)=>reactPot(b)-reactPot(a)).slice(0,15);
+        const topReact = [...reactListEffective].sort((a,b)=>b.tot-a.tot).slice(0,15);
         document.getElementById('reactChartTitle').textContent = topReact.length ? `Top ${topReact.length} Oportunidades de Reativação` : 'Oportunidades de Reativação';
-        document.getElementById('reactSub').textContent = showAbsoluteCharts ? 'Maior potencial histórico, zero produção nos últimos 3 meses' : `Vendia antes (≥ 20 vidas), zerou em ${periodLabel} — ordenado pelo histórico antes do período`;
+        document.getElementById('reactSub').textContent = showAbsoluteCharts ? 'Maior potencial histórico, zero produção nos últimos 3 meses' : `Vendia antes, zerou em ${periodLabel} — ordenado pelo histórico total`;
         destroyChart('react');
         const reactCanvas = document.getElementById('chartReact');
         const reactEmpty = document.getElementById('reactEmptyState');
@@ -4647,7 +3702,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           reactEmpty.style.display = 'none';
           charts.react = new Chart(reactCanvas, {
             type:'bar',
-            data:{ labels: topReact.map(d=>d.n.length>28?d.n.slice(0,28)+'…':d.n), datasets:[{ data: topReact.map(reactPot), backgroundColor:'#F26B21', borderRadius:5 }] },
+            data:{ labels: topReact.map(d=>d.n.length>28?d.n.slice(0,28)+'…':d.n), datasets:[{ data: topReact.map(d=>d.tot), backgroundColor:'#F26B21', borderRadius:5 }] },
             options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true, grid:{color:'#eef1f6'}}, y:{grid:{display:false}, ticks:{font:{size:10}}} } }
           });
         }
@@ -4669,8 +3724,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const kpiFilterLabels = { eleg:'Elegíveis', quase:'Quase Elegíveis (76–99%)', risco:'Em Risco', distantes:'Não Elegíveis' };
     const titleParts = [];
     if (activeKpiFilter) titleParts.push(kpiFilterLabels[activeKpiFilter] || activeKpiFilter);
-    if (selectedGestores.size === 1) titleParts.push(shortGestor([...selectedGestores][0]));
-    else if (selectedGestores.size > 1) titleParts.push(selectedGestores.size + ' gestores');
+    if (selGestor.value) titleParts.push(shortGestor(selGestor.value));
     const searchQTable = document.getElementById('fSearch').value.trim();
     document.getElementById('baseCorretorasTitle').textContent = titleParts.length ? `Corretoras ${titleParts.join(' · ')}` : 'Base de Corretoras';
     document.getElementById('baseCorretorasSub').textContent = searchQTable
@@ -4681,12 +3735,6 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   }
 
   function renderTable(filtered){
-    // "Total 17M" ficou travado desse texto desde quando só existia a Cauda Longa (histórico
-    // desde o ano passado) — achado 2026-10-01, Victor: as outras 3 equipes só têm 9 meses, e a
-    // própria Cauda Longa já passou dos 17 há tempo. Usa o tamanho real do histórico (igual ao
-    // resto da tela já faz com "N MESES TOTAIS" na importação), não mais um número fixo.
-    const totMesesEl = document.getElementById('thTotMeses');
-    if (totMesesEl && DATA.length && DATA[0].m) totMesesEl.textContent = `Total ${DATA[0].m.length}M`;
     const sorted = [...filtered].sort((a,b)=>{
       let av=a[sortKey], bv=b[sortKey];
       if (typeof av === 'string') return sortDir * av.localeCompare(bv);
@@ -4749,7 +3797,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('btnNext').disabled = page>=totalPages;
 
     document.querySelectorAll('#elTableBody tr').forEach(tr=>{
-      window.__kb(tr).addEventListener('click', ()=>{
+      tr.addEventListener('click', ()=>{
         document.querySelectorAll('#elTableBody tr').forEach(r=>r.classList.remove('selected'));
         tr.classList.add('selected');
         showDetail(tr.dataset.c);
@@ -4759,7 +3807,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
   function showDetail(codigo, opts){
     opts = opts || {scroll:true};
-    const d = scopedData().find(x=>x.c===codigo);
+    const d = DATA.find(x=>x.c===codigo);
     if(!d) return;
     // O painel de detalhe é um único elemento reaproveitado por todo mundo que chama
     // showDetail (tabela, assessoria, ranking...). Por padrão ele mora no lugar de sempre
@@ -4780,7 +3828,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // "esta corretora" com "o agregado da assessoria" existe nos dois casos.
     const noteEl = document.getElementById('detailAssessoriaNote');
     const nomeUp = String(d.n).trim().toUpperCase();
-    const membrosAssessoria = scopedData().filter(x => { if (!x.ass && !x.acod) return false; const can = window.assCanon ? window.assCanon(x.ass, x.acod) : { nome: String(x.ass||'') }; return can && String(can.nome).trim().toUpperCase() === nomeUp; });
+    const membrosAssessoria = DATA.filter(x => x.ass && String(x.ass).trim().toUpperCase() === nomeUp);
     if (membrosAssessoria.length){
       const totalMembros = membrosAssessoria.reduce((s,x)=>s+(x.tot||0),0);
       noteEl.style.display = '';
@@ -4804,14 +3852,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const curGap = curTotal - curMeta;
     const curRank = calc ? calc.rk : d.rk;
 
-    // Números do período EXATO selecionado (ex.: só Setembro, se Mensal/Setembro foi o que o
-    // usuário filtrou) — usados SÓ nos cards "Atual/Meta/Gap" abaixo, rotulados com esse mesmo
-    // período (periodLabel). curTotal/curMeta/curRank (acima) continuam os OFICIAIS (por
-    // trimestre, quando aplicável) — usados pela Elegibilidade e pelo "faltam X vidas pra
-    // alcançar <faixa>" logo abaixo, que respondem uma pergunta diferente ("está elegível pela
-    // regra oficial, sempre trimestral") da que os cards respondem ("quanto vendeu NESSE
-    // período"). Achado real 2026-09-30 (Victor, corretora QUALI PLANOS) — ver comentário em
-    // computePeriodElegRank.
+    // Números do período EXATO selecionado — usados SÓ nos cards "Atual/Meta/Gap" abaixo (ver
+    // comentário em computePeriodElegRank). curTotal/curMeta/curRank (acima) continuam os
+    // OFICIAIS (por trimestre, quando aplicável), usados pela Elegibilidade/Ranking abaixo.
     const dispTotal = calc ? calc.displayTotal : d.t2;
     const dispMeta = calc ? calc.displayMeta : d.meta;
     const dispGap = dispTotal - dispMeta;
@@ -4834,10 +3877,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const elegEl = document.getElementById('detailElegStatus');
     const isElig = calc ? calc.el === 1 : d.el === 1;
     const pctMeta = curMeta > 0 ? (curTotal / curMeta * 100) : null;
-    // Quando o período selecionado é o "vigente" (ex.: Mensal/Setembro sendo o mês mais
-    // recente), os números usados aqui (curTotal/curMeta) são os do TRIMESTRE oficial, não os do
-    // mês sozinho mostrado nos cards acima — nota curta pra não parecer contradição entre os dois
-    // (achado 2026-09-30, mesmo contexto do comentário em computePeriodElegRank).
+    // Nota curta pra não parecer contradição com os cards "Atual/Meta/Gap" acima (que agora
+    // mostram os números do período literal, não mais o trimestre — ver computePeriodElegRank).
     const eligOficialNote = (calc && calc.isCurrentPeriod) ? ' <span style="font-weight:400; opacity:.75;">(regra oficial — sempre por trimestre)</span>' : '';
     if (isElig){
       elegEl.style.background = 'rgba(22,184,122,.10)';
@@ -4863,16 +3904,17 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       elegEl.innerHTML = `<i class=ic-bulb></i> Sem meta cadastrada pra esse período (sem histórico suficiente) — não dá pra calcular a elegibilidade aqui.`;
     }
 
-    // BUG corrigido 2026-09-30 (Victor, urgente, print real de "QUALY VITTA"/Ranking Ouro
-    // mostrando "falta pra Bronze 6"): esse trecho usava uma tabela própria, incompleta e
-    // desatualizada (RANK_THRESHOLDS_EST, só Bronze 1-6, nome de "estimativa" porque tinha sido
-    // copiada à mão e nunca acompanhou a era nova) — quando o ranking atual nem existia nela
-    // (Prata/Ouro/Diamante/Safira), o índice não-encontrado (-1) caía no ramo "curIdx>0 ? ... :
-    // ÚLTIMO item da lista", ou seja, sempre "Bronze 6" pra qualquer corretora acima de Bronze,
-    // disfarçado de mensagem específica. Corrigido reaproveitando a MESMA tabela real usada pra
-    // calcular o ranking em si (RANK_THRESHOLDS_NEW/OLD, já com Safira/Diamante/Ouro/Prata/
-    // Bronze — ver computeRankingFromVolume), ordenada do maior pro menor: a próxima faixa é
-    // sempre a posição anterior no array, não mais uma tabela paralela que podia divergir.
+    // BUG corrigido 2026-09-30 (mesmo achado do Victor no V1, print real de "QUALY VITTA"/
+    // Ranking Ouro mostrando "falta pra Bronze 6"): esse trecho usava uma tabela própria,
+    // incompleta e desatualizada (RANK_THRESHOLDS_EST, só Bronze 1-6, nome de "estimativa"
+    // porque tinha sido copiada à mão e nunca acompanhou a era nova) — quando o ranking atual
+    // nem existia nela (Prata/Ouro/Diamante/Safira), o índice não-encontrado (-1) caía no ramo
+    // "curIdx>0 ? ... : ÚLTIMO item da lista", ou seja, sempre "Bronze 6" pra qualquer corretora
+    // acima de Bronze, disfarçado de mensagem específica. Corrigido reaproveitando a MESMA
+    // tabela real usada pra calcular o ranking em si (RANK_THRESHOLDS_NEW/OLD, já com Safira/
+    // Diamante/Ouro/Prata/Bronze — ver computeRankingFromVolume), ordenada do maior pro menor: a
+    // próxima faixa é sempre a posição anterior no array, não mais uma tabela paralela que podia
+    // divergir.
     const rankTable = (periodMonths && isNewEra(periodMonths)) ? RANK_THRESHOLDS_NEW : RANK_THRESHOLDS_OLD;
     const rgEl = document.getElementById('detailRankGap');
     const curRankIdx = rankTable.findIndex(t => t.label === curRank);
@@ -4960,7 +4002,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // cabeçalhos ordenáveis do modal de Pendências (mesmo padrão data-k reaproveitado ali), fazendo
   // os dois handlers dispararem no mesmo clique e brigarem pelo atributo data-dir.
   document.querySelectorAll('#baseCorretorasWrap thead th[data-k]').forEach(th=>{
-    window.__kb(th).addEventListener('click', ()=>{
+    th.addEventListener('click', ()=>{
       const k = th.dataset.k;
       if (sortKey===k){ sortDir *= -1; } else { sortKey=k; sortDir = (k==='n'||k==='g'||k==='rk'||k==='el') ? 1 : -1; }
       document.querySelectorAll('#baseCorretorasWrap thead th[data-k]').forEach(h=>{ h.classList.remove('sorted'); h.removeAttribute('data-dir'); });
@@ -4971,11 +4013,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     });
   });
 
-  ['fEleg','fRank'].forEach(id=>document.getElementById(id).addEventListener('change', ()=>{ page=1; renderActive(); }));
+  ['fGestor','fEleg','fRank'].forEach(id=>document.getElementById(id).addEventListener('change', ()=>{ page=1; renderActive(); }));
   document.getElementById('fSearch').addEventListener('input', window.debounce(()=>{ page=1; renderActive(); }, 250));
   document.getElementById('fReact').addEventListener('change', ()=>{ page=1; renderActive(); });
   document.getElementById('btnReset').addEventListener('click', ()=>{
-    setSelectedGestores([]); document.getElementById('fEleg').value=''; selRank.value='';
+    selGestor.value=''; document.getElementById('fEleg').value=''; selRank.value='';
     document.getElementById('fSearch').value=''; document.getElementById('fReact').checked=false;
     activeKpiFilter = null;
     page=1; renderActive();
@@ -4990,16 +4032,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   }
   // Selects "De"/"Até" do intervalo personalizado — populados uma vez com todos os meses
   // conhecidos. Padrão: últimos 12 meses (ajustável), só pra começar com algo razoável.
-  // Pra uma equipe escopada com histórico mais curto (eligDataStartIdx > 0), nem oferece os
-  // meses anteriores — são zero-padding, não meses reais dela (ver comentário em eligDataStartIdx).
   (function initCustomRangeSelects(){
-    const opts = MONTH_LABELS
-      .map((label,i) => ({i, label}))
-      .filter(x => x.i >= eligDataStartIdx)
-      .map(x => `<option value="${x.i}">${x.label}</option>`).join('');
+    const opts = MONTH_LABELS.map((label,i) => `<option value="${i}">${label}</option>`).join('');
     document.getElementById('fCustomFrom').innerHTML = opts;
     document.getElementById('fCustomTo').innerHTML = opts;
-    document.getElementById('fCustomFrom').value = String(Math.max(eligDataStartIdx, MONTH_LABELS.length - 12));
+    document.getElementById('fCustomFrom').value = String(Math.max(0, MONTH_LABELS.length - 12));
     document.getElementById('fCustomTo').value = String(MONTH_LABELS.length - 1);
   })();
   populatePeriodValue(true);
@@ -5040,14 +4077,14 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     rankPopulated = true;
   }
 
-  // Linhas do ranking do mês selecionado. Mês RECONSTRUÍDO (Jan–Mai, sem histórico gravado em
-  // RANKDATA.m/mc — o painel só guarda esse histórico a partir de 04/09) vem do módulo "Metas por
-  // executivo" (extratos do BI + Carteira atual); qualquer outro mês usa RANKDATA como sempre.
-  // Também cobre mês com fechamento oficial mas SEM histórico no RANKDATA (ex.: Junho — o painel só
-  // começou a guardar m/mc em 04/09): usa o extrato do BI embutido em vez de mostrar a tela vazia.
+  // Linhas do ranking do m\u00eas selecionado. M\u00eas RECONSTRU\u00cdDO (Jan\u2013Mai, sem hist\u00f3rico gravado em
+  // RANKDATA.m/mc \u2014 o painel s\u00f3 guarda esse hist\u00f3rico a partir de 04/09) vem do m\u00f3dulo "Metas por
+  // executivo" (extratos do BI + Carteira atual); qualquer outro m\u00eas usa RANKDATA como sempre.
+  // Tamb\u00e9m cobre m\u00eas com fechamento oficial mas SEM hist\u00f3rico no RANKDATA (ex.: Junho \u2014 o painel s\u00f3
+  // come\u00e7ou a guardar m/mc em 04/09): usa o extrato do BI embutido em vez de mostrar a tela vazia.
   let rankUsingSynth = false, rankSynthHasPrev = true;
-  // Mesmo gestor com o nome em convenções diferentes ("Pablo Amora" x "PABLO SERGIO RIBEIRO AMORA"):
-  // as palavras do nome curto estão todas no nome longo.
+  // Mesmo gestor com o nome em conven\u00e7\u00f5es diferentes ("Pablo Amora" x "PABLO SERGIO RIBEIRO AMORA"):
+  // as palavras do nome curto est\u00e3o todas no nome longo.
   const rkNormG = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
   const rkSameG = (a, b) => {
     const A = rkNormG(a), B = rkNormG(b);
@@ -5065,8 +4102,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       const idx = rankMonthIndexOf(mo);
       const synth = window.rankSynthRows(mo);
       if (synth){
-        // RANKDATA só guarda o histórico mensal desde 04/09: se o mês não está lá (ou está
-        // incompleto — menos de 90% do que o extrato do BI tem), usa o extrato embutido.
+        // RANKDATA s\u00f3 guarda o hist\u00f3rico mensal desde 04/09: se o m\u00eas n\u00e3o est\u00e1 l\u00e1 (ou est\u00e1
+        // incompleto \u2014 menos de 90% do que o extrato do BI tem), usa o extrato embutido.
         const have = RANKDATA.reduce((s, r) => s + ((r.m && r.m[idx]) || 0), 0);
         const need = synth.reduce((s, r) => s + r.cur, 0);
         // Filtro por segmento (Individual/PIM/Middle/ADM) precisa do mix do mês: se o RANKDATA só
@@ -5076,14 +4113,14 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         const temMix = RANKDATA.some(r => r.mc && ['ind','pim','mid','adm'].some(k => r.mc[k] && r.mc[k][idx] > 0));
         if (have < need * 0.9 || (segAtivo && !temMix)){
           rankUsingSynth = true; rankSynthHasPrev = synth.hasPrev !== false;
-          // Gestor/equipe no MESMO formato das linhas do RANKDATA (senão os filtros de equipe/gestor,
-          // montados a partir do RANKDATA, não acham as linhas reconstruídas).
+          // Gestor/equipe no MESMO formato das linhas do RANKDATA (sen\u00e3o os filtros de equipe/gestor,
+          // montados a partir do RANKDATA, n\u00e3o acham as linhas reconstru\u00eddas).
           const gSet = [...new Set(RANKDATA.map(r => r.g).filter(g => g && g !== '#N/D'))];
-          const eByG = {}; RANKDATA.forEach(r => { if (r.g && r.e && r.e !== '—' && !eByG[r.g]) eByG[r.g] = r.e; });
+          const eByG = {}; RANKDATA.forEach(r => { if (r.g && r.e && r.e !== '\u2014' && !eByG[r.g]) eByG[r.g] = r.e; });
           const GE = window.GESTOR_EQUIPE || {}, geKeys = Object.keys(GE), memo = {};
           const resolve = f => memo[f] || (memo[f] = (() => {
             const g = gSet.find(x => rkSameG(f, x)) || geKeys.find(x => rkSameG(f, x)) || f;
-            return { g, e: eByG[g] || GE[g] || GE[geKeys.find(x => rkSameG(f, x))] || '—' };
+            return { g, e: eByG[g] || GE[g] || GE[geKeys.find(x => rkSameG(f, x))] || '\u2014' };
           })());
           return synth.map(r => { const x = resolve(r.g); return { ...r, g: x.g, e: x.e }; });
         }
@@ -5193,7 +4230,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }).join('');
     document.getElementById('rankTableSub').innerHTML = (rankSeeAllOn?`Todas as ${rows.length}`:'Top 20') + ' corretoras · a coluna "vs mês anterior" compara com ' + prevLabel + (segActive?(noPrev?' · <b>sem histórico de ' + prevLabel.split('/')[0] + ': comparação indisponível</b>':' · <b>segmento filtrado: comparação indisponível</b>'):'') + (rankUsingSynth?' · <i>mês reconstruído do extrato do BI + Carteira atual (equipes de SP, sem Interior)</i>':'') + ' · clique numa linha para o histórico';
     document.getElementById('rankSeeAll').textContent = rankSeeAllOn ? 'Mostrar só o Top 20 ▴' : `Ver todas as ${rows.length} ▾`;
-    document.querySelectorAll('#rankBody tr').forEach(tr=>window.__kb(tr).addEventListener('click',()=>rankShowDetail(tr.dataset.c)));
+    document.querySelectorAll('#rankBody tr').forEach(tr=>tr.addEventListener('click',()=>rankShowDetail(tr.dataset.c)));
 
     rankRenderCharts(rows, totalCur, totalPrev, seg, curLabel, prevLabel);
   }
@@ -5396,7 +4433,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }
   }
 
-  // ---- Propostas (aba PLANIUM) por corretora ----
+  // rkNormName/mesLabel/shiftMonth: usados por updateRankingData mais abaixo (rótulos do
+  // Ranking e o corte por proposta real no Planium ao injetar corretora sem venda).
   const rkNormName = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/\b(LTDA|ME|EPP|EIRELI|S\/?A|SA|CORRETORA|DE|SEGUROS|E)\b/g,'').replace(/[^A-Z0-9]/g,'');
   const MES_NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -5502,7 +4540,6 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   window.getSlaHistorico = () => SLA_HISTORICO;
   window.getDailySnapshots = () => DAILY_SNAPSHOTS;
   window.saveDailySnapshot = saveDailySnapshot;
-  window.getRetratosOntemHoje = getRetratosOntemHoje;
   window.getConvOntemHoje = () => CONV_ONTEM_HOJE;
   window.updateConvOntemHoje = function(newData){
     Object.keys(newData||{}).forEach(g => { CONV_ONTEM_HOJE[g] = newData[g]; });
@@ -5551,26 +4588,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }).sort();
     document.getElementById('convCount').textContent = gestores.length + (gestores.length===1 ? ' gestor' : ' gestores');
 
-    // Ontem → hoje: pelos retratos diários do próprio painel (14/10/2026). A planilha Crescimento Geral só é usada se
-    // ainda não existir nenhum retrato (nunca mistura as duas fontes).
-    const ret = window.getRetratosOntemHoje ? window.getRetratosOntemHoje() : null;
-    const convReport = ret ? {} : ((window.getConvOntemHoje ? window.getConvOntemHoje() : {}) || {});
-    const retDoGestor = g => {
-      if (!ret || !ret.ontem) return null;
-      const o = ret.ontem.g[g] || {f:0,a:0,r:0}, h = ret.hoje.g[g] || {f:0,a:0,r:0};
-      return { funilOntem:o.f, funilHoje:h.f, assinaturaOntem:o.a, assinaturaHoje:h.a, rankingOntem:o.r, rankingHoje:h.r };
-    };
-    const dBR = iso => iso ? iso.slice(8,10)+'/'+iso.slice(5,7) : '';
-    const infoEl = document.getElementById('convRetratoInfo');
-    if (infoEl){
-      if (ret && ret.ontem){
-        const mesesTxt = (ret.hoje.meses||[]).map(m => ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+m.slice(5,7)-1]+'/'+m.slice(2,4)).join(' e ');
-        infoEl.innerHTML = `<b>Ontem → hoje:</b> ${dBR(ret.ontem.data)} → ${dBR(ret.hoje.data)} · Funil = análise + pendência com vigência ${mesesTxt} (regra da Crescimento Geral) · Assinatura = extrato de notificadas · Ranking = vendas do mês com ADM`
-          + (ret.hoje.rk && ret.hoje.rk < ret.hoje.data ? ` <span style="color:var(--accent-red);">(ranking sem extrato do BI novo desde ${dBR(ret.hoje.rk)})</span>` : '');
-      } else if (ret){
-        infoEl.innerHTML = `<b>Ontem → hoje:</b> primeiro retrato guardado em ${dBR(ret.hoje.data)} — a comparação aparece a partir da próxima importação, num outro dia.`;
-      } else infoEl.innerHTML = '';
-    }
+    const convReport = (window.getConvOntemHoje ? window.getConvOntemHoje() : {}) || {};
     const cresce = (hoje, ant) => (ant===undefined || ant===null || ant===0) ? null : Math.round((hoje-ant)/ant*100);
 
     const rows = gestores.map(g => {
@@ -5587,7 +4605,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       // Ontem→hoje só aparece quando o "Crescimento Geral" já foi importado pra esse gestor —
       // os dois lados (ontem E hoje) vêm sempre da mesma planilha, nunca misturando com o
       // dado ao vivo do PROPOSTAS (que é de outra fonte e atualiza em outro ritmo).
-      const cg = ret ? retDoGestor(g) : (convReport[g] || null);
+      const cg = convReport[g] || null;
       return { gestor:g, total:ps.length, ativasCount: ativas.length,
         ativasVidas, criticos, atrasoMedio, conv, assinTotal,
         funilOntem: cg ? cg.funilOntem : null, funilHojeReport: cg ? cg.funilHoje : null,
@@ -5613,34 +4631,44 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       <div class="kpi"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.subClass}">${k.sub}</div></div>
     `).join('');
 
-    // Seta de crescimento — pra Funil e Assinatura, MENOS é melhor (menos gente parada),
-    // por isso a cor é invertida em relação ao sentido comum de "subiu = verde".
-    const cresLabel = (pct) => {
-      if (pct===null) return '<span style="color:var(--muted); font-size:11px;">' + (ret && !ret.ontem ? 'a partir da próxima importação' : 'sem base de ontem') + '</span>';
-      const cor = pct===0 ? 'var(--muted)' : (pct>0 ? 'var(--accent-red)' : 'var(--accent-mint)');
-      const seta = pct===0 ? '·' : (pct>0 ? '▲' : '▼');
-      return `<span style="color:${cor}; font-weight:700; font-size:11px;">${seta} ${Math.abs(pct)}% vs ontem</span>`;
-    };
+    // Seta de crescimento — pra Funil e Assinatura, MENOS é melhor (menos gente parada), por isso a cor é invertida
+    // em relação ao sentido comum de "subiu = verde" (ver ohLinha abaixo; no Ranking, subir é que é bom).
 
     // Cada número do card leva pra parte específica dele (busca de pendências, lista de
     // assinatura, ou o detalhe/gráficos) — sempre com stopPropagation pra não também disparar
     // o clique geral do card (que abre o detalhe completo, continua funcionando como "ver tudo").
     const go = (fn, gestor) => `event.stopPropagation(); window.${fn}('${gestor.replace(/'/g,"\\'")}')`;
-    document.getElementById('convGrid').innerHTML = rows.map(r => { const g = r.gestor; return `
-      <div class="resumo-card" style="cursor:pointer;" role="button" tabindex="0" onclick="window.openConversaoDetail('${g.replace(/'/g,"\\'")}')" title="Ver detalhe de ${g}">
-        <div class="rc-head"><div class="rc-avatar">${iniciaisConv(g)}</div><div class="rc-name">${g}</div>
-          ${r.criticos ? `<span onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" style="font-size:9px; font-weight:800; padding:3px 8px; border-radius:20px; background:rgba(245,54,74,.12); color:var(--accent-red); white-space:nowrap; cursor:pointer;" title="Ver pendências de ${g}">${r.criticos} crítico${r.criticos>1?'s':''}</span>` : ''}
+    // Card redesenhado (rodada de design 14/10/2026, demonstrativo aprovado): cada número diz o que é — "Propostas
+    // abertas" (quantidade) separado do Funil (vidas) —, ontem → hoje em linhas com a variação em etiqueta, e o ranking
+    // do mês também aparece. Cliques de cada parte continuam levando pro mesmo lugar de antes.
+    const ohLinha = (titulo, unid, ontem, hoje, pct, menosEhMelhor, onclick, dica) => {
+      let chip = '<span class="cvc-delta">—</span>';
+      if (pct !== null){
+        const bom = pct === 0 ? null : (menosEhMelhor ? pct < 0 : pct > 0);
+        chip = `<span class="cvc-delta ${bom===null?'':(bom?'down':'up')}">${pct===0?'·':(pct>0?'▲':'▼')} ${Math.abs(pct)}%</span>`;
+      }
+      return `<div class="cvc-oh-r" onclick="${onclick}" role="button" tabindex="0" title="${dica}"><b>${titulo}<small>${unid}</small></b>
+        <span class="cvc-num">${ontem!==null ? fmt0c(ontem)+' → ' : ''}<strong>${hoje!==null ? fmt0c(hoje) : '—'}</strong></span>${chip}</div>`;
+    };
+    document.getElementById('convGrid').innerHTML = rows.map(r => { const g = r.gestor;
+      const nome = window.getGestorFriendlyName ? window.getGestorFriendlyName(g) : g;
+      const cg = convReport[g] || null;
+      return `
+      <div class="resumo-card cvc" style="cursor:pointer;" onclick="window.openConversaoDetail('${g.replace(/'/g,"\\'")}')" role="button" tabindex="0" title="Ver detalhe de ${g}">
+        <div class="cvc-head"><div class="rc-avatar">${iniciaisConv(nome)}</div><div class="cvc-name">${nome}<small>${GESTOR_EQUIPE[g] || ''}</small></div>
+          ${r.criticos ? `<span class="cvc-crit" onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" title="Ver pendências de ${g}">${r.criticos} crítico${r.criticos>1?'s':''}</span>` : ''}
         </div>
-        <div class="rc-stats" style="row-gap:10px;">
-          <div onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver pendências de ${g}"><div class="rc-label">SLA médio</div><div class="rc-value" style="font-size:15px; color:${r.atrasoMedio>0?'var(--accent-red)':'var(--accent-mint)'};">${r.atrasoMedio>0 ? '+'+r.atrasoMedio+'d' : 'No prazo'}</div></div>
-          <div onclick="${go('openAssinaturaList',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver lista de assinaturas de ${g}"><div class="rc-label">Aguard. Assinatura</div><div class="rc-value" style="font-size:15px; color:var(--primary-light);">${fmt0c(r.assinTotal)}</div></div>
-          <div onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver pendências de ${g}"><div class="rc-label">Em Funil</div><div class="rc-value" style="font-size:15px; color:var(--accent-gold);">${r.ativasCount}</div></div>
-          <div onclick="${go('openConversaoDetail',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver detalhe de ${g}"><div class="rc-label">% Conversão</div><div class="rc-value" style="font-size:15px; color:${r.conv!==null && r.conv>=70?'var(--accent-mint)':'var(--navy)'};">${r.conv!==null ? r.conv+'%' : '—'}</div></div>
+        <div class="cvc-stats">
+          <div onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" title="Ver pendências de ${g}"><b>SLA médio</b><span class="${r.atrasoMedio>0?'bad':'ok'}">${r.atrasoMedio>0 ? '+'+r.atrasoMedio+(r.atrasoMedio>1?' dias':' dia') : 'No prazo'}</span></div>
+          <div onclick="${go('openConversaoDetail',g)}" role="button" tabindex="0" title="Ver detalhe de ${g}"><b>Conversão</b><span class="${r.conv!==null && r.conv>=70?'ok':''}">${r.conv!==null ? r.conv+'%' : '—'}</span></div>
+          <div onclick="${go('showPendenciasModal',g)}" role="button" tabindex="0" title="Propostas em análise + pendência (quantidade)"><b>Propostas abertas</b><span>${r.ativasCount}</span></div>
         </div>
-        <div style="display:flex; justify-content:space-between; gap:10px; margin-top:12px; padding-top:10px; border-top:1px solid var(--line);">
-          <div onclick="${go('openConversaoDetail',g)}" role="button" tabindex="0" style="cursor:pointer;" title="Ver detalhe de ${g}"><div class="rc-label">Funil ontem→hoje</div><div style="font-size:12px; color:var(--navy);">${r.funilOntem!==null ? fmt0c(r.funilOntem)+' → '+fmt0c(r.funilHojeReport) : '—'}</div>${cresLabel(r.cresFunil)}</div>
-          <div onclick="${go('openAssinaturaList',g)}" role="button" tabindex="0" style="cursor:pointer; text-align:right;" title="Ver lista de assinaturas de ${g}"><div class="rc-label">Assinatura ontem→hoje</div><div style="font-size:12px; color:var(--navy);">${r.assinOntem!==null ? fmt0c(r.assinOntem)+' → '+fmt0c(r.assinHojeReport) : '—'}</div>${cresLabel(r.cresAssin)}</div>
+        <div class="cvc-oh">
+          ${ohLinha('Funil', 'vidas em análise + pendência', r.funilOntem, cg ? r.funilHojeReport : r.ativasVidas, r.cresFunil, true, go('openConversaoDetail',g), 'Ver detalhe de ' + g)}
+          ${ohLinha('Aguardando assinatura', 'vidas', r.assinOntem, cg ? r.assinHojeReport : r.assinTotal, r.cresAssin, true, go('openAssinaturaList',g), 'Ver lista de assinaturas de ' + g)}
+          ${ohLinha('Ranking do mês', 'vidas vendidas', cg ? cg.rankingOntem : null, cg ? cg.rankingHoje : null, cg ? cresce(cg.rankingHoje, cg.rankingOntem) : null, false, go('openConversaoDetail',g), 'Ver detalhe de ' + g)}
         </div>
+        <div class="cvc-foot">${cg ? 'Ontem → hoje da planilha Crescimento Geral · verde = melhorou' : 'Sem ontem → hoje: importe o Crescimento Geral'}</div>
       </div>`; }).join('');
 
     const macroBody = document.getElementById('convMacroBody');
@@ -5702,20 +4730,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // Mesma fonte pros dois lados (ontem e hoje): quando o "Crescimento Geral" já foi
     // importado pra esse gestor, os dois números vêm dele — nunca mistura com o dado ao
     // vivo do PROPOSTAS, que teria outro ritmo de atualização e não bateria.
-    // Retratos diários do painel (14/10/2026) — os dois lados vêm do retrato; sem retrato nenhum, cai na Crescimento Geral.
-    // (Antes o "hoje" do ranking comparava r.g — nome curto, ex.: "Pablo Amora" — com o nome cru, e dava 0 pra quem tem
-    // nome abreviado.)
-    const ret = window.getRetratosOntemHoje ? window.getRetratosOntemHoje() : null;
-    let cgData = null;
-    if (ret && ret.ontem){
-      const o = ret.ontem.g[gestor] || {f:0,a:0,r:0}, h = ret.hoje.g[gestor] || {f:0,a:0,r:0};
-      cgData = { funilOntem:o.f, funilHoje:h.f, assinaturaOntem:o.a, assinaturaHoje:h.a, rankingOntem:o.r, rankingHoje:h.r };
-    } else if (ret){
-      const h = ret.hoje.g[gestor] || {f:0,a:0,r:0};
-      cgData = { funilOntem:null, funilHoje:h.f, assinaturaOntem:null, assinaturaHoje:h.a, rankingOntem:null, rankingHoje:h.r };
-    } else {
-      cgData = (window.getConvOntemHoje ? window.getConvOntemHoje() : {})[gestor] || null;
-    }
+    const cgData = (window.getConvOntemHoje ? window.getConvOntemHoje() : {})[gestor] || null;
 
     document.getElementById('convDetailAvatar').textContent = gestor.trim().split(/\s+/).map(p=>p[0]).slice(0,2).join('').toUpperCase();
     document.getElementById('convDetailName').textContent = gestor;
@@ -5723,7 +4738,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
 
     const linhas = [
       {label:'Aguardando Assinatura', ontem: cgData ? cgData.assinaturaOntem : null, hoje: cgData ? cgData.assinaturaHoje : assinHoje},
-      {label:'Funil (análise + pendência, vigência mês atual + anterior)', ontem: cgData ? cgData.funilOntem : null, hoje: cgData ? cgData.funilHoje : funilHoje},
+      {label:'Funil (análise + pendência)', ontem: cgData ? cgData.funilOntem : null, hoje: cgData ? cgData.funilHoje : funilHoje},
       {label:'Ranking (volume de vendas)', ontem: cgData ? cgData.rankingOntem : null, hoje: cgData ? cgData.rankingHoje : rankingHoje},
       {label:'Propostas implantadas', ontem: null, hoje: implantadas.length},
     ];
@@ -5780,11 +4795,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('convAssinSub').textContent = `${rows.length} contrato${rows.length!==1?'s':''} · ${total} vida${total!==1?'s':''} aguardando assinatura`;
     const motivoLabel = alvo => alvo==='cliente' ? 'Cliente' : (alvo==='decsau' ? 'Declaração de saúde' : (alvo || '—'));
     document.getElementById('convAssinBody').innerHTML = rows.length ? rows.map(r => `<tr>
-        <td>${r.contratante||'—'}</td><td>${r.doc||'—'}</td><td>${r.corretora||'—'}</td>
+        <td>${r.contratante||'—'}</td><td>${r.corretora||'—'}</td>
         <td>${motivoLabel(r.alvo)}</td>
         <td class="num">${r.beneficiarios||0}</td>
         <td>${r.dataCriacao ? r.dataCriacao.split('-').reverse().join('/') : '—'}</td>
-      </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:20px;">Nenhum registro.</td></tr>';
+      </tr>`).join('') : '<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:20px;">Nenhum registro.</td></tr>';
     document.getElementById('convAssinOverlay').style.display = 'flex';
   };
   document.getElementById('btnCloseConvAssin').addEventListener('click', () => { document.getElementById('convAssinOverlay').style.display='none'; });
@@ -5799,27 +4814,6 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     if (detectedMonth){
       RANK_CUR_LABEL = mesLabel(detectedMonth);
       RANK_PREV_LABEL = mesLabel(shiftMonth(detectedMonth, -1));
-    }
-    // GESTOR_EQUIPE é indexado pelo nome CRU completo em maiúsculas (ex.: "PABLO SERGIO
-    // RIBEIRO AMORA") — mas "g" (abaixo) às vezes chega no nome BONITO, que pra alguns
-    // gestores é abreviado (ex.: "Pablo Amora", sem o nome do meio — ver
-    // FULL_19_GESTOR_RAW_MAP/window.getGestorFriendlyName). Um simples .toUpperCase() só
-    // resolve os gestores cujo nome bonito é o nome completo (ex.: "Camila Alves
-    // Pertinhez") — continua falhando pra quem tem abreviação de verdade. Achado real
-    // 2026-09-10, mesma thread do "Ranking de vendas instável ao filtrar": Jonathan Leal e
-    // Pablo Amora (Cauda Longa) tinham venda real no RANKDATA mas ficavam com e:'—',
-    // porque "JONATHAN LEAL"/"PABLO AMORA" (maiúsculo do nome bonito) não batem com as
-    // chaves completas de GESTOR_EQUIPE. Resolvido traduzindo cada chave de GESTOR_EQUIPE
-    // pro nome bonito equivalente (mesma função que já resolve o sentido contrário em
-    // outras telas) e montando o mapa reverso uma vez por import — cobre os dois formatos
-    // que "g" pode assumir, sem precisar adivinhar qual caminho gerou a linha.
-    const EQUIPE_BY_FRIENDLY = {};
-    if (window.getGestorFriendlyName){
-      Object.keys(GESTOR_EQUIPE).forEach(raw => { EQUIPE_BY_FRIENDLY[window.getGestorFriendlyName(raw)] = GESTOR_EQUIPE[raw]; });
-    }
-    function resolveEquipe(g){
-      const gStr = String(g||'');
-      return EQUIPE_BY_FRIENDLY[gStr] || GESTOR_EQUIPE[gStr.toUpperCase()] || '—';
     }
     // Mantém o que já existe se um dos lados não vier
     const curMap = {}, prevMap = {};
@@ -5920,7 +4914,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         if (pIdx >= 0 && (m[pIdx] === undefined || m[pIdx] === null)) m[pIdx] = prevVal;
       }
       merged.push({
-        c, n: base.n || '', g, e: resolveEquipe(g), ass, acod,
+        c, n: base.n || '', g, e: GESTOR_EQUIPE[g] || '—', ass, acod,
         cur: curVal, prev: prevVal,
         ind: cu ? cu.ind : 0, pim: cu ? cu.pim : 0, mid: cu ? cu.mid : 0, adm: cu ? cu.adm : 0,
         m, mc,
@@ -5939,117 +4933,57 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     opts = opts || {};
     showView('el');
     if (!elInitialized){ elInitialized = true; }
-    setSelectedGestores(opts.gestor ? [opts.gestor] : []);
+    selGestor.value = opts.gestor || '';
     document.getElementById('fReact').checked = !!opts.reactivationOnly;
     page = 1;
     render();
   };
   window.getEligibilidadeData = function(){ return DATA; };
-  window.applyCorretorasToEligibilidade = function(byGestor, detectedMonth){
-    // Compara código normalizado dos dois lados (célula numérica do Excel perde zero à
-    // esquerda, extrato do BI sempre vem com zero) — sem isso, toda corretora cujo código na
-    // Elegibilidade é número puro nunca batia com o extrato, ficando com o mês corrente
-    // sempre zerado/desatualizado mesmo com a venda certinha no Desempenho Comercial.
+  window.applyCorretorasToEligibilidade = function(byGestor){
+    // Achado em 2026-08-28: essa função comparava d.c (código cru da aba ELEGIBILIDADE,
+    // pode vir como número do Excel — ex.: célula "2" pra representar "0002") contra c.c
+    // (código também cru, mas sempre texto zero-padded, vindo do extrato do BI) sem
+    // normalizar nenhum dos dois lados — o mesmo tipo de bug de zero à esquerda já achado
+    // e corrigido em normalizeCodigo pro fluxo de Desempenho Comercial, só que esse aqui
+    // ficou pra trás. Toda corretora cujo código na Elegibilidade é um número puro (sem o
+    // zero à esquerda preservado) nunca batia com o extrato, então ficava com o mês
+    // corrente sempre zerado/desatualizado mesmo com a venda certinha no Desempenho
+    // Comercial — exatamente o sintoma "elegibilidade não bate 100%" que Victor notou.
     const allCorretoras = {};
     Object.values(byGestor).forEach(g => {
       (g.corretoras||[]).forEach(c => { allCorretoras[window.normalizeCodigo(c.c)] = c; });
     });
     let atualizadas = 0;
-    // Índice do mês que este import deve corrigir — corrigido 2026-09-14 (Victor: "o código
-    // está ajustado para reconhecer o extrato de qual mês é? Por que no extrato do BI ele
-    // informa de qual mês é, e com isso dá pra fazer a distribuição correta"). O fix de
-    // 2026-09-09 (dia-10) SÓ chutava pelo calendário porque, naquele momento, não tínhamos
-    // acesso ao mês real do arquivo — mas o arquivo "NDI SP - Por Gestor" completo já informa
-    // isso de verdade (detectMetaMonth, lê o nome da aba "NDI SP - <MÊS>") e esse valor já
-    // chegava até btnConfirmImport (pendingMeta.detectedMonth), só nunca tinha sido repassado
-    // pra cá. Agora, quando quem chamou sabe o mês real (detectedMonth, "AAAA-MM"), usa ele
-    // direto — sem chute nenhum, nem de calendário. Só cai pro chute do dia-10 quando
-    // ninguém sabe o mês de verdade (upload só do extrato bruto de Corretoras, que não carrega
-    // essa informação em lugar nenhum do próprio arquivo).
-    let targetIdx;
-    if (detectedMonth){
-      const parts = String(detectedMonth).split('-');
-      const y = Number(parts[0]), m = Number(parts[1]);
-      targetIdx = (y && m) ? (y - 2025) * 12 + (m - 1) : -1;
-    }
-    if (targetIdx === undefined || targetIdx < 0){
-      // Sem mês real disponível — cai pro mesmo chute de calendário de antes (dia 1-10 mira
-      // no mês anterior, dia 11+ no mês corrente), única saída possível nesse caso.
-      const graceNow = new Date();
-      let graceTargetY = graceNow.getFullYear(), graceTargetM = graceNow.getMonth() + 1; // 1-12
-      if (graceNow.getDate() <= 10){
-        graceTargetM -= 1;
-        if (graceTargetM < 1){ graceTargetM = 12; graceTargetY -= 1; }
-      }
-      targetIdx = (graceTargetY - 2025) * 12 + (graceTargetM - 1); // mesmo índice que MONTH_LABELS (0 = Jan/2025)
-    }
-    // Abre a coluna do mês sozinho quando o extrato traz um mês que a planilha ainda não tem —
-    // achado 2026-09-17, pedido do Victor: reabrir manualmente a planilha mestre "Elegibilidade
-    // completa" com uma coluna a mais, TODA equipe, TODO mês, "vai ser algo muito massivo".
-    // Estende m[]/mc.*[] com zero pra todas as corretoras (nunca inventa número — mesmo
-    // princípio já usado pro histórico ausente das equipes novas) e refaz MONTH_LABELS/
-    // PERIOD_DEFS (refreshMonthDerivedState, já existia pra esse mesmo propósito quando a
-    // planilha mestre trazia mais meses — só nunca tinha sido chamado por este caminho).
-    if (targetIdx >= 0 && DATA.length && DATA[0].m && targetIdx >= DATA[0].m.length){
-      const faltam = targetIdx - DATA[0].m.length + 1;
-      DATA.forEach(d => {
-        for (let i = 0; i < faltam; i++){
-          d.m.push(0);
-          if (d.mc){ d.mc.pf.push(0); d.mc.ss.push(0); d.mc.pme.push(0); }
-        }
-      });
-      if (typeof refreshMonthDerivedState === 'function') refreshMonthDerivedState();
-    }
     // Trimestre vigente (o último balde de PERIOD_DEFS.trimestre — sempre o trimestre em
     // andamento, mesmo parcial) — usado abaixo pra recalcular Elegível/Ranking igual
-    // computePeriodElegRank já usa pro período corrente. Resolvido depois da possível abertura
-    // de coluna acima, pra já refletir o mês novo se for o caso.
+    // computePeriodElegRank já faz pra quem olha a tela com um período específico
+    // selecionado. Resolvido uma vez fora do loop (não muda por corretora).
     const curTri = (typeof PERIOD_DEFS !== 'undefined' && PERIOD_DEFS.trimestre && PERIOD_DEFS.trimestre.length)
       ? PERIOD_DEFS.trimestre[PERIOD_DEFS.trimestre.length - 1] : null;
     DATA.forEach(d => {
       const c = allCorretoras[window.normalizeCodigo(d.c)];
       if (c){
-        // Cai pro último índice existente quando o mês-alvo ainda nem tem coluna (ex.:
-        // arquivo de um mês que a planilha mestre ainda não abriu) — não tem onde escrever,
-        // mantém o comportamento de sempre.
-        const lastIdx = (targetIdx >= 0 && targetIdx < d.m.length) ? targetIdx : d.m.length - 1;
+        const lastIdx = d.m.length - 1;
         d.m[lastIdx] = c.total;
         if (d.mc){ d.mc.pf[lastIdx] = c.ind; d.mc.ss[lastIdx] = c.ss; d.mc.pme[lastIdx] = c.pme; }
-        // Mudar d.m acima não basta — Elegível/Ranking (d.el/d.rk) e a meta do trimestre
-        // vigente (d.meta3tri) só eram calculados uma vez, na hora de subir a planilha
-        // "Elegibilidade (17 meses)" inteira, e ficavam congelados depois disso (Desempenho
-        // Comercial atualiza ao vivo, Elegibilidade não). Reusa computePeriodElegRank (já
-        // validado contra o arquivo mestre real da Hapvida) com o trimestre vigente, do
-        // mesmo jeito que a tela já faz quando alguém filtra por período manualmente. NÃO
-        // mexe em d.t1/d.t2/d.meta/d.gap — esses descrevem o trimestre já fechado, que não
-        // muda com vendas novas de hoje.
+        d.tot = d.m.reduce((s,v)=>s+v, 0);
+        // Achado em 2026-08-28 (mesmo dia, mesma investigação): mudar d.m acima não bastava
+        // — Elegível/Ranking (d.el/d.rk) e a meta do trimestre vigente (d.meta3tri) só eram
+        // calculados uma vez, na hora de subir a planilha "Elegibilidade (17 meses)"
+        // inteira, e ficavam congelados depois disso (Desempenho Comercial atualiza ao
+        // vivo, Elegibilidade não). Corrigido: reusa computePeriodElegRank (já validado
+        // contra o arquivo mestre real da Hapvida — ver comentário lá) com o trimestre
+        // vigente, do mesmo jeito que a tela já faz quando alguém filtra por período
+        // manualmente. NÃO mexe em d.t1/d.t2/d.meta/d.gap — esses descrevem o 2TRI26, um
+        // trimestre já fechado, que não muda com vendas novas de hoje.
         if (curTri && typeof computePeriodElegRank === 'function'){
           const calc = computePeriodElegRank(d, curTri.months);
           d.meta3tri = calc.meta;
           d.el = calc.el;
           d.rk = calc.rk;
-          // Mantém o retrato histórico (d.elByMonth, ver updateEligibilidadeData/
-          // computePeriodElegRank) em dia junto com o mês sendo corrigido agora — assim, se
-          // Setembro virar o mês vigente antes de Agosto de fato fechar, o filtro "Mensal →
-          // Agosto" ainda mostra a classificação oficial mais recente conhecida pra Agosto,
-          // em vez de cair de volta pra uma conta inventada.
-          if (!d.elByMonth) d.elByMonth = {};
-          d.elByMonth[lastIdx] = calc.el;
         }
         atualizadas++;
       }
-      // Fora do "if (c)" de propósito (achado 2026-10-01, pedido do Victor: "Total 17M" com
-      // número mais baixo do que deveria pra ~9% das corretoras, sempre faltando exatamente o
-      // mês mais recente) — antes só recalculava o total geral de quem aparecia no extrato do
-      // dia; uma corretora sem venda registrada no dia específico em que o mês fechava/abria
-      // ficava com esse total "preso" num valor antigo, mesmo com d.m[] certo por baixo. Não
-      // consegui provar a sequência exata que causa isso (só existe ESTE lugar que grava os
-      // dois campos, e sempre junto — pode ter sido um reimport histórico cruzando com uma
-      // atualização ao vivo), mas recalcular pra TODO MUNDO aqui, sempre, fecha a brecha de
-      // qualquer jeito: d.m[] já está correto nesse ponto (só ganhou o mês novo zerado, se foi
-      // o caso, o que não muda a soma de quem não apareceu no extrato de hoje).
-      d.tot = d.m.reduce((s,v)=>s+v, 0);
-      d.u3 = vendasUltimos3(d);
     });
     return atualizadas;
   };
@@ -6058,10 +4992,10 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     'JONATHAN LEAL DOS SANTOS SILVA':'Jonathan Leal','PABLO SERGIO RIBEIRO AMORA':'Pablo Amora'
   };
   window.detectNewCorretorasCaudaLonga = function(carteira, dryRun){
-    // Mesma normalização aplicada aqui — carteira.byCodigo já vem normalizado, mas d.c
-    // (código cru da aba ELEGIBILIDADE) não vinha, então uma corretora já cadastrada com
-    // código sem zero à esquerda podia ser marcada como "nova" só por não bater string-a-
-    // string contra a chave normalizada da Carteira.
+    // Mesma normalização de normalizeCodigo aplicada aqui — carteira.byCodigo já vem
+    // normalizado, mas d.c (código cru da aba ELEGIBILIDADE) não vinha, então uma
+    // corretora já cadastrada com código "2" (sem zero à esquerda) podia ser marcada como
+    // "nova" só por não bater string-a-string contra a chave normalizada "0002" da Carteira.
     const existingCodes = new Set(DATA.map(d=>window.normalizeCodigo(d.c)));
     const seen = new Set();
     const found = [];
@@ -6082,259 +5016,22 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     if (!dryRun && found.length){
       found.forEach(rec => DATA.push(rec));
       EL_GESTORES.length = 0;
-      [...new Set(scopedData().map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
+      [...new Set(DATA.map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
+      selGestor.innerHTML = '<option value="">Todos</option>';
+      EL_GESTORES.forEach(g => { const o=document.createElement('option'); o.value=g; o.textContent=g; selGestor.appendChild(o); });
       syncGestorLocalOptions();
       RANKS_PRESENT.length = 0;
-      RANK_ORDER.filter(r => scopedData().some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
+      RANK_ORDER.filter(r => DATA.some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
     }
     return found;
   };
-
-  // ===== EXPORTAR ELEGIBILIDADE EM .XLSX (pedido do Victor, 2026-10-01) =====
-  // Gera de volta o arquivo no MESMO formato que parseEligibilidadeWorkbook (IIFE de import,
-  // mais abaixo) espera — mesmos nomes de coluna, mesmo esquema de 2 linhas de cabeçalho por
-  // bloco de mês (nome do mês na linha 1, "TOTAL" na linha 2, 3 colunas PF/SS/PME antes dela) —
-  // pra ser reimportável pelo próprio importador do dashboard, não só um espelho visual. Um
-  // arquivo por equipe (mesmo recorte de ELIG_GESTOR_TEAM, acima), igual ao que a Hapvida manda
-  // hoje. Montei conferindo célula por célula contra o que parseEligibilidadeWorkbook lê
-  // (monthCols = i+3, mc.pf/ss/pme = c-3/c-2/c-1, monthly = c) — testado de ponta a ponta
-  // reimportando o próprio export e comparando os registros resultantes contra os originais
-  // antes de considerar pronto. Fica nesta IIFE (não na de import) porque precisa de DATA/
-  // ELIG_GESTOR_TEAM direto — window.exportEligibilidadeXlsx exposto pro botão (outro script).
-  //
-  // REFEITO 2026-10-06 (Victor: "vem totalmente desformatado, e faltando os nomes das colunas"):
-  // o layout agora copia a aba ELEGIBILIDADE da planilha oficial ("ELEGIBILIDADE CARTEIRA CAUDA
-  // LONGA - 17 MESES 05.10.2026") — cores, mesclas, 2 linhas congeladas, filtro, larguras e as
-  // cores condicionais de Elegível/Ranking. O SheetJS gratuito não grava formatação, então o
-  // arquivo é gerado pelo ExcelJS (carregado do cdnjs só na hora do clique); se ele não carregar,
-  // cai num .xlsx sem cores mas com o MESMO layout. Regras do layout:
-  // - 5 colunas de cadastro; cada mês = PF/SS/PME/TOTAL com o nome do mês mesclado em cima;
-  // - 2025 (ano fechado; só quem tem histórico) termina com os blocos 1T25..4T25, 1 SEMESTRE,
-  //   2 SEMESTRE e TOTAL 25 (também PF/SS/PME/TOTAL), como na planilha;
-  // - de 2026 em diante, depois de cada trimestre fechado uma coluna "nTRIaa TOTAL"; o trimestre
-  //   vigente leva "nTRI TOTAL" (sem ano, igual à planilha) + META/GAP. Assim o importador (que usa
-  //   os 2 últimos "nTRIaa TOTAL" como t1/t2) relê o arquivo com a régua do trimestre vigente;
-  // - "N MESES TOTAIS" = soma de TODOS os meses (a fórmula da planilha pula Ago/26 e Set/26 —
-  //   Victor decidiu somar tudo); Meta/Gap/Elegibilidade/Ranking = trimestre vigente recalculado
-  //   (computePeriodElegRank), o mesmo número que a tela mostra;
-  // - outras equipes começam em Jan/26 (sem 2025), como os arquivos oficiais delas (decisão do Victor).
-  const MONTH_NUM_TO_NAME = {1:'JANEIRO',2:'FEVEREIRO',3:'MARÇO',4:'ABRIL',5:'MAIO',6:'JUNHO',7:'JULHO',8:'AGOSTO',9:'SETEMBRO',10:'OUTUBRO',11:'NOVEMBRO',12:'DEZEMBRO'};
-  function globalIdxToMonthHeader(idx){
-    const year = 2025 + Math.floor(idx/12), monthNum = (idx % 12) + 1;
-    return `${MONTH_NUM_TO_NAME[monthNum]} ${String(year).slice(2)}`;
-  }
-  function buildEligExportLayout(team){
-    const rows = DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === team);
-    if (!rows.length) return null;
-    const lastIdx = rows[0].m.length - 1;
-    const tem2025 = rows.some(d => d.m.slice(0, 12).some(v => v));
-    const start = (tem2025 || lastIdx < 12) ? 0 : 12;
-    const seq = (a, b) => Array.from({length: b - a + 1}, (_, k) => a + k);
-    const yy = i => String(2025 + Math.floor(i / 12)).slice(2);
-    const triNum = i => Math.floor((i % 12) / 3) + 1;
-    const vigStart = lastIdx - (lastIdx % 3);
-    const vigIdx = seq(vigStart, lastIdx);
-    const vigLabel = `${triNum(lastIdx)}TRI${yy(lastIdx)}`;
-    const sumIdx = (arr, idxs) => idxs.reduce((s, i) => s + ((arr && arr[i]) || 0), 0);
-    const calcCache = new Map();
-    const cx = d => {
-      if (!calcCache.has(d)){
-        const c = (typeof computePeriodElegRank === 'function') ? computePeriodElegRank(d, vigIdx) : null;
-        calcCache.set(d, c ? { total: c.periodTotal, meta: c.meta, el: c.el, rk: c.rk }
-                           : { total: sumIdx(d.m, vigIdx), meta: d.meta3tri || 0, el: d.el, rk: d.rk });
-      }
-      return calcCache.get(d);
-    };
-    // kind: info | mes | resumo (blocos de 2025) | tri (trimestre fechado) | vig (vigente/meta/gap/total) | eleg | rank
-    const cols = [];
-    const cat4 = (h1, idxs, kind) => {
-      const g = cols.length;
-      cols.push({h1, h2:'PF', kind, g, w:4.875, val: d => sumIdx(d.mc && d.mc.pf, idxs)});
-      cols.push({h1, h2:'SS', kind, g, w:5.125, val: d => sumIdx(d.mc && d.mc.ss, idxs)});
-      cols.push({h1, h2:'PME', kind, g, w:6.625, val: d => sumIdx(d.mc && d.mc.pme, idxs)});
-      cols.push({h1, h2:'TOTAL', kind, g, w:9.625, val: d => sumIdx(d.m, idxs)});
-    };
-    const single = (h1, kind, w, val, extra) => cols.push(Object.assign({h1, h2:null, kind, w, val}, extra || {}));
-    single('CÓDIGO', 'info', 12, d => String(d.c), {numFmt:'@'});
-    single('NOME CORRETOR', 'info', 60, d => d.n);
-    single('GRADE DE COMISSÃO', 'info', 22, d => team === 'CAUDA LONGA' ? (d.gr || '') : '');
-    single('ASSESSORIA', 'info', 45, d => { const can = window.assCanon ? window.assCanon(d.ass, d.acod) : null; return can ? can.nome : (d.ass || ''); }); // nome unificado (2026-10-13)
-    single('GERENTE', 'info', 28, d => d.g);
-    for (let i = start; i <= lastIdx; i++){
-      cat4(globalIdxToMonthHeader(i), [i], 'mes');
-      if (i === 11 && lastIdx > 11){
-        [0, 1, 2, 3].forEach(q => cat4(`${q + 1}T25`, seq(q * 3, q * 3 + 2), 'resumo'));
-        cat4('1 SEMESTRE', seq(0, 5), 'resumo');
-        cat4('2 SEMESTRE', seq(6, 11), 'resumo');
-        cat4('TOTAL 25', seq(0, 11), 'resumo');
-      }
-      if (i >= 12 && (i % 3) === 2 && i < vigStart) single(`${triNum(i)}TRI${yy(i)} TOTAL`, 'tri', 18, d => sumIdx(d.m, [i - 2, i - 1, i]));
-    }
-    single(`${triNum(lastIdx)}TRI TOTAL`, 'vig', 18, d => cx(d).total);
-    single(`META ${vigLabel}`, 'vig', 22, d => cx(d).meta, {numFmt:'0'});
-    single(`GAP ${vigLabel}`, 'vig', 20, d => cx(d).total - cx(d).meta, {numFmt:'0'});
-    const nMeses = lastIdx - start + 1;
-    single(`${nMeses} MESES TOTAIS`, 'vig', 22, d => sumIdx(d.m, seq(start, lastIdx)));
-    single('ELEGIBILIDADE', 'eleg', 23.625, d => cx(d).el === 1 ? 'Elegível' : 'Não elegível');
-    single('RANKING', 'rank', 19.125, d => cx(d).rk || 'Não Classificado');
-    // Mesclas: mês/bloco = 4 colunas na linha 1; coluna única = linhas 1 e 2.
-    const merges = [];
-    cols.forEach((c, i) => {
-      if (c.h2 === null) merges.push([1, i + 1, 2, i + 1]);
-      else if (c.h2 === 'PF') merges.push([1, i + 1, 1, i + 4]);
-    });
-    const hoje = new Date();
-    const dataBR = String(hoje.getDate()).padStart(2, '0') + '.' + String(hoje.getMonth() + 1).padStart(2, '0') + '.' + hoje.getFullYear();
-    // "/" (ex.: "PLATAFORMA ABC/ALTO TIETÊ/BX") não pode em nome de arquivo no Windows.
-    const fileName = `ELEGIBILIDADE CARTEIRA ${team.replace(/[\\/:*?"<>|]+/g, '-')} - ${nMeses} MESES ${dataBR}.xlsx`;
-    return { team, rows, cols, merges, fileName };
-  }
-  let excelJsPromise = null;
-  function loadExcelJS(){
-    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
-    if (!excelJsPromise){
-      excelJsPromise = new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
-        s.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('ExcelJS não carregou'));
-        s.onerror = () => { excelJsPromise = null; reject(new Error('Falha ao baixar o ExcelJS')); };
-        document.head.appendChild(s);
-      });
-    }
-    return excelJsPromise;
-  }
-  function downloadBlob(blob, fileName){
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    // Registro de acessos (item 4): cobre Elegibilidade e Desempenho Comercial, que baixam por aqui.
-    if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', fileName);
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-  }
-  // Usados também pelo export do Desempenho Comercial (outra IIFE).
-  window.loadExcelJS = loadExcelJS;
-  window.downloadBlobFile = downloadBlob;
-  async function buildEligXlsxStyled(L){
-    const ExcelJS = await loadExcelJS();
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('ELEGIBILIDADE', { views: [{ state:'frozen', ySplit:2, zoomScale:77 }] });
-    // Cores lidas da planilha oficial (aba ELEGIBILIDADE).
-    const C = { azul:'FF003DA5', marinho:'FF002B7F', laranja:'FFFF6A00', grafite:'FF4D4D4D', cinza:'FFA6A6A6', verde:'FF4EA72E', branco:'FFFFFFFF', preto:'FF000000' };
-    const solid = argb => ({ type:'pattern', pattern:'solid', fgColor:{ argb } });
-    const thin = { style:'thin' };
-    const box = { top:thin, left:thin, bottom:thin, right:thin };
-    const center = { horizontal:'center', vertical:'middle' };
-    const headFill = { info:C.azul, mes:C.marinho, resumo:C.laranja, tri:C.grafite, vig:C.grafite, eleg:C.azul, rank:C.azul };
-    // Estilo de dado por coluna (fonte/alinhamento/formato) — Elegibilidade/Ranking são por célula.
-    L.cols.forEach((c, i) => {
-      const col = ws.getColumn(i + 1);
-      col.width = c.w;
-      col.font = { name:'Aptos Narrow', size: c.kind === 'info' ? 11 : 12 };
-      col.alignment = center;
-      if (c.numFmt) col.numFmt = c.numFmt;
-    });
-    const r1 = ws.getRow(1), r2 = ws.getRow(2);
-    r1.height = 15.75; r2.height = 15.75;
-    L.cols.forEach((c, i) => {
-      const font = c.kind === 'info'
-        ? { name:'Calibri', size:11, bold:true, color:{ argb:C.branco } }
-        : { name:'Aptos Narrow', size: c.kind === 'rank' ? 14 : 12, bold:true, color:{ argb:C.branco } };
-      const a = r1.getCell(i + 1);
-      a.value = c.h1; a.font = font; a.fill = solid(headFill[c.kind]); a.alignment = center; a.border = box; a.numFmt = 'General';
-      const b = r2.getCell(i + 1);
-      if (c.h2 === null){
-        b.value = c.h1; b.font = font; b.fill = solid(headFill[c.kind]);
-      } else {
-        b.value = c.h2; b.font = { name:'Aptos Narrow', size:12, bold:true, color:{ argb:C.preto } }; b.fill = solid(C.cinza);
-      }
-      b.alignment = center; b.border = box; b.numFmt = 'General';
-    });
-    L.rows.forEach(d => ws.addRow(L.cols.map(c => c.val(d))));
-    const elegCol = L.cols.findIndex(c => c.kind === 'eleg') + 1;
-    const rankCol = L.cols.findIndex(c => c.kind === 'rank') + 1;
-    const lastRow = L.rows.length + 2;
-    for (let r = 3; r <= lastRow; r++){
-      const e = ws.getRow(r).getCell(elegCol);
-      e.font = { name:'Aptos Narrow', size:11, bold:true, color:{ argb:C.branco } }; e.fill = solid(C.verde); e.border = box;
-      const k = ws.getRow(r).getCell(rankCol);
-      k.font = { name:'Aptos Narrow', size:14, bold:true }; k.border = box;
-    }
-    L.merges.forEach(m => ws.mergeCells(m[0], m[1], m[2], m[3]));
-    const letter = n => ws.getColumn(n).letter;
-    const dxf = (bg, fg) => ({ fill:{ type:'pattern', pattern:'solid', bgColor:{ argb:bg } }, font:{ color:{ argb:fg } } });
-    ws.addConditionalFormatting({ ref: `${letter(elegCol)}3:${letter(elegCol)}${lastRow}`, rules: [
-      { type:'containsText', operator:'containsText', text:'Não elegível', priority:1, style: dxf('FFFFC7CE', 'FF9C0006') },
-      { type:'containsText', operator:'containsText', text:'Elegível', priority:2, style: dxf('FFC6EFCE', 'FF006100') },
-    ]});
-    const RANK_CF = [['Safira','FFCE93D8','FF4A148C'], ['Diamante','FF90CAF9','FF0D47A1'], ['Ouro','FFFFD54F','FF5D4037'], ['Prata','FFE0E0E0','FF424242'],
-      ['Bronze 1','FFF57C00','FFFFFFFF'], ['Bronze 2','FFFB8C00','FFFFFFFF'], ['Bronze 3','FFFFA726','FFFFFFFF'], ['Bronze 4','FFFFB74D','FF4E342E'],
-      ['Bronze 5','FFFFCC80','FF5D4037'], ['Bronze 6','FFFFE0B2','FF6D4C41'], ['Não Classificado','FFBDBDBD','FFFFFFFF']];
-    ws.addConditionalFormatting({ ref: `${letter(rankCol)}3:${letter(rankCol)}${lastRow}`,
-      rules: RANK_CF.map(([txt, bg, fg], i) => ({ type:'cellIs', operator:'equal', formulae:[`"${txt}"`], priority: 3 + i, style: dxf(bg, fg) })) });
-    ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:lastRow, column:L.cols.length } };
-    const buf = await wb.xlsx.writeBuffer();
-    return new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  }
-  // Plano B (ExcelJS não carregou): mesmo layout e mesclas, sem cores.
-  function buildEligXlsxPlain(L){
-    const aoa = [L.cols.map(c => c.h1), L.cols.map(c => c.h2 === null ? c.h1 : c.h2)];
-    L.rows.forEach(d => aoa.push(L.cols.map(c => c.val(d))));
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!merges'] = L.merges.map(m => ({ s:{ r:m[0] - 1, c:m[1] - 1 }, e:{ r:m[2] - 1, c:m[3] - 1 } }));
-    ws['!cols'] = L.cols.map(c => ({ wch: c.w }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'ELEGIBILIDADE');
-    return new Blob([XLSX.write(wb, { bookType:'xlsx', type:'array' })], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  }
-  // Trava por equipe (pedido do Victor, 2026-10-07): quem tem a Elegibilidade restrita à própria equipe
-  // (window.__eligTeamScope__, setado no login) só exporta essa equipe — antes o seletor oferecia as 4 e
-  // dava pra baixar a carteira de outra equipe. O seletor mostra só a equipe da pessoa (sem equipe que
-  // bata com uma opção, o botão some) e o próprio export recusa qualquer outra.
-  function applyEligExportScope(){
-    const scope = window.__eligTeamScope__;
-    if (!scope) return;
-    const sel = document.getElementById('elExportTeam'), btn = document.getElementById('btnExportElig');
-    if (!sel) return;
-    [...sel.options].forEach(o => { if (o.value !== scope) o.remove(); });
-    if (!sel.options.length){ sel.style.display = 'none'; if (btn) btn.style.display = 'none'; }
-    else sel.value = scope;
-  }
-  applyEligExportScope();
-  window.exportEligibilidadeXlsx = async function(team){
-    if (window.__eligTeamScope__ && team !== window.__eligTeamScope__) throw new Error('Seu acesso permite exportar só a sua equipe.');
-    const L = buildEligExportLayout(team);
-    if (!L){ alert('Nenhuma corretora encontrada pra essa equipe.'); return; }
-    let blob;
-    try { blob = await buildEligXlsxStyled(L); }
-    catch (e){
-      console.warn('[export Elegibilidade] sem formatação (ExcelJS indisponível):', e);
-      blob = buildEligXlsxPlain(L);
-    }
-    downloadBlob(blob, L.fileName);
-  };
-  document.getElementById('btnExportElig').addEventListener('click', async () => {
-    const btn = document.getElementById('btnExportElig');
-    if (btn.disabled) return;
-    const original = btn.innerHTML;
-    btn.disabled = true; btn.textContent = 'Gerando .xlsx…';
-    applyEligExportScope();
-    try { await window.exportEligibilidadeXlsx(document.getElementById('elExportTeam').value); }
-    catch (e){ console.error(e); alert('Não consegui gerar o arquivo: ' + (e && e.message ? e.message : e)); }
-    finally { btn.disabled = false; btn.innerHTML = original; }
-  });
   window.updateEligibilidadeData = function(newRecords){
-    // Funde com o DATA já existente em vez de substituir tudo — achado real 2026-09-09,
-    // thread "Agosto não bate": (1) uma planilha mestre mais ANTIGA/mais curta (ex.: reimportar
-    // o arquivo só-Agosto depois de já ter o com Setembro) nunca deve encolher m[]/mc[] de quem
-    // já tem mais meses — só serve pra corrigir o retrato histórico daquele mês específico (ver
-    // elByMonth abaixo), mesma ideia da "correção de mês passado" que o Desempenho Comercial já
-    // tinha. (2) d.elByMonth[idx] guarda a classificação OFICIAL (d.el da época) de cada mês, no
-    // instante em que ele ainda era o vigente — sem isso, o mês anterior "esquece" seu valor
-    // real assim que um mês novo assume, e computePeriodElegRank precisava inventar uma conta
-    // própria (mês isolado vs anterior × fator) pra mês passado — nunca batia com o arquivo
-    // mestre real da Hapvida (92 elegíveis reais vs 106 inventados, no caso de Agosto).
+    // Funde com o DATA já existente em vez de substituir tudo — porta pro V2 o mesmo bug/fix já
+    // achado e corrigido no V1 (2026-09-09/17): `DATA = newRecords` descartava silenciosamente
+    // qualquer corretora que não estivesse no arquivo importado — inofensivo enquanto só existia
+    // a Cauda Longa (o arquivo "mestre" sempre trazia todo mundo de uma vez), mas destrutivo na
+    // hora de importar as 4 equipes em arquivos separados: subir o da Digital apagaria Cauda
+    // Longa/ABC/Plataforma inteiras. Ver project_v1_v2_merge_in_progress / [[project_dashboard_v2_base_is_v1]] na memória.
     const oldByCode = {};
     DATA.forEach(d => { oldByCode[window.normalizeCodigo(d.c)] = d; });
     const touchedCodes = {};
@@ -6350,38 +5047,30 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         elByMonth[fileLastIdx] = rec.el;
         return Object.assign({}, old, { elByMonth });
       }
-      // Arquivo do tamanho normal (igual ou mais recente) — vira a base nova, carregando o
-      // retrato histórico anterior + grava o retrato deste mês também.
       const elByMonth = Object.assign({}, old && old.elByMonth);
       elByMonth[fileLastIdx] = rec.el;
       return Object.assign({}, rec, { elByMonth });
     });
-    // Preserva registros de OUTRAS equipes que este import não tocou — antes, `DATA =
-    // newRecords.map(...)` descartava silenciosamente qualquer código que não estivesse no
-    // arquivo importado. Isso nunca deu problema enquanto só existia a Cauda Longa (o arquivo
-    // "mestre" sempre trazia TODAS as corretoras de uma vez), mas quebraria na hora de subir
-    // as 4 equipes em arquivos separados: subir o da Digital apagaria Cauda Longa/ABC/
-    // Plataforma inteiras. Achado 2026-09-17, planejando a expansão pra 4 equipes.
+    // Preserva registros de OUTRAS equipes que este import não tocou.
     const untouched = DATA.filter(d => !touchedCodes[window.normalizeCodigo(d.c)]);
     DATA = updated.concat(untouched);
     // Alinha m[]/mc[] de todo mundo no mesmo tamanho — uma equipe pode ter seu próprio import
-    // "atrasado" (ainda não chegou no mês mais recente que outra equipe/a Cauda Longa já tem)
-    // sem que isso apareça na comparação por código acima (só compara contra o histórico DA
-    // MESMA corretora, nunca contra outra equipe). Sempre completa por TRÁS com zero (meses
-    // que aquele import ainda não cobre) — nunca por decisão de negócio, só união de tamanho.
+    // "atrasado" (ainda não chegou no mês mais recente que outra equipe já tem) — completa
+    // sempre por TRÁS com zero, nunca por decisão de negócio, só união de tamanho.
     const maxLen = DATA.reduce((mx,d) => Math.max(mx, d.m ? d.m.length : 0), 0);
     DATA.forEach(d => {
       if (!d.m) return;
       while (d.m.length < maxLen) d.m.push(0);
       if (d.mc){ ['pf','ss','pme'].forEach(k => { if (d.mc[k]) while (d.mc[k].length < maxLen) d.mc[k].push(0); }); }
-      d.u3 = vendasUltimos3(d);
     });
     refreshMonthDerivedState();
     EL_GESTORES.length = 0;
-    [...new Set(scopedData().map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
+    [...new Set(DATA.map(d=>d.g))].sort().forEach(g=>EL_GESTORES.push(g));
+    selGestor.innerHTML = '<option value="">Todos</option>';
+    EL_GESTORES.forEach(g => { const o=document.createElement('option'); o.value=g; o.textContent=g; selGestor.appendChild(o); });
     syncGestorLocalOptions();
     RANKS_PRESENT.length = 0;
-    RANK_ORDER.filter(r => scopedData().some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
+    RANK_ORDER.filter(r => DATA.some(d=>d.rk===r)).forEach(r=>RANKS_PRESENT.push(r));
     selRank.innerHTML = '<option value="">Todos</option>';
     RANKS_PRESENT.forEach(r => { const o=document.createElement('option'); o.value=r; o.textContent=r; selRank.appendChild(o); });
     document.getElementById('hdrTotalCount') && (document.getElementById('hdrTotalCount').textContent = DATA.length.toLocaleString('pt-BR'));
@@ -6389,7 +5078,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   };
 })();
 
-// ===== extraído de index.html linhas 6567-6845 =====
+// ===== extraído de index.html linhas 6517-6795 =====
 /* =========================================================
    VIEW 0 — VISÃO GERAL (consolida Desempenho Comercial + Elegibilidade)
    ========================================================= */
@@ -6486,7 +5175,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const totSum17m = elig.reduce((s,d)=>s+d.tot,0);
     const eligCount = elig.filter(d=>d.el===1).length;
     const eligPct = elig.length ? eligCount/elig.length*100 : 0;
-    const reactList = elig.filter(d => (window.vendasUltimos3 ? window.vendasUltimos3(d) : d.u3) === 0 && d.tot>=20);
+    const reactList = elig.filter(d => d.u3===0 && d.tot>=20);
     const jumpGestor = isTeamScope ? '' : execVal;
     const jumpTeamName = teamName;
 
@@ -6505,7 +5194,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
           onclick:`window.jumpToElegibilidade({gestor:'${jumpGestor.replace(/'/g,"\\'")}'})`}
       );
     }
-    document.getElementById('ovKpiRow').innerHTML = kpis.map(k=>`<div class="kpi" style="cursor:pointer" role="button" tabindex="0" title="Clique para ver o detalhe" onclick="${k.onclick}"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.cls}">${k.sub}</div></div>`).join('');
+    document.getElementById('ovKpiRow').innerHTML = kpis.map(k=>`<div class="kpi" style="cursor:pointer" title="Clique para ver o detalhe" onclick="${k.onclick}"><div class="kpi-icon">${k.icon}</div><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub ${k.cls}">${k.sub}</div></div>`).join('');
 
     // Evolução — só existe para escopo Cauda Longa (depende da base de Elegibilidade)
     document.getElementById('ovEvolucaoPanel').style.display = isCaudaLongaScope ? '' : 'none';
@@ -6536,11 +5225,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const catKeys = Object.keys(catLabels);
     const scopeCat = scopeTotal.cat || (scopeMembers[0] ? scopeMembers[0].cat : {IND:{meta:0,int:0},SS:{meta:0,int:0},PME:{meta:0,int:0},ADM:{meta:0,int:0}});
     destroyOv('categoria');
-    ovCharts.categoria = new Chart(document.getElementById('ovChartCategoria'), {
-      type:'bar',
-      data:{ labels:catKeys.map(k=>catLabels[k]), datasets:[{ data:catKeys.map(k=>(scopeCat[k].meta?scopeCat[k].int/scopeCat[k].meta:0)*100), backgroundColor:catKeys.map(k=>{ const p = scopeCat[k].meta?scopeCat[k].int/scopeCat[k].meta:0; return p>=1?'#16B87A':(p>=0.7?'#FFB81C':'#F5364A'); }), borderRadius:6 }] },
-      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw.toFixed(1)+'%'}}}, scales:{x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{callback:v=>v+'%'}}, y:{grid:{display:false}}} }
-    });
+    ovCharts.categoria = window.__dsCatChart(document.getElementById('ovChartCategoria'),
+      catKeys.map(k=>catLabels[k]), catKeys.map(k=>(scopeCat[k].meta?scopeCat[k].int/scopeCat[k].meta:0)*100));
 
     // Gestor mini-cards (clicáveis — levam pro detalhe daquele gestor na Elegibilidade, se for Cauda Longa)
     // — só faz sentido quando um time específico está selecionado; no agregado (ALL_TEAMS), 19 cards
@@ -6571,7 +5257,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     } else {
       document.getElementById('ovGestorGrid').innerHTML = scopeMembers.map(m => {
         const p = m.total.meta ? m.total.int/m.total.meta : 0;
-        const clickable = `style="cursor:pointer" role="button" tabindex="0" onclick="window.jumpToMetaJunho('${teamName.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver números deste gestor no Desempenho Comercial"`;
+        const clickable = `style="cursor:pointer" onclick="window.jumpToMetaJunho('${teamName.replace(/'/g,"\\'")}', '${m.nome.replace(/'/g,"\\'")}')" title="Ver números deste gestor no Desempenho Comercial"`;
         return `<div class="gestor-card" ${clickable}><div class="avatar" style="background:${m.cor}">${iniciais(m.nome)}</div><div class="name">${m.nome}</div><div class="role">Gestor(a) Comercial</div>
           <div class="total-pct" style="color:${pctColor(p)}">${pctf(p)}</div>
           <div class="total-label">${fmt0(m.total.int)} / ${fmt0(m.total.meta)} vidas (meta total)</div></div>`;
@@ -6582,47 +5268,21 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('ovEligSection').style.display = 'none';
     if (isCaudaLongaScope){
       document.getElementById('ovOtherTeamCorretoras').style.display = 'none';
-      // Períodos de CALENDÁRIO a partir do mês mais recente (índice 0 = Jan/25), com as opções do
-      // seletor refeitas aqui. Antes eram texto fixo no index.html ("17 Meses", "3TRI26", "Jul/26")
-      // e "Último Trimestre" somava os 3 últimos meses (em Outubro: Ago+Set+Out). Pedido do
-      // Victor (2026-10-06): trimestre = calendário (3º tri = Jul+Ago+Set), semestre idem.
+      const periodOpt = document.getElementById('ovTopPeriod').value;
       const tm = window.MONTH_LABELS.length;
-      const lastIdx = tm - 1;
-      const lastY = 2025 + Math.floor(lastIdx / 12), lastM = lastIdx % 12; // lastM 0-11
-      const yy = String(lastY).slice(2);
-      const seq = (a, b) => Array.from({length: b - a + 1}, (_, k) => a + k);
-      const mesAbbr = i => String(window.MONTH_LABELS[i]).split('/')[0];
-      const span = r => r.length === 1 ? mesAbbr(r[0]) : (mesAbbr(r[0]) + '–' + mesAbbr(r[r.length - 1]));
-      const triR = seq(lastIdx - (lastM % 3), lastIdx);
-      const semR = seq(lastIdx - (lastM % 6), lastIdx);
-      const periodRanges = { tot: null, sem: semR, tri: triR, mes: [lastIdx] }; // tot = soma de todos os meses de d.m
-      const periodLabels = {
-        tot: `Todos os meses (${tm})`,
-        sem: `Semestre atual (${lastM < 6 ? 1 : 2}º Sem/${yy} · ${span(semR)})`,
-        tri: `Trimestre atual (${Math.floor(lastM / 3) + 1}TRI${yy} · ${span(triR)})`,
-        mes: `Mês Atual (${window.MONTH_LABELS[lastIdx]})`,
+      const periodRanges = {
+        tot: null, // usa d.tot diretamente (17 meses completos)
+        ano2025: Array.from({length:12},(_,i)=>i),
+        ano2026: Array.from({length:tm-12},(_,i)=>12+i),
+        sem: Array.from({length:Math.min(6,tm-12)},(_,i)=>tm-Math.min(6,tm-12)+i),
+        tri: Array.from({length:Math.min(3,tm-12)},(_,i)=>tm-Math.min(3,tm-12)+i),
+        mes: [tm-1],
       };
-      const anos = [];
-      for (let y = 2025; y <= lastY; y++){
-        const a = (y - 2025) * 12;
-        periodRanges['ano' + y] = seq(a, Math.min(a + 11, lastIdx));
-        periodLabels['ano' + y] = 'Ano ' + y;
-        anos.push('ano' + y);
-      }
-      const ovPeriodSel = document.getElementById('ovTopPeriod');
-      const ovOrder = ['tot', ...anos, 'sem', 'tri', 'mes'];
-      const ovSig = ovOrder.map(k => k + '=' + periodLabels[k]).join('|');
-      if (ovPeriodSel.dataset.sig !== ovSig){
-        const prevOpt = ovPeriodSel.value;
-        ovPeriodSel.innerHTML = ovOrder.map(k => `<option value="${k}">${periodLabels[k]}</option>`).join('');
-        ovPeriodSel.value = ovOrder.includes(prevOpt) ? prevOpt : 'tri';
-        ovPeriodSel.dataset.sig = ovSig;
-      }
-      const periodOpt = ovPeriodSel.value;
+      const ultimoMesLabel = window.MONTH_LABELS[tm-1];
+      const nomeTrimestre = Math.floor(((tm-1-12))/3)+1;
+      const periodLabels = {tot:'17 Meses (Total)', ano2025:'Ano 2025', ano2026:'Ano 2026', sem:'Último Semestre', tri:`Último Trimestre (${nomeTrimestre}TRI26)`, mes:`Mês Atual (${ultimoMesLabel})`};
       const range = periodRanges[periodOpt];
-      // "Todos os meses" soma d.m direto (não d.tot, que já ficou defasado em algumas corretoras —
-      // ver applyCorretorasToEligibilidade) pra barra bater com o detalhe por categoria.
-      const sumFor = d => range ? range.reduce((s,i)=>s+(d.m[i]||0),0) : (d.m || []).reduce((s,v)=>s+(v||0),0);
+      const sumFor = d => range ? range.reduce((s,i)=>s+d.m[i],0) : d.tot;
       document.getElementById('ovTopSub').textContent = `Maiores produtoras — ${periodLabels[periodOpt]} · clique numa barra para ver a venda por categoria`;
 
       const top8 = [...elig].map(d=>({d, val:sumFor(d)})).sort((a,b)=>b.val-a.val).slice(0,8);
@@ -6661,8 +5321,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   }
 
   function showCorretoraCategoryDetail(d, range, periodLabel){
-    // Sem período = todos os meses da corretora (era fixo em 18 meses, Jan/25–Jun/26).
-    const idxs = range || Array.from({length:(d.m || []).length},(_,i)=>i);
+    const idxs = range || Array.from({length:18},(_,i)=>i);
     let pf=0, ss=0, pme=0;
     if (d.mc){
       idxs.forEach(i => { pf += d.mc.pf[i]||0; ss += d.mc.ss[i]||0; pme += d.mc.pme[i]||0; });
@@ -6695,7 +5354,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   renderOverview();
 })();
 
-// ===== extraído de index.html linhas 6846-7286 =====
+// ===== extraído de index.html linhas 6796-7236 =====
 /* =========================================================
    VIEW 3 — COMPARATIVO (time vs. time, gestor vs. gestor, ou misto)
    ========================================================= */
@@ -6751,19 +5410,12 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   function cmpAggregateAssessorias(){
     const data = window.getRankData ? window.getRankData() : [];
     const groups = {};
-    const nomeGrupo = {};
     data.forEach(r => {
       if (!r.ass) return; // sem assessoria vinculada não faz sentido como entidade pra comparar
-      // Assessoria unificada (window.assCanon, 2026-10-13) — grafias da mesma assessoria numa entrada só.
-      const can = window.assCanon ? window.assCanon(r.ass, r.acod) : { key: r.ass, nome: r.ass };
-      nomeGrupo[can.key] = can.nome;
-      (groups[can.key] = groups[can.key] || []).push(r);
+      (groups[r.ass] = groups[r.ass] || []).push(r);
     });
-    return Object.entries(groups).map(([key, rows]) => {
-      const name = nomeGrupo[key];
-      const contCod = {};
-      rows.forEach(r => { if (r.acod) contCod[r.acod] = (contCod[r.acod]||0) + 1; });
-      const acod = Object.keys(contCod).sort((a,b)=>contCod[b]-contCod[a])[0] || '';
+    return Object.entries(groups).map(([name, rows]) => {
+      const acod = rows.map(r=>r.acod).find(Boolean) || '';
       const n = rows.length;
       const cat = {
         IND: {meta:0, int: rows.reduce((s,r)=>s + (r.ind||0), 0)},
@@ -7143,7 +5795,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   window.renderCompare = renderCompare;
 })();
 
-// ===== extraído de index.html linhas 7287-8731 =====
+// ===== extraído de index.html linhas 7237-8725 =====
 /* =========================================================
    IMPORTAÇÃO DE DADOS — parsing client-side via SheetJS
    ========================================================= */
@@ -7200,26 +5852,13 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // enviado é sempre do mês corrente. O ano usa como referência o mês mais recente já
   // conhecido (fallbackYearMonth) — simplificação razoável, já que corretoras não
   // corrigem meses de anos diferentes na prática.
-  // Ano de um mês que só chegou pelo NOME ("JANEIRO"): a ocorrência mais recente desse mês que não
-  // passe de `ahead` meses à frente de hoje. Até 2026-10-07 o ano vinha do último mês conhecido —
-  // em Jan/27 (último conhecido = Dez/26) o Excel "NDI SP - JANEIRO" virava Janeiro/2026 e era
-  // gravado por cima dele como "correção de mês passado". Ex. (hoje = Jan/27, ahead 1): JANEIRO →
-  // 2027, JUNHO → 2026 (reimportar mês passado continua indo pro ano certo). `today` só pra teste.
-  window.inferYearForMonth = function(monthNum, ahead, today){
-    const now = today || new Date();
-    const nowIdx = now.getFullYear() * 12 + now.getMonth();
-    // Começa no ano seguinte (ex.: metas do 1º TRI/27 subidas em Dez/26) e volta até cair na janela.
-    let year = now.getFullYear() + 1;
-    while (year * 12 + (Number(monthNum) - 1) > nowIdx + (ahead || 0)) year -= 1;
-    return year;
-  };
   function detectMetaMonth(workbook, fallbackYearMonth){
     const info = findMetaSheetInfo(workbook);
     if (!info || !fallbackYearMonth) return fallbackYearMonth;
     const monthWord = info.name.toUpperCase().replace(info.prefix.toUpperCase(), '').trim();
     const monthNum = META_MONTH_NAME_TO_NUM[monthWord];
     if (!monthNum) return fallbackYearMonth;
-    const year = window.inferYearForMonth(monthNum, 1);
+    const year = fallbackYearMonth.split('-')[0];
     return year + '-' + monthNum;
   }
 
@@ -7296,14 +5935,14 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         if (!gestorRaw || !rawToFriendly[gestorRaw]) continue;
         const friendly = rawToFriendly[gestorRaw];
         const key = friendly + '|' + codigo;
-        if (!agg[key]) agg[key] = {nome: nomeCorretora, ind:0, ss:0, pme:0, adm:0, total:0, filiais:new Set(), gestor:friendly, codigo:String(codigo)};
-        agg[key].ind += num(row[4]); agg[key].ss += num(row[5]); agg[key].pme += num(row[6]); agg[key].adm += num(row[7]);
+        if (!agg[key]) agg[key] = {nome: nomeCorretora, ind:0, ss:0, pme:0, total:0, filiais:new Set(), gestor:friendly, codigo:String(codigo)};
+        agg[key].ind += num(row[4]); agg[key].ss += num(row[5]); agg[key].pme += num(row[6]);
         agg[key].total += num(row[4]) + num(row[5]) + num(row[6]);
         if (filial) agg[key].filiais.add(filial);
       }
       Object.values(agg).forEach(c => {
         const filialLabel = c.filiais.size > 1 ? `Diversas (${c.filiais.size} filiais)` : ([...c.filiais][0] || '');
-        const entry = {c: c.codigo, n: c.nome ? String(c.nome).trim() : '', ind: c.ind, ss: c.ss, pme: c.pme, adm: c.adm, total: c.total, filial: filialLabel};
+        const entry = {c: c.codigo, n: c.nome ? String(c.nome).trim() : '', ind: c.ind, ss: c.ss, pme: c.pme, total: c.total, filial: filialLabel};
         (corretoras[c.gestor] = corretoras[c.gestor] || []).push(entry);
       });
       Object.keys(corretoras).forEach(g => corretoras[g].sort((a,b)=>b.total-a.total));
@@ -7311,6 +5950,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
     return {teams, benchmark, corretoras, naoAtribuido, detectedMonth};
   }
+
   function parseEligibilidadeWorkbook(workbook){
     const eligSheet = findSheet(workbook, 'ELEGIBILIDADE');
     const baseSheet = findSheet(workbook, 'BASE DE DADOS');
@@ -7340,10 +5980,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     // Equipes novas (Plataforma SP/ABC/Digital) só têm dado a partir de Jan/2026 — o arquivo
     // delas literalmente só tem 9 colunas de mês, contra as ~21 da Cauda Longa (que começa em
     // Jan/2025). Pra entrar no mesmo DATA[] compartilhado (todo registro precisa ter m[] do
-    // mesmo tamanho — MONTH_LABELS/PERIOD_DEFS são derivados de DATA[0].m.length), completa
-    // com zero por trás os meses de 2025 que essas equipes não têm — nunca inventa número
-    // (mesmo princípio já usado em applyCorretorasToEligibilidade). Pra Cauda Longa (primeiro
-    // mês = Jan/25) isso dá padCount=0, comportamento idêntico a antes.
+    // mesmo tamanho), completa com zero por trás os meses de 2025 que essas equipes não têm —
+    // nunca inventa número. Pra Cauda Longa (primeiro mês = Jan/25) isso dá padCount=0,
+    // comportamento idêntico a antes. Portado do V1, 2026-09-28 (Victor: "porta tudo pro V2").
     const MONTH_NAME_TO_NUM = {JANEIRO:1,FEVEREIRO:2,MARCO:3,ABRIL:4,MAIO:5,JUNHO:6,JULHO:7,AGOSTO:8,SETEMBRO:9,OUTUBRO:10,NOVEMBRO:11,DEZEMBRO:12};
     const monthHeaderToGlobalIdx = headerText => {
       const m = normHdr(headerText).match(/^([A-Z]+) ?(\d{2})$/);
@@ -7370,10 +6009,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (triTotalCols.length < 2) throw new Error('Não consegui identificar ao menos dois trimestres fechados (colunas tipo "2TRI26 TOTAL") na aba ELEGIBILIDADE — preciso de dois pra calcular a régua vigente. O layout da planilha pode ter mudado.');
     const idxT1 = triTotalCols[triTotalCols.length - 2];
     const idxT2 = triTotalCols[triTotalCols.length - 1];
-    // "<N> MESES TOTAIS" — antes hardcoded "17 MESES TOTAIS" (só a Cauda Longa tinha 17 meses
-    // quando esse código foi escrito); as equipes novas têm 9 ("9 MESES TOTAIS", Jan-Set/26).
-    // Padrão genérico por qualquer quantidade de meses, mesma ideia de monthCols/triTotalCols
-    // acima — cresce sozinho, sem precisar reconhecer um número específico.
+    // "<N> MESES TOTAIS" — antes hardcoded "17 MESES TOTAIS" (só a Cauda Longa tinha 17 meses);
+    // as equipes novas têm 9 ("9 MESES TOTAIS", Jan-Set/26). Padrão genérico, cresce sozinho.
     const MESES_TOTAIS_RE = /^\d+\s*MESES TOTAIS$/;
     let idxTot17 = -1;
     for (let i = 0; i < eligHeader1.length; i++){ if (MESES_TOTAIS_RE.test(normHdr(eligHeader1[i]))){ idxTot17 = i; break; } }
@@ -7384,10 +6021,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     }
     // Colunas de metadado (código/nome/grade/assessoria/gestor) — antes eram posição fixa
     // (row[0..4]), o que só funcionava pra Cauda Longa. As equipes novas têm 4 colunas (sem
-    // grade) em ordem diferente (CÓDIGO, RAZAO SOCIAL, ASSESSORIA, GESTOR/GERENTE) — agora
-    // acha cada uma pelo texto do cabeçalho, então funciona com qualquer ordem/presença.
-    // Grade fica opcional (Victor confirmou: "a coluna grade não é necessário para as outras
-    // carteiras") — só a Cauda Longa tem, e já era só exibida com fallback "—" no detalhe.
+    // grade) em ordem diferente — agora acha cada uma pelo texto do cabeçalho, então funciona
+    // com qualquer ordem/presença. Grade fica opcional (só a Cauda Longa tem).
     const idxCodigo = findEligHeaderCol('CODIGO');
     const idxNome = findEligHeaderCol('NOME CORRETOR', 'RAZAO SOCIAL', 'NOME');
     const idxGrade = findEligHeaderCol('GRADE DE COMISSAO', 'GRADE');
@@ -7431,11 +6066,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const grade = (idxGrade >= 0 && row[idxGrade] != null) ? String(row[idxGrade]) : '';
       const assessoriaRaw = (idxAssessoria < 0 || row[idxAssessoria] === null || row[idxAssessoria] === undefined || row[idxAssessoria] === '' || String(row[idxAssessoria]).trim() === '0') ? '' : String(row[idxAssessoria]).trim();
       const gestorRaw = idxGestorRaw >= 0 ? row[idxGestorRaw] : '';
-      // getGestorFriendlyName cobre os ~19 gestores da diretoria inteira (não só os 4 de
-      // Cauda Longa que CL_GESTORES_RAW conhecia) — resolve Camila/Lais/Wilder/Erika
-      // (Plataforma SP), Vivian/Guilherme/Izabele (ABC), Karollainny/Amanda/Daniela/Maxuel
-      // (Digital) do mesmo jeito que já resolvia os 4 daqui. Sem mapeamento conhecido, devolve
-      // o nome cru (ainda melhor que "Sem Gestor Atribuído" de cara).
+      // getGestorFriendlyName cobre os ~19 gestores da diretoria inteira (não só os 4 de Cauda
+      // Longa que CL_GESTORES_RAW conhecia) — resolve Camila/Lais/Wilder/Erika (Plataforma SP),
+      // Vivian/Guilherme/Izabele (ABC), Karollainny/Amanda/Daniela/Maxuel (Digital) também.
       let gestorLabel;
       if (gestorRaw) gestorLabel = window.getGestorFriendlyName ? window.getGestorFriendlyName(gestorRaw) : gestorRaw;
       else if (enrich[codigo]) gestorLabel = enrich[codigo];
@@ -7469,6 +6102,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (records.length === 0) throw new Error('Nenhuma corretora encontrada na aba ELEGIBILIDADE.');
     return records;
   }
+
   function fmtN(n){ return Math.round(n).toLocaleString('pt-BR'); }
 
   const META_MONTH_LABELS = {'01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro'};
@@ -7506,12 +6140,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   function diffEligibilidade(newRecords){
     const old = window.getEligibilidadeData();
     // Compara só contra o retrato anterior DOS MESMOS GESTORES que aparecem neste arquivo — não
-    // contra a base inteira (todas as equipes). Achado real 2026-09-17: com a Elegibilidade
-    // cobrindo 4 equipes em arquivos separados, comparar contra tudo fazia qualquer import de
-    // UMA equipe parecer que ia "remover" as outras 3 inteiras (ex.: subir só a ABC mostrava
-    // "9202 removidas" — as outras 9202 corretoras de Cauda Longa/Digital/Plataforma, que na
-    // real não são tocadas, já que updateEligibilidadeData preserva quem não está no arquivo).
-    // Victor cancelou um import correto por causa desse texto assustador antes de eu achar isso.
+    // contra a base inteira (todas as equipes). Sem isso, importar UMA equipe faz parecer que
+    // vai "remover" as outras inteiras (achado real no V1, 2026-09-17 — ver
+    // project_v1_v2_merge_in_progress na memória).
     const newGestores = new Set(newRecords.map(d => d.g));
     const oldScoped = old.filter(d => newGestores.has(d.g));
     const oldCodes = new Set(oldScoped.map(d=>d.c));
@@ -7541,44 +6172,57 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     return html;
   }
 
-  let pendingMeta = null, pendingElig = null, pendingCarteira = null, pendingPendPme = null, pendingPendPf = null, pendingCorretorasRaw = null, pendingEligBridge = null, pendingPropostas = null, pendingAssinatura = null, pendingT6140bRaw = null;
+  let pendingMeta = null, pendingElig = null, pendingCarteira = null, pendingPendPme = null, pendingPendPf = null, pendingCorretorasRaw = null, pendingEligBridge = null, pendingPropostas = null, pendingAssinatura = null, pendingCrescimentoGeral = null, pendingT6140bRaw = null;
   let pendingRankCur = null, pendingRankPrev = null;
 
   // Gestores da equipe do Rio (excluídos do ranking de SP)
   const RANK_RIO_GESTORES = ['CARLOS EDUARDO FARIAS DA SILVA','FABIO FERREIRA DE AVELLAR','TBA RJ','BIANCA PEIXOTO LEITE'];
   // Gestores desligados — corretoras dela continuam na Carteira (não removidas mais, ver
   // parseCarteiraWorkbook) mas são excluídas por completo do fluxo de Corretoras bruto,
-  // igual ao Rio: nem em time nenhum, nem em "não atribuído". Corrigido — antes, tirar
-  // essas linhas direto da Carteira fazia o código achar "nem existe" pra esses códigos,
-  // empurrando-os pro balde de "não atribuído" quando na real deveriam simplesmente sumir
-  // (confirmado: a própria planilha manual de Victor também não conta essas vidas em lugar
-  // nenhum do total, mesmo achando "Flavia Auana" pelo VLOOKUP).
+  // igual ao Rio: nem em time nenhum, nem em "não atribuído". Corrigido em 2026-08-27 —
+  // antes, tirar essas linhas direto da Carteira fazia o código achar "nem existe" pra
+  // esses códigos, empurrando-os pro balde de "não atribuído" quando na real deveriam
+  // simplesmente sumir (confirmado: a própria planilha manual de Victor também não conta
+  // essas vidas em lugar nenhum do total, mesmo achando "Flavia Auana" pelo VLOOKUP).
   const GESTORES_DESLIGADOS = ['FLAVIA AUANA SILVA DE OLIVEIRA'];
   // Gestores do time "Interior" (Maria Aparecida Cabral) — existem no arquivo de Meta e na
   // Carteira, mas esse time não faz parte da diretoria da Fabyanna, fora do escopo deste
-  // dash. Mesma exclusão total do Rio/Desligados: nem em time nenhum, nem em "não
-  // atribuído".
+  // dash (confirmado com Victor em 2026-08-28). Mesma exclusão total do Rio/Desligados: nem
+  // em time nenhum, nem em "não atribuído". Achado ao investigar por que Kaique Araujo da
+  // Silva (código 03BL) e Daniela Frederico Martins (dois cadastros na Carteira, um por
+  // filial: AM e Campinas — confirmado ser a mesma pessoa) tinham nome bonito no
+  // FULL_19_GESTOR_RAW_MAP mas nenhum card em MJ_TEAMS: as vidas deles simplesmente
+  // desapareciam (não contavam em time nenhum nem em não-atribuído) — sintoma de um bug,
+  // mas a causa real é que são Interior, deveriam ser excluídos por completo desde sempre,
+  // igual Rio/Desligados, não silenciosamente "esquecidos" por falta de card.
   const INTERIOR_GESTORES = ['KAIQUE ARAUJO DA SILVA','DANIELA FREDERICO MARTINS CAMPINAS','DANIELA FREDERICO MARTINS AM'];
   // "VENDA INTERNA" (código "900", RAZAO SOCIAL "HAPVIDA" na Carteira) é o marcador
-  // interno da própria Hapvida, nunca uma corretora — não faz parte dos números do dash.
-  // Só dá pra excluir com segurança depois de corrigir a colisão "900"/"0900" em
-  // normalizeCodigo (ver comentário lá) — sem isso, "900" parecia "ambíguo" com uma
-  // corretora de verdade que só compartilhava os 3 primeiros dígitos.
+  // interno da própria Hapvida, nunca uma corretora — não faz parte dos números do dash
+  // (confirmado com Victor em 2026-08-28: "o que a Venda Interna tem a ver? não faz parte
+  // dos números do dash"). Achava-se "ambíguo" com Erika de Sousa Silva só por causa do
+  // bug de colisão "900"/"0900" em normalizeCodigo (ver comentário lá) — corrigido esse
+  // bug, código 900 nunca mais tem candidato de verdade junto, então dá pra excluir com
+  // segurança, igual Rio/Desligados/Interior — sem risco de esconder uma venda real.
   const VENDA_INTERNA_MARCADOR = 'VENDA INTERNA';
   function isOutOfScopeGestor(rawUp){
     return RANK_RIO_GESTORES.includes(rawUp) || GESTORES_DESLIGADOS.includes(rawUp) || INTERIOR_GESTORES.includes(rawUp) || rawUp === VENDA_INTERNA_MARCADOR;
   }
-  // Correção manual confirmada por Victor pra um cadastro duplicado específico na Carteira
-  // que nenhuma regra genérica acerta sozinha: código "0834" (IN COMPANY CORRETORA DE
-  // SEGUROS LTDA ME, CNPJ 9616507000149) tem DUAS linhas — Flavia Auana (Interior) e Pablo
-  // Amora (Cauda Longa). Confirmado contra o relatório real "NDI SP - Por Gestor": essa
-  // corretora É da Flavia de verdade; a linha do Pablo pra esse CNPJ está errada, não deve
-  // ser movida. Sem esse override, o "match" exato código+nome (carteira.map, que fica com
-  // a ÚLTIMA linha processada) resolvia pro Pablo por acidente de ordem das linhas, não por
-  // regra de negócio nenhuma. Checado ANTES de tudo em resolveGestorFromCarteira pra nem
-  // passar pelo match exato.
-  // 06GV (SIGO CONSULTING): mesmo código/CNPJ cadastrado pra duas corretoras diferentes na Carteira.
-  // Victor decidiu em 2026-10-05: vai pra Vivian (bate com o RANKING ANUAL). 0834 continua Flavia.
+  // Correção manual confirmada por Victor pra um cadastro duplicado específico na
+  // Carteira que nenhuma regra genérica acerta sozinha: código "0834" (IN COMPANY
+  // CORRETORA DE SEGUROS LTDA ME, CNPJ 9616507000149) tem DUAS linhas — Flavia Auana
+  // (Interior) e Pablo Amora (Cauda Longa). Achamos primeiro que era um cadastro velho
+  // esquecido e Victor confirmou "pode atribuir pro Pablo" (2026-08-28) — só que ao
+  // conferir contra o relatório real "NDI SP - Por Gestor" ele viu que não, essa
+  // corretora É da Flavia de verdade; a linha do Pablo pra esse CNPJ que está errada, não
+  // deve ser movida (2026-08-28, mesmo dia, correção do Victor). Sem esse override, o
+  // "match" exato código+nome (carteira.map, que fica com a ÚLTIMA linha processada — a
+  // do Pablo, só por estar mais embaixo na planilha) resolvia pro Pablo por acidente de
+  // ordem das linhas, não por regra de negócio nenhuma. Checado ANTES de tudo em
+  // resolveGestorFromCarteira pra nem passar pelo match exato.
+  // 06GV (SIGO CONSULTING): mesmo código/CNPJ cadastrado pra duas corretoras diferentes na
+  // Carteira (pendência conhecida). Victor decidiu em 2026-10-05: vai pra Vivian (bate com o
+  // RANKING ANUAL). 0834 continua Flavia (mesma data: confirmado de novo, apesar da planilha
+  // do Ranking Anual ainda dar o 0834 pro Pablo).
   const CODIGO_GESTOR_OVERRIDE = { '0834': 'FLAVIA AUANA SILVA DE OLIVEIRA', '06GV': 'VIVIAN DE CASSIA AMBROSIO' };
   // Parser da base "NDI SP - Por Gestor" -> mapa código -> {t,ind,pim,mid,adm,n,g}
   function parseRankingWorkbook(workbook){
@@ -7681,27 +6325,40 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // Códigos numéricos "puros" (ex.: "0002") ficam gravados como número no Excel da Carteira,
   // perdendo o zero à esquerda ("2") — enquanto no extrato bruto o código sempre chega como
   // texto, com o zero. Sem normalizar os dois lados pro mesmo formato antes de comparar, um
-  // monte de código que na verdade existe na Carteira caía em "sem gestor" por engano.
+  // monte de código que na verdade existe na Carteira caía em "sem gestor" por engano — achado
+  // e corrigido em 2026-08-27 (inflava "semGestorCount" de ~30 pra mais de 130 no teste real).
   function normalizeCodigo(v){
-    // Códigos de corretora de verdade sempre têm 4 caracteres (ex.: "0002", "03BL", "9560").
-    // Números guardados como célula numérica de verdade (Excel perde o zero à esquerda no
-    // valor bruto, ex.: célula "2" exibida como "0002" só por formatação) precisam ser
-    // preenchidos de volta pra 4 dígitos pra bater com o texto sempre-preenchido do extrato
-    // do BI ("0002").
+    // Códigos de corretora de verdade sempre têm 4 caracteres (ex.: "0002", "03BL",
+    // "9560") — confirmado varrendo a Carteira inteira. Números guardados como célula
+    // numérica de verdade (Excel perde o zero à esquerda no valor bruto, ex.: célula "2"
+    // exibida como "0002" só por formatação) precisam ser preenchidos de volta pra 4
+    // dígitos pra bater com o texto sempre-preenchido do extrato do BI ("0002").
     if (v === null || v === undefined || v === '') return '';
     if (typeof v === 'number') return String(Math.trunc(v)).padStart(4, '0');
-    // Só isso — NÃO usar parseInt/stripar zero à esquerda de strings. Código "900" (HAPVIDA,
-    // venda interna) e "0900" (MAXDALA CONSULTORIA, corretora de verdade) são DOIS registros
-    // diferentes na Carteira, ambos já guardados como texto — stripar o zero de "0900" os
-    // transformava no mesmo código "900", fazendo o motor achar (errado) que "900" tinha dois
-    // "candidatos" quando na real são corretoras completamente diferentes, sem relação
-    // nenhuma. "900" (3 dígitos, sem padding) é a única exceção de propósito — marcador
-    // interno da Hapvida, nunca uma corretora — e deve continuar distinto de qualquer código
-    // de 4 dígitos.
+    // Só isso — NÃO usar parseInt/stripar zero à esquerda de strings. Achado em
+    // 2026-08-28: código "900" (HAPVIDA, venda interna) e "0900" (MAXDALA CONSULTORIA,
+    // corretora de verdade da Erika) são DOIS registros diferentes na Carteira, ambos já
+    // guardados como texto — stripar o zero de "0900" os transformava no mesmo código
+    // "900", fazendo o motor achar (errado) que "900" tinha dois "candidatos" (Venda
+    // Interna x Erika) quando na real são corretoras completamente diferentes, sem
+    // relação nenhuma. "900" (3 dígitos, sem padding) é a única exceção de propósito —
+    // marcador interno da Hapvida, nunca uma corretora — e deve continuar distinto de
+    // qualquer código de 4 dígitos. Confirmado com Victor: "o que a Venda Interna tem a
+    // ver? não faz parte dos números do dash" — o problema era essa colisão, não o
+    // conceito de "sem gestor".
     return String(v).trim().toUpperCase();
   }
+  // Exposto em window: applyCorretorasToEligibilidade/detectNewCorretorasCaudaLonga vivem
+  // numa IIFE anterior (escopo diferente deste arquivo, ~linha 3039-6112) e não enxergam
+  // esta função por escopo léxico — sem isso, dava ReferenceError ali (achado em
+  // 2026-08-28 debugando por que o recálculo de Elegível/Ranking não tinha efeito nenhum:
+  // a exceção não tratada interrompia o handler de "Confirmar Atualização" no meio, então
+  // nem Carteira nem Ranking terminavam de aplicar naquele clique).
   window.normalizeCodigo = normalizeCodigo;
 
+  // Dígitos puros do CNPJ (sem máscara), preenchido com zero à esquerda até 14 — mesma
+  // normalização usada pros dois lados de qualquer cruzamento por CNPJ (Carteira x Planium),
+  // já que a Planium entrega o CNPJ como número puro (perde formatação/zeros à esquerda).
   function cnpjDigits(v){
     if (v === null || v === undefined || v === '') return '';
     return String(v).replace(/\D/g,'').padStart(14,'0');
@@ -7763,10 +6420,18 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const preferred = candidates.find(c => c.equipe && c.equipe.toUpperCase().indexOf(preferTeam) === 0);
       if (preferred) return preferred;
     }
-    // Quando o preferTeam não acha ninguém, sobra decidir o que fazer com múltiplos
-    // candidatos "ruins" (Rio/Desligado/Interior/Venda Interna). Se depois de tirar todo
-    // mundo fora de escopo sobrar exatamente UM candidato, não tem mais ambiguidade real,
-    // retorna ele. Se sobrar zero ou mais de um, continua null — não adivinha.
+    // Histórico (2026-08-27/28, resumido): quando o preferTeam não acha ninguém, sobra
+    // decidir o que fazer com múltiplos candidatos "ruins" (Rio/Desligado/Interior/Venda
+    // Interna). Já tentei e revertei "preferir qualquer pessoa real" (jogava vidas de ADM
+    // do código 900 pra Erika por engano, achando que "VENDA INTERNA" era só mais um nome
+    // ambíguo). O que resolveu de vez: código 900 (HAPVIDA/Venda Interna) só parecia
+    // ambíguo com Erika de Sousa Silva por causa de um bug em normalizeCodigo que colidia
+    // "900" com "0900" (dois códigos DIFERENTES na Carteira — ver comentário lá). Corrigido
+    // esse bug, "900" nunca mais tem candidato de verdade junto — e com isOutOfScopeGestor
+    // cobrindo Rio+Desligado+Interior+Venda Interna, a regra abaixo fica simples: se depois
+    // de tirar todo mundo fora de escopo sobrar exatamente UM candidato, não tem mais
+    // ambiguidade real, retorna ele (ex.: um código com Rio + uma pessoa rastreada de
+    // verdade). Se sobrar zero ou mais de um, continua null — não adivinha.
     const validos = candidates.filter(c => {
       const up = c.gestorRaw ? c.gestorRaw.trim().toUpperCase() : '';
       return !isOutOfScopeGestor(up);
@@ -7787,17 +6452,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
 
     const carteira = carteiraOverride || window.CARTEIRA_MAP || null;
     const agg = {};
-    // Mês real do extrato — achado 2026-09-14 (Victor: "o próprio extrato já mostra qual é o
-    // mês... se você reparar no final, ele informa"). O bloco "Filtros aplicados:" que o BI
-    // sempre deixa na última linha da aba EXPORT (junto com a linha "Total" de rodapé) já era
-    // descartado aqui, tratado só como lixo — mas ele traz "Date é DD/MM/AAAA" (o dia da
-    // grade/competência usada pra gerar o relatório), a mesma informação que o "NDI SP - Por
-    // Gestor" completo só tem via nome de aba. Sem isso, upload só do extrato bruto (sem o
-    // "NDI SP - Por Gestor" inteiro) nunca sabia de verdade qual mês estava corrigindo — só
-    // dava pra chutar pelo calendário (ver applyCorretorasToEligibilidade), o que Victor
-    // apontou como o motivo de precisar reanexar a planilha completa toda vez pra Elegibilidade
-    // bater 100% durante a janela de fechamento da grade (até o dia 10).
-    let detectedMonth = null;
     for (let i = 2; i < rows.length; i++){
       const row = rows[i] || [];
       const canal = row[iCanal];
@@ -7806,14 +6460,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       // Pula a linha de rodapé "Total" e o bloco de texto dos filtros aplicados que o BI
       // sempre deixa embaixo da última corretora — sem essa checagem, os dois viravam
       // "corretoras" fantasmas sem gestor, inflando muito o total de vidas não atribuídas
-      // (a linha "Total" sozinha somava as vidas de TODAS as corretoras de novo).
-      if (/^total$/i.test(canalTxt) || canalTxt.length > 100){
-        if (!detectedMonth){
-          const m = canalTxt.match(/Date\s*é\s*(\d{2})\/(\d{2})\/(\d{4})/i);
-          if (m) detectedMonth = m[3] + '-' + m[2]; // "AAAA-MM", mesmo formato de detectMetaMonth
-        }
-        continue;
-      }
+      // (a linha "Total" sozinha somava as vidas de TODAS as corretoras de novo). Achado
+      // e corrigido em 2026-08-27.
+      if (/^total$/i.test(canalTxt) || canalTxt.length > 100) continue;
       const parts = canalTxt.split('-').map(s=>s.trim());
       const codigo = parts[0];
       if (!codigo) continue;
@@ -7827,9 +6476,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       agg[codigo].total += num(row[iInd]) + num(row[iSs]) + num(row[iPme]);
       if (filial) agg[codigo].filiais.add(filial);
     }
-    const resultado = attributeCorretorasAgg(agg, carteira);
-    resultado.detectedMonth = detectedMonth;
-    return resultado;
+    return attributeCorretorasAgg(agg, carteira);
   }
 
   // Atribuição corretora → executivo (Carteira). Separada do parser pra a visão por trimestre
@@ -7839,30 +6486,47 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const byGestor = {};
     let semGestorCount = 0, semGestorVidas = 0;
     // Quebra por categoria de quem ficou sem gestor — pra alimentar o mesmo "balde" de
-    // não-atribuído que a Visão Geral mostra (MJ_NAO_ATRIBUIDO_BY_MONTH). Sem isso, importar
-    // só o extrato bruto (sem a planilha "NDI SP - Por Gestor" inteira) deixava esse número
-    // parado no valor do último import manual.
+    // não-atribuído que a Visão Geral mostra (MJ_NAO_ATRIBUIDO_BY_MONTH). Achado em
+    // 2026-08-27: sem isso, importar só o extrato bruto (sem a planilha "NDI SP - Por
+    // Gestor" inteira) deixava esse número parado no valor do último import manual —
+    // o Integrado total da Visão Geral ficava desatualizado mesmo com tudo mais certo.
     const semGestorCat = {ind:0, ss:0, pme:0, adm:0};
     Object.keys(agg).forEach(codigo => {
       const c = agg[codigo];
       let friendly = null;
       if (carteira){
+        // Código não existe na Carteira (nenhuma linha, de nenhum time) — geralmente
+        // Regional 1 (fora do NDI SP/Regional 2). Corrigido em 2026-08-27 (revertendo um
+        // exagero meu de mais cedo no mesmo dia): a própria planilha "NDI SP - AGOSTO" de
+        // Victor SOMA esses casos em "CÓDIGOS QUE NÃO ESTÃO NO DATABASE", que entra no
+        // total geral (TOTAL FABYANNA BOAVENTURA) — só não atribui a nenhum time
+        // específico. Ou seja, cai no MESMO "balde" de sem-gestor abaixo, não é excluído
+        // do total como o Rio (que a própria planilha dele já descarta por completo, sem
+        // nem entrar nas OBSERVAÇÕES). Diferente do Rio (lista de nomes conhecida e sempre
+        // descartada), aqui só sabemos que o código simplesmente não bateu com nada.
+        //
         // Prefere CAUDA LONGA quando o código aparece mais de uma vez na Carteira (mesmo
         // código usado por corretoras diferentes em times diferentes) — mesma regra já
-        // aplicada em diffCarteira/applyCarteira.
+        // aplicada em diffCarteira/applyCarteira pro fluxo de Elegibilidade; faltava aqui
+        // no fluxo de Desempenho Comercial/Ranking, confirmado com Victor em 2026-08-27.
         const r = resolveGestorFromCarteira({c: codigo, n: c.nome}, carteira, 'CAUDA LONGA');
         if (r && r.gestorRaw){
           const rawUp = r.gestorRaw.trim().toUpperCase();
-          // Gestores do Rio de Janeiro, desligados ou do time "Interior" (fora da diretoria
-          // da Fabyanna) não contam como "sem gestor": são vendas de verdade, só que de fora
-          // do escopo deste dashboard, e não devem aparecer nem no Integrado nem no "código
-          // não localizado".
+          // Gestores do Rio de Janeiro, desligados ou do time "Interior" (fora da
+          // diretoria da Fabyanna) — mesma lista já usada em parseRankingWorkbook/
+          // resolveGestorFromCarteira. Não contam como "sem gestor": são vendas de
+          // verdade, só que de fora do escopo deste dashboard, e não devem aparecer nem
+          // no Integrado nem no "código não localizado". Confirmado com Victor.
           if (isOutOfScopeGestor(rawUp)) return;
           friendly = FULL_19_GESTOR_RAW_MAP[rawUp] || null;
         } else {
-          // r veio null: pode ser "código não existe na Carteira" OU "existe, mas todo mundo
-          // que aparece pra esse código é Rio/Desligado/Interior". Só cai em "não atribuído"
-          // de verdade quando sobra pelo menos um candidato de dentro do escopo (ambíguo
+          // r veio null: pode ser "código não existe na Carteira" OU "existe, mas todo
+          // mundo que aparece pra esse código é Rio/Desligado/Interior" (ex.: código 03BL
+          // — Kaique Araujo da Silva + Flavia Auana, os dois fora de escopo por motivos
+          // diferentes). Achado em 2026-08-28: sem essa checagem, esse segundo caso caía
+          // no balde de "não atribuído" (contando no total geral) quando deveria ser
+          // exclusão total, igual um código 100% Rio. Só cai em "não atribuído" de
+          // verdade quando sobra pelo menos um candidato de dentro do escopo (ambíguo
           // entre times, por ex.) ou quando o código simplesmente não existe na Carteira.
           const candidatosDoCodigo = carteira.byCodigo[normalizeCodigo(codigo)];
           if (candidatosDoCodigo && candidatosDoCodigo.length &&
@@ -7874,7 +6538,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (!friendly){
         // Chegou aqui só quando o código EXISTE na Carteira (dentro do escopo NDI SP) mas
         // não deu pra achar um gestor de verdade — esse sim é "sem gestor" de verdade
-        // (cadastro incompleto na Carteira).
+        // (cadastro incompleto na Carteira), diferente do caso de Regional 1 acima.
         semGestorCount++; semGestorVidas += c.total;
         semGestorCat.ind += c.ind; semGestorCat.ss += c.ss; semGestorCat.pme += c.pme; semGestorCat.adm += c.adm;
         return;
@@ -7882,21 +6546,21 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (!byGestor[friendly]) byGestor[friendly] = { ind:0, ss:0, pme:0, adm:0, total:0, corretoras:[] };
       byGestor[friendly].ind += c.ind; byGestor[friendly].ss += c.ss; byGestor[friendly].pme += c.pme; byGestor[friendly].adm += c.adm; byGestor[friendly].total += c.total;
       const filialLabel = c.filiais.size > 1 ? `Diversas (${c.filiais.size})` : ([...c.filiais][0]||'');
-      // adm por corretora (2026-10-07): usado pelo export do Desempenho Comercial (coluna 07-ADMINISTRADORA).
-      byGestor[friendly].corretoras.push({c: codigo, n: c.nome, ind:c.ind, ss:c.ss, pme:c.pme, adm:c.adm, total:c.total, filial: filialLabel});
+      byGestor[friendly].corretoras.push({c: codigo, n: c.nome, ind:c.ind, ss:c.ss, pme:c.pme, total:c.total, filial: filialLabel});
     });
     Object.values(byGestor).forEach(g => g.corretoras.sort((a,b)=>b.total-a.total));
 
     return { byGestor, semGestorCount, semGestorVidas, semGestorCat, hasCarteira: !!carteira };
   }
-  // Usados pelo módulo "Metas por executivo" (fim do arquivo): ler extratos de MESES PASSADOS sem
-  // passar por updateIntegradoFromRaw (que sempre grava no mês ativo) e atribuir o seed embutido.
-  window.parseCorretorasRawWorkbook = parseCorretorasRawWorkbook;
-  window.attributeCorretorasAgg = attributeCorretorasAgg;
 
-  // Achata o resultado de parseCorretorasRawWorkbook pro formato que updateRankingData
+  // Usado pelo módulo "Metas por executivo" pra ler extratos Corretoras de MESES PASSADOS sem
+  // passar por updateIntegradoFromRaw (que sempre grava no mês corrente).
+  window.parseCorretorasRawWorkbook = parseCorretorasRawWorkbook;
+  window.attributeCorretorasAgg = attributeCorretorasAgg;  // Achata o resultado de parseCorretorasRawWorkbook pro formato que updateRankingData
   // espera — assim o upload do extrato bruto (sem o arquivo "NDI SP - Por Gestor" inteiro)
-  // também atualiza o Ranking de Vendas, não só Desempenho Comercial/Elegibilidade.
+  // também atualiza o Ranking de Vendas, não só Desempenho Comercial/Elegibilidade. Antes
+  // disso Victor precisava sempre subir a planilha inteira (com Meta) só pra manter o
+  // Ranking em dia, mesmo quando só o Integrado do dia tinha mudado — ver conversa 2026-08-27.
   function corretorasRawToRankList(byGestor){
     const list = [];
     Object.keys(byGestor).forEach(g => {
@@ -7918,30 +6582,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       Object.values(parsed.byGestor).forEach(g => (g.corretoras||[]).forEach(c => codigosArquivo.add(normalizeCodigo(c.c))));
       const eligData = window.getEligibilidadeData();
       const matchCount = eligData.filter(d => codigosArquivo.has(normalizeCodigo(d.c))).length;
-      // Mostra de antemão QUAL mês vai receber a correção — achado 2026-09-14 (Victor pediu
-      // mais clareza sobre a distribuição por mês, depois corrigiu que o extrato SIM informa
-      // o mês real — ver "Date é DD/MM/AAAA" no rodapé, lido agora em parseCorretorasRawWorkbook
-      // e devolvido em parsed.detectedMonth). Antes dizia "Julho" fixo, sempre, não importa o
-      // mês real. Usa o mês real quando o rodapé trouxe um; só cai no mesmo chute de calendário
-      // que applyCorretorasToEligibilidade usa (dia 1-10 mira no mês anterior, dia 11+ no
-      // corrente) se por algum motivo esse mês não veio no arquivo.
-      let mesIdxPreview;
-      if (parsed.detectedMonth){
-        const parts = parsed.detectedMonth.split('-');
-        mesIdxPreview = (Number(parts[0]) - 2025) * 12 + (Number(parts[1]) - 1);
-      } else {
-        const gNow = new Date();
-        let gY = gNow.getFullYear(), gM = gNow.getMonth() + 1;
-        if (gNow.getDate() <= 10){ gM -= 1; if (gM < 1){ gM = 12; gY -= 1; } }
-        mesIdxPreview = (gY - 2025) * 12 + (gM - 1);
-      }
-      // Calcula o rótulo direto (não só olha MONTH_LABELS) — o mês pode ainda não ter coluna
-      // na planilha nesse momento da prévia; applyCorretorasToEligibilidade abre a coluna
-      // sozinho na hora de confirmar (ver comentário lá, 2026-09-17), então a prévia precisa
-      // mostrar o nome certo mesmo antes disso acontecer, em vez do genérico "mês corrente".
-      const mesLabelPreview = (mesIdxPreview >= 0 && typeof buildMonthLabels === 'function')
-        ? buildMonthLabels(mesIdxPreview + 1)[mesIdxPreview] : 'mês corrente';
-      html += `<div>Elegibilidade — histórico de <b>${mesLabelPreview}</b> será gravado em <b>${matchCount}</b> das ${eligData.length} corretoras (Cauda Longa).</div>`;
+      html += `<div>Elegibilidade — histórico de Julho será gravado em <b>${matchCount}</b> das ${eligData.length} corretoras (Cauda Longa).</div>`;
     }
     if (!parsed.hasCarteira){
       html += `<div style="color:var(--red);"><i class=ic-warn></i> Carteira não carregada nesta sessão — nenhuma corretora pôde ser vinculada a gestor. Carregue o arquivo da Carteira junto para resolver.</div>`;
@@ -8276,15 +6917,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const key = String(raw||'').trim().toUpperCase();
     return FULL_19_GESTOR_RAW_MAP[key] || ABREV_GESTOR_MAP[key] || raw;
   };
-  // Caminho inverso (nome bonito → nome cru da planilha), usado pelo export do Desempenho Comercial
-  // pra escrever "PABLO SERGIO RIBEIRO AMORA" como no arquivo real. Sem mapeamento: maiúsculas
-  // (os nomes bonitos dos outros executivos são o nome cru em "título", então volta igual).
-  const RAW_BY_FRIENDLY = {};
-  Object.entries(FULL_19_GESTOR_RAW_MAP).forEach(([raw, friendly]) => { if (!RAW_BY_FRIENDLY[friendly]) RAW_BY_FRIENDLY[friendly] = raw; });
-  window.getGestorRawName = function(friendly){
-    return RAW_BY_FRIENDLY[friendly] || String(friendly || '').trim().toUpperCase();
-  };
-
   // Funil PF. Dois formatos (pedido do Victor, 2026-10-13):
   //  - ANTIGO: planilha montada à mão, aba "2026_ORCAMENTOS" já com a coluna GESTOR (PROCV feito no Excel);
   //  - CRU: o extrato do sistema "2026_ORCAMENTOS_T221ORCAM.CSV" (";", acentos do Windows), SEM GESTOR. O painel faz o
@@ -8379,71 +7011,85 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (m) return `${m[3]}-${m[2]}-${m[1]}`;
     return s.slice(0,10);
   }
-  // Formata CNPJ (14 dígitos) ou CPF (11 dígitos) pro padrão brasileiro — pedido do Victor,
-  // 2026-09-09: "é interessante aparecer o CNPJ do contratante, pra que os executivos possam
-  // localizar no sistema". Um único helper pros dois formatos porque o arquivo real
-  // (stats_export_gndi) traz "contratante_cnpj" e "contratante_cpf" como colunas separadas —
-  // contrato PJ preenche uma, contrato PF preenche a outra (confirmado no arquivo real de
-  // 09/09: linha de exemplo com "contrato":"pj" tinha as duas colunas não-vazias, então não dá
-  // pra assumir "só uma delas sempre vem vazia" — o CNPJ é preferido quando os dois vêm, já que
-  // foi o que o Victor pediu, mas cai pro CPF se só ele existir).
-  function formatCnpjCpf(v){
-    const digits = String(v==null?'':v).replace(/\D/g,'');
-    if (!digits) return '';
-    if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-    if (digits.length === 11) return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
-    return digits; // formato inesperado (nem 11 nem 14 dígitos) — mostra cru em vez de escondido
-  }
-  // Aguardando assinatura (notificadas). Desde 14/10/2026 aceita o EXTRATO CRU do jeito que baixa
-  // ("stats_export_gndi_NNNN.csv", sem GESTOR): o gestor sai do CNPJ da corretora na Carteira (byCnpj, primeiro
-  // CNPJ vale — mesmo PROCV do funil PME; conferido com o relatório do Victor de 13/10: 460 de 461 linhas iguais, a
-  // outra é um CNPJ que entrou na Carteira depois). O relatório antigo, já com a coluna GESTOR, continua valendo: se o
-  // CNPJ não estiver na Carteira, usa o GESTOR da planilha. Linha sem CNPJ e sem operadora (lixo no fim da planilha
-  // montada à mão) é ignorada. ATENÇÃO: CSV aberto e salvo no Excel estraga o CNPJ ("2,68E+13") — aí nada casa.
-  function parseAssinaturaWorkbook(workbook, carteira){
-    const sheet = findSheet(workbook, 'stats_export_gndi') || workbook.Sheets[workbook.SheetNames[0]];
+  function parseAssinaturaWorkbook(workbook){
+    const sheet = findSheet(workbook, 'stats_export_gndi');
+    if (!sheet) throw new Error('Não encontrei a aba "stats_export_gndi..." no arquivo de Aguardando Assinatura.');
     const rows = sheetRows(sheet);
     const header = (rows[0]||[]).map(h => String(h||'').trim());
     const idx = name => header.indexOf(name);
-    const iAlvo = idx('alvo'), iGestor = idx('GESTOR'), iCorretora = idx('CORRETORA'), iCorrCnpj = idx('corretora_cnpj'),
-          iData = idx('datacriacao'), iBenef = idx('beneficiarios'), iContratante = idx('contratante_nome'),
-          iCnpj = idx('contratante_cnpj'), iCpf = idx('contratante_cpf'), iOper = idx('cnpjoperadora');
-    if (iAlvo < 0 || (iGestor < 0 && iCorrCnpj < 0)) throw new Error('Não reconheci o extrato de notificadas — esperado o "stats_export_gndi" da Planium com as colunas "alvo" e "corretora_cnpj".');
-    const byCnpj = (carteira && carteira.byCnpj) || {};
-    if (iGestor < 0 && !Object.keys(byCnpj).length) throw new Error('Pra ler o extrato de notificadas o painel precisa da Carteira com CNPJ — selecione também a Carteira (BANCO DE DADOS - COMERCIAL) nesta importação.');
-    const data = {}, semGestor = {};
-    let lidas = 0, cnpjEstragado = 0;
+    const iAlvo = idx('alvo'), iGestor = idx('GESTOR'), iCorretora = idx('CORRETORA'),
+          iData = idx('datacriacao'), iBenef = idx('beneficiarios'), iContratante = idx('contratante_nome');
+    if ([iAlvo,iGestor].some(i=>i<0)) throw new Error('A aba não tem as colunas esperadas ("alvo", "GESTOR") — confirme que já rodou o cruzamento de GESTOR/CORRETORA antes de subir este arquivo.');
+    const data = {};
     for (let i = 1; i < rows.length; i++){
       const row = rows[i] || [];
-      const corrCnpjRaw = iCorrCnpj>=0 ? row[iCorrCnpj] : '';
-      if (!corrCnpjRaw && !(iOper>=0 && row[iOper])) continue;
-      lidas++;
-      if (/e\+/i.test(String(corrCnpjRaw))) cnpjEstragado++;
-      const cnpj = cnpjDigits(typeof corrCnpjRaw === 'number' ? corrCnpjRaw.toFixed(0) : corrCnpjRaw);
-      const gestor = String(byCnpj[cnpj] || (iGestor>=0 ? row[iGestor] || '' : '')).trim();
-      if (!gestor || /^#N/i.test(gestor)){ semGestor[cnpj || '(sem CNPJ)'] = (semGestor[cnpj || '(sem CNPJ)']||0) + (iBenef>=0 ? num(row[iBenef]) : 1); continue; }
-      const docRaw = (iCnpj>=0 && row[iCnpj]) ? row[iCnpj] : (iCpf>=0 ? row[iCpf] : null);
+      const gestorRaw = row[iGestor];
+      if (!gestorRaw) continue;
+      const gestor = String(gestorRaw).trim();
       (data[gestor] = data[gestor] || []).push({
         alvo: String(row[iAlvo]||'').trim(),
-        corretora: iCorretora>=0 && row[iCorretora] ? String(row[iCorretora]).trim() : (cnpj ? 'CNPJ ' + formatCnpjCpf(cnpj) : ''),
+        corretora: iCorretora>=0 ? String(row[iCorretora]||'').trim() : '',
         contratante: iContratante>=0 ? String(row[iContratante]||'').trim() : '',
-        doc: formatCnpjCpf(typeof docRaw === 'number' ? docRaw.toFixed(0) : docRaw),
         dataCriacao: iData>=0 ? assinaturaDateToStr(row[iData]) : '',
         beneficiarios: iBenef>=0 ? num(row[iBenef]) : 1,
       });
     }
-    if (cnpjEstragado > lidas / 2) throw new Error('O CNPJ das corretoras veio estragado ("2,68E+13") — o arquivo foi aberto e salvo no Excel. Baixe o extrato de novo e suba sem abrir.');
-    if (Object.keys(data).length === 0) throw new Error('Nenhum registro de "aguardando assinatura" achou gestor (confira se a Carteira é a mais recente).');
-    return { data, semGestor, lidas };
+    if (Object.keys(data).length === 0) throw new Error('Nenhum registro de "aguardando assinatura" reconhecido no arquivo.');
+    return { data };
+  }
+  // "CRESCIMENTO GERAL" (aba GERAL) — planilha que o sênior já preenche todo dia, com o
+  // ontem e o hoje reais de Assinatura/Funil/Ranking por gestor. Vira a fonte oficial do
+  // "ontem → hoje" da aba Conversão (ver CONV_ONTEM_HOJE), no lugar do snapshot automático.
+  // A aba tem um bloco por carteira (Plataforma/ABC/Cauda Longa/Digital) — a Conversão em si
+  // já é da diretoria inteira (ver convSetupFilters/GESTOR_EQUIPE), então o reconhecimento
+  // aqui tem que cobrir os mesmos gestores, não só os 4 da Cauda Longa.
+  // Achado 2026-09-04: só os 4 nomes da Cauda Longa eram aceitos aqui (CG_KNOWN_NAMES,
+  // lista fixa) — os outros ~11 gestores da planilha (Plataforma/ABC/Digital) caíam sempre em
+  // "não reconhecido" e nunca recebiam ontem/hoje, mesmo com o arquivo certo importado todo
+  // dia. Trocado pra usar GESTOR_EQUIPE (mesma lista já usada pelo Ranking/Comparativo pra
+  // decidir quem é da diretoria), excluindo só os times fora de escopo (Interior SP, Venda
+  // Interna) — mesmo critério já aplicado em updateRankingData.
+  // Guarda pelo nome EXATO da planilha (maiúsculo, nome completo) — é assim que PROPOSTAS.g
+  // já vem do relatório Planium, então bate direto sem precisar converter pra apelido curto.
+  const CG_OUT_OF_SCOPE_TEAMS = new Set(['INTERIOR SP', 'VENDA INTERNA']);
+  function parseCrescimentoGeralWorkbook(workbook){
+    const sheet = workbook.Sheets['GERAL'] || findSheet(workbook, 'GERAL');
+    if (!sheet) throw new Error('Não encontrei a aba "GERAL" no arquivo Crescimento Geral.');
+    const rows = sheetRows(sheet);
+    const data = {};
+    const naoReconhecidos = [];
+    for (let i = 0; i < rows.length; i++){
+      const row = rows[i] || [];
+      const nomeRaw = String(row[0]||'').trim();
+      // pula linhas em branco, cabeçalhos de carteira ("CARTEIRA X"), a linha de rótulos
+      // das colunas e as linhas de "TOTAL" — só sobram linhas de gestor de verdade.
+      if (!nomeRaw || nomeRaw.toUpperCase() === 'TOTAL' || nomeRaw.toUpperCase().indexOf('CARTEIRA') === 0) continue;
+      const nomeUp = nomeRaw.toUpperCase();
+      const equipe = window.GESTOR_EQUIPE[nomeUp];
+      if (!equipe || CG_OUT_OF_SCOPE_TEAMS.has(equipe)){ naoReconhecidos.push(nomeRaw); continue; }
+      data[nomeRaw] = {
+        assinaturaOntem: num(row[2]), assinaturaHoje: num(row[3]),
+        funilOntem: num(row[5]), funilHoje: num(row[6]),
+        rankingOntem: num(row[8]), rankingHoje: num(row[9]),
+      };
+    }
+    if (Object.keys(data).length === 0) throw new Error('Nenhum gestor da diretoria foi encontrado na aba "GERAL" (nenhum nome bateu com GESTOR_EQUIPE).');
+    return { data, naoReconhecidos };
+  }
+  function diffCrescimentoGeral(parsed){
+    let html = '<h3 style="font-size:14px;color:var(--navy);margin:14px 0 8px;"><i class=ic-trend></i> Crescimento Geral — Resumo</h3>';
+    html += `<div style="font-size:12.5px;line-height:1.8;"><div>Ontem × hoje atualizado pra <b>${Object.keys(parsed.data).length}</b> gestor${Object.keys(parsed.data).length!==1?'es':''}.</div></div>`;
+    if (parsed.naoReconhecidos && parsed.naoReconhecidos.length){
+      html += `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--red);">Nomes não reconhecidos (${parsed.naoReconhecidos.length}) — ficaram de fora</summary><ul style="font-size:12px;margin:6px 0 0 18px;">`;
+      parsed.naoReconhecidos.forEach(n => html += `<li>${n}</li>`);
+      html += '</ul></details>';
+    }
+    return html;
   }
   function diffAssinatura(parsed){
     const totalReg = Object.values(parsed.data).reduce((s,arr)=>s+arr.length,0);
     let html = '<h3 style="font-size:14px;color:var(--navy);margin:14px 0 8px;"><i class=ic-clip></i> Aguardando Assinatura — Resumo</h3>';
-    const totalVidas = Object.values(parsed.data).reduce((s,arr)=>s+arr.reduce((a,r)=>a+(r.beneficiarios||0),0),0);
-    html += `<div style="font-size:12.5px;line-height:1.8;"><div><b>${totalReg}</b> contratos (<b>${totalVidas.toLocaleString('pt-BR')}</b> vidas) aguardando assinatura, em <b>${Object.keys(parsed.data).length}</b> gestores.</div>`;
-    const sg = Object.entries(parsed.semGestor || {}).sort((a,b)=>b[1]-a[1]);
-    if (sg.length) html += `<div style="color:var(--amber);"><i class=ic-warn></i> ${sg.reduce((s,[,v])=>s+v,0)} vidas de ${sg.length} CNPJ(s) de corretora fora da Carteira ficaram de fora: ${sg.slice(0,6).map(([k,v])=>`${k === '(sem CNPJ)' ? k : formatCnpjCpf(k)} (${v})`).join(' · ')}${sg.length>6?' · …':''}</div>`;
-    html += '</div>';
+    html += `<div style="font-size:12.5px;line-height:1.8;"><div><b>${totalReg}</b> contratos aguardando assinatura, em <b>${Object.keys(parsed.data).length}</b> gestores.</div></div>`;
     return html;
   }
   function diffPendPme(parsed){
@@ -8514,9 +7160,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     });
   }
 
-
   // Botões "remover" + estado visual dos campos de arquivo
-  const IMPORT_FILE_IDS = ['fileMetaJunho','fileElegibilidade','fileCarteira','filePendPme','filePendPf','fileAssinatura','fileRankPrev'];
+  const IMPORT_FILE_IDS = ['fileMetaJunho','fileElegibilidade','fileCarteira','filePendPme','filePendPf','fileAssinatura','fileCrescimentoGeral','fileRankPrev'];
   function syncFileFieldState(id){
     const input = document.getElementById(id);
     const field = input.closest('.file-field');
@@ -8543,21 +7188,16 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     // já trocou o nome uma vez (de "NDI SP - META <MÊS>" pra "NDI SP - <MÊS>").
     if (META_SHEET_PREFIXES.some(p => has(p))) return 'meta';
     if (has('ELEGIBILIDADE') || hasExact('ELEGIBILIDADE')) return 'elig';
-    // Achado no V2 em 2026-08-27 (portado agora pro V1): o extrato bruto de Corretoras (aba
-    // única "Export", sem nenhuma "TB_BASE DE DADOS" junto) nunca era reconhecido aqui — só a
-    // condição "BASE" cobria o caso onde o arquivo "NDI SP - Por Gestor" inteiro vinha com
-    // essa aba extra. parseCorretorasRawWorkbook já procura uma aba "EXPORT" (exata), então
-    // esse formato precisa contar como 'corretoras' também.
+    // Achado 2026-08-27: o extrato bruto de Corretoras (aba única "Export", sem nenhuma
+    // "TB_BASE DE DADOS" junto) nunca era reconhecido aqui — só a condição "BASE" cobria o
+    // caso onde o arquivo "NDI SP - Por Gestor" inteiro vinha com essa aba extra. Como
+    // parseCorretorasRawWorkbook já procura por uma aba "EXPORT" (exata), esse formato
+    // precisa contar como 'corretoras' também, senão o caminho 100% automático (sem
+    // pré-processar nada no Excel) nunca conseguia nem passar da detecção do arquivo.
     if (hasExact('EXPORT') || (has('BASE') && !has('ELEGIBILIDADE'))) return 'corretoras';
-    // Carteira/Gestores ("BANCO DE DADOS - COMERCIAL", abas CONSULTA/COMERCIAL/ASSESSORIAS) —
-    // faltava esse ramo inteiro. Sem ele, esse arquivo nunca batia em nenhum kind (não tem
-    // aba "BASE...", só "COMERCIAL") e caía direto em "não reconhecido" — SEM erro visível
-    // nenhum na tela sempre que subido junto do Extrato do BI, porque o outro arquivo da
-    // mesma leva já tinha sido reconhecido como 'meta' e a checagem de "nada reconhecido"
-    // só dispara quando NENHUM arquivo bate. Achado 2026-09-04: Victor subiu Carteira +
-    // Extrato do BI juntos, o resumo de Desempenho Comercial/Ranking apareceu normal, mas a
-    // Carteira nunca era processada (pendingCarteira ficava null) — corretora nova (ex.: F8,
-    // código 0540) nunca entrava em lugar nenhum, sem nenhum aviso de que algo tinha falhado.
+    // A Carteira (banco de dados código→gestor) é outro arquivo separado, com só a aba
+    // "COMERCIAL" — antes só virava Carteira "de brinde" quando vinha junto de um arquivo já
+    // classificado como 'corretoras'; sozinha, nunca era reconhecida.
     // has() (prefixo), não hasExact() — mesma regra de findSheet('COMERCIAL') que
     // parseCarteiraWorkbook já usa, sobrevive a algo tipo "COMERCIAL 2026" no futuro.
     if (has('COMERCIAL')) return 'carteira';
@@ -8576,7 +7216,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     document.getElementById('filePendPme').value = '';
     document.getElementById('filePendPf').value = '';
     IMPORT_FILE_IDS.forEach(id => { const f = document.getElementById(id).closest('.file-field'); if (f) f.classList.remove('has-file'); });
-    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingT6140bRaw = null;
+    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null; pendingT6140bRaw = null;
   }
 
   document.getElementById('btnOpenImport').addEventListener('click', () => {
@@ -8598,8 +7238,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const pendPmeFiles = Array.from(document.getElementById('filePendPme').files);
     const pendPfFile = document.getElementById('filePendPf').files[0];
     const assinaturaFile = document.getElementById('fileAssinatura').files[0];
+    const crescimentoGeralFile = document.getElementById('fileCrescimentoGeral').files[0];
     const rankPrevFile = document.getElementById('fileRankPrev').files[0];
-    if (!metaFile && !eligFile && !carteiraFile && !pendPmeFiles.length && !pendPfFile && !assinaturaFile && !rankPrevFile){
+    if (!metaFile && !eligFile && !carteiraFile && !pendPmeFiles.length && !pendPfFile && !assinaturaFile && !crescimentoGeralFile && !rankPrevFile){
       statusEl.innerHTML = '<p style="color:var(--red);font-size:12.5px;">Selecione ao menos um arquivo.</p>';
       return;
     }
@@ -8609,7 +7250,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     btn.style.cursor = 'default';
     btn.innerHTML = '<span class="spinner"></span> Processando...';
     summaryEl.style.display = 'none';
-    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingT6140bRaw = null;
+    pendingMeta = null; pendingElig = null; pendingCarteira = null; pendingPendPme = null; pendingPendPf = null; pendingCorretorasRaw = null; pendingEligBridge = null; pendingPropostas = null; pendingAssinatura = null; pendingCrescimentoGeral = null; pendingT6140bRaw = null;
     let summaryHtml = '';
     try {
       // ---- AUTO-DETECÇÃO: roteia cada arquivo pelo conteúdo, não pelo campo ----
@@ -8665,9 +7306,9 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
           pendingEligBridge = extractEligibilidadeDataFromExport(metaWb);
           if (pendingEligBridge && window.getEligibilidadeData){
             const codigosArquivo = new Set();
-            Object.values(pendingEligBridge).forEach(g => (g.corretoras||[]).forEach(c => codigosArquivo.add(window.normalizeCodigo(c.c))));
+            Object.values(pendingEligBridge).forEach(g => (g.corretoras||[]).forEach(c => codigosArquivo.add(normalizeCodigo(c.c))));
             const eligData = window.getEligibilidadeData();
-            const matchCount = eligData.filter(d => codigosArquivo.has(window.normalizeCodigo(d.c))).length;
+            const matchCount = eligData.filter(d => codigosArquivo.has(normalizeCodigo(d.c))).length;
             summaryHtml += `<div style="font-size:12.5px; margin-top:6px; color:var(--blue);">Elegibilidade — histórico do mês será gravado em <b>${matchCount}</b> das ${eligData.length} corretoras (Cauda Longa), direto pela planilha manual.</div>`;
           }
         } else {
@@ -8678,23 +7319,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (corretorasWb && !metaWb){
         statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Processando Corretoras...</p>';
         pendingCorretorasRaw = parseCorretorasRawWorkbook(corretorasWb, pendingCarteira);
-        // TRAVA (2026-10-06): o extrato cru grava o Integrado no mês SELECIONADO no painel
-        // (updateIntegradoFromRaw) — um extrato de outro mês (ex.: Outubro com o painel em Setembro)
-        // sobrescreveria aquele mês no Desempenho Comercial. O mês do extrato vem do rodapé
-        // ("Date é 01/MM/AAAA"); extrato sem esse rodapé (formato antigo) passa como sempre.
-        const mesAtivoRaw = window.getCurrentMonth ? window.getCurrentMonth() : null;
-        const mesExtratoRaw = pendingCorretorasRaw.detectedMonth;
-        if (mesExtratoRaw && mesAtivoRaw){
-          const ativoSint = !!(window.isSynthMonth && window.isSynthMonth(mesAtivoRaw));
-          if (mesExtratoRaw !== mesAtivoRaw || ativoSint){
-            const lblExt = metaMonthLabel(mesExtratoRaw), lblAtivo = metaMonthLabel(mesAtivoRaw);
-            pendingCorretorasRaw = null;
-            if (mesExtratoRaw > mesAtivoRaw && !ativoSint){
-              throw new Error(`Este extrato é de ${lblExt}, mas o painel está em ${lblAtivo}. Pra abrir um mês novo, suba primeiro o Excel "NDI SP - POR GESTOR" de ${lblExt} (ele cria o mês e a meta); depois os extratos de ${lblExt} entram normalmente. Nada foi alterado.`);
-            }
-            throw new Error(`Este extrato é de ${lblExt}, mas o painel está com ${lblAtivo}${ativoSint ? ' (mês reconstruído)' : ''} selecionado em "Mês de referência" — ele sobrescreveria esse mês. Selecione ${lblExt} (se ele já foi importado) ou, pra corrigir um mês passado só na visão por trimestre, use o campo "Integrado de meses passados". Nada foi alterado.`);
-          }
-        }
         summaryHtml += diffCorretorasRaw(pendingCorretorasRaw);
       }
       if (eligWb){
@@ -8780,10 +7404,15 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       }
       if (assinaturaFile){
         statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Aguardando Assinatura...</p>';
-        // CSV cru da Planium (vírgula) ou o relatório antigo em .xlsx — readPmeFileAsWorkbook lê os dois
-        const wb = await readPmeFileAsWorkbook(assinaturaFile);
-        pendingAssinatura = parseAssinaturaWorkbook(wb, pendingCarteira || window.CARTEIRA_MAP || null);
+        const wb = await readFileAsWorkbook(assinaturaFile);
+        pendingAssinatura = parseAssinaturaWorkbook(wb);
         summaryHtml += diffAssinatura(pendingAssinatura);
+      }
+      if (crescimentoGeralFile){
+        statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Crescimento Geral...</p>';
+        const wb = await readFileAsWorkbook(crescimentoGeralFile);
+        pendingCrescimentoGeral = parseCrescimentoGeralWorkbook(wb);
+        summaryHtml += diffCrescimentoGeral(pendingCrescimentoGeral);
       }
       if (rankPrevFile){
         statusEl.innerHTML = '<p style="font-size:12.5px;color:var(--muted);">Lendo Ranking — mês anterior...</p>';
@@ -8806,40 +7435,17 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   });
 
   document.getElementById('btnConfirmImport').addEventListener('click', () => {
-    // Grava o carimbo real de "última importação" por fonte — pedido do Victor, 2026-09-14
-    // (ver LAST_UPDATED_BY_SOURCE lá no topo do arquivo). Um por card do modal "Atualizar
-    // Dados"; pendingMeta/pendingCorretorasRaw são os dois jeitos de a mesma "Extrato do BI"
-    // chegar (arquivo completo ou só o extrato bruto), então contam como a mesma fonte.
-    if (window.markSourceUpdated){
-      if (pendingMeta || pendingCorretorasRaw) window.markSourceUpdated('corretoras');
-      if (pendingCarteira) window.markSourceUpdated('carteira');
-      if (pendingPendPme) window.markSourceUpdated('funilPme');
-      if (pendingPendPf) window.markSourceUpdated('funilPf');
-      if (pendingAssinatura) window.markSourceUpdated('assinatura');
-      if (pendingElig) window.markSourceUpdated('elegibilidade');
-      if (window.renderSourceStatus) window.renderSourceStatus();
-    }
     if (pendingMeta) window.updateMetaJunhoData(pendingMeta);
     if (pendingCorretorasRaw) {
       window.updateIntegradoFromRaw(pendingCorretorasRaw.byGestor, pendingCorretorasRaw.semGestorCat);
       if (window.applyCorretorasToEligibilidade){
-        // Correção 2026-09-14 (Victor: "o próprio extrato já mostra qual é o mês... se você
-        // reparar no final, ele informa") — o extrato bruto de Corretoras SIM tem o mês real,
-        // só que escondido no bloco "Filtros aplicados: ... Date é DD/MM/AAAA" no rodapé da
-        // aba EXPORT, que antes era só descartado como lixo (ver parseCorretorasRawWorkbook).
-        // Passa esse mês real agora — só cai no chute de calendário (dentro da função) no caso
-        // raríssimo de um extrato sem esse rodapé (formato antigo, por exemplo).
-        const n = window.applyCorretorasToEligibilidade(pendingCorretorasRaw.byGestor, pendingCorretorasRaw.detectedMonth);
-        console.log(`Elegibilidade: ${n} corretoras atualizadas com o extrato bruto de Corretoras (mês: ${pendingCorretorasRaw.detectedMonth || 'não detectado, usou chute de calendário'}).`);
+        const n = window.applyCorretorasToEligibilidade(pendingCorretorasRaw.byGestor);
+        console.log(`Elegibilidade: ${n} corretoras atualizadas com dado de Julho.`);
       }
     }
     if (pendingEligBridge && window.applyCorretorasToEligibilidade){
-      // Esse caminho SEMPRE tem o mês real (pendingMeta já foi setado logo acima, mesmo
-      // bloco "if (metaWb)" que gera o pendingEligBridge) — passa ele direto, sem chute.
-      // Achado 2026-09-14 (Victor: "no extrato do BI ele informa de qual mês é, e com isso
-      // dá pra fazer a distribuição correta").
-      const n2 = window.applyCorretorasToEligibilidade(pendingEligBridge, pendingMeta && pendingMeta.detectedMonth);
-      console.log(`Elegibilidade: ${n2} corretoras atualizadas via planilha "NDI SP - Por Gestor" (mês: ${pendingMeta && pendingMeta.detectedMonth || 'não detectado'}).`);
+      const n2 = window.applyCorretorasToEligibilidade(pendingEligBridge);
+      console.log(`Elegibilidade: ${n2} corretoras atualizadas via planilha manual.`);
     }
     if (pendingElig) window.updateEligibilidadeData(pendingElig);
     if (pendingCarteira) applyCarteira(pendingCarteira);
@@ -8849,15 +7455,10 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     if (pendingRankCur || pendingRankPrev) window.updateRankingData(pendingRankCur, pendingRankPrev, (pendingRankCur && pendingMeta) ? pendingMeta.detectedMonth : null);
     // Upload só do extrato bruto de Corretoras (sem a planilha "NDI SP - Por Gestor" inteira)
     // também atualiza o Ranking de Vendas agora — antes só o caminho com Meta fazia isso,
-    // obrigando a subir o arquivo inteiro todo dia só pra manter o Ranking em dia.
+    // obrigando Victor a subir o arquivo inteiro todo dia só pra manter o Ranking em dia.
     else if (pendingCorretorasRaw){
       const rankCurFromRaw = corretorasRawToRankList(pendingCorretorasRaw.byGestor);
-      // Mesma correção 2026-09-14 do Elegibilidade acima: usa o mês real lido do rodapé do
-      // extrato (pendingCorretorasRaw.detectedMonth) em vez de window.getCurrentMonth() —
-      // esse "mês corrente" oficial (do Desempenho Comercial) não é o mesmo "mês que este
-      // extrato específico representa" durante a janela de fechamento da grade (até dia 10),
-      // que é exatamente o caso que estava quebrando.
-      window.updateRankingData(rankCurFromRaw, null, pendingCorretorasRaw.detectedMonth || (window.getCurrentMonth ? window.getCurrentMonth() : null));
+      window.updateRankingData(rankCurFromRaw, null, window.getCurrentMonth ? window.getCurrentMonth() : null);
     }
     if (pendingPendPme || pendingPendPf) {
       window.updatePendenciasData({
@@ -8872,20 +7473,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     // juntos nessa importação (senão não tem com o que comparar).
     if (pendingPendPme && pendingPropostas && window.reconciliarPendenciasComPropostas) window.reconciliarPendenciasComPropostas();
     if (pendingAssinatura && window.updateAssinaturaData) window.updateAssinaturaData(pendingAssinatura.data);
-    // Retrato do dia pra aba Conversão (ontem → hoje). Ranking = vendas do mês por gestor com ADM ("Total" do BI), só
-    // quando o extrato Corretoras veio nesta importação — senão o retrato repete o ranking do anterior.
-    if ((pendingPropostas || pendingAssinatura || pendingCorretorasRaw) && window.saveDailySnapshot){
-      let rankByRaw = null;
-      if (pendingCorretorasRaw){
-        rankByRaw = {};
-        Object.keys(pendingCorretorasRaw.byGestor).forEach(f => {
-          const raw = window.getGestorRawName ? window.getGestorRawName(f) : f;
-          const b = pendingCorretorasRaw.byGestor[f];
-          rankByRaw[raw] = (rankByRaw[raw]||0) + (b.total||0) + (b.adm||0);
-        });
-      }
-      window.saveDailySnapshot(rankByRaw);
-    }
+    if (pendingCrescimentoGeral && window.updateConvOntemHoje) window.updateConvOntemHoje(pendingCrescimentoGeral.data);
+    if ((pendingPropostas || pendingAssinatura) && window.saveDailySnapshot) window.saveDailySnapshot();
     // T6140B inteiro: só quando o funil PME foi de fato importado junto. Fica na memória desta aba e é gravado no
     // Firestore (seção T6140B_EXTRATO) no próximo "Publicar" — fora da lista do login, só é lido no "Baixar .xlsx".
     if (pendingPendPme && pendingT6140bRaw){
@@ -8911,8 +7500,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
      fsWriteSection no <script> do Firestore em index.html),
      substitui o antigo "Publicar no GitHub" (Contents API +
      token pessoal) na migração de segurança de 2026-09-08. Quem
-     publica só precisa estar logado como admin na allowlist_v1
-     — sem token nenhum, a sessão já autenticada é a credencial, e
+     publica só precisa estar logado como admin na allowlist —
+     sem token nenhum, a sessão já autenticada é a credencial, e
      as próprias Regras do Firestore recusam a escrita se a
      pessoa não for admin (não é só uma trava de tela).
      O id do botão continua "btnPublishGithub" por preguiça de
@@ -8941,7 +7530,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       RANK_CUR_LABEL: window.getRankLabels ? window.getRankLabels().cur : 'Mês atual',
       RANK_PREV_LABEL: window.getRankLabels ? window.getRankLabels().prev : 'Mês anterior',
       CARTEIRA_MAP: window.CARTEIRA_MAP || null,
-      LAST_UPDATED_BY_SOURCE: window.getLastUpdatedBySource ? window.getLastUpdatedBySource() : {},
       // Grava o momento da publicação DENTRO do dado — antes esse "Última atualização"
       // vinha de um texto fixo no index.html (PUBLISHED_AT), que só mudava quando alguém
       // editava o código; agora acompanha de verdade cada publicação de dados.
@@ -8956,18 +7544,12 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const status = document.getElementById('publishStatus');
     const btn = document.getElementById('btnPublishGithub');
     btn.disabled = true; btn.style.opacity = '.65';
-    status.innerHTML = '<span class="spinner" style="border-color:rgba(16,30,99,.25); border-top-color:var(--navy);"></span> Fazendo backup dos dados atuais...';
+    status.innerHTML = '<span class="spinner" style="border-color:rgba(16,30,99,.25); border-top-color:var(--navy);"></span> Publicando...';
     try {
-      // Backup SEMPRE antes de sobrescrever — se falhar, para aqui e não publica nada (pedido
-      // do Victor, 2026-09-28: rede de segurança pra reverter se uma publicação sair errada).
-      // Guarda os últimos 20 automaticamente (ver window.__backupCurrentData__ em index.html).
-      if (window.__backupCurrentData__) await window.__backupCurrentData__();
-      status.innerHTML = '<span class="spinner" style="border-color:rgba(16,30,99,.25); border-top-color:var(--navy);"></span> Publicando...';
       const payload = buildDataPayload();
-      // META_EXEC_BY_MONTH / INT_EXEC_BY_MONTH (metas por executivo e Integrado de meses passados,
-      // 2026-10) são opcionais: só gravam se houver algo importado, e uma falha nelas (ex.: Regra do
-      // Firestore ainda sem essas seções) vira aviso, nunca derruba a publicação das seções que já
-      // funcionavam.
+      // META_EXEC_BY_MONTH (metas por executivo, 2026-10-02) é opcional: só grava se houver algo
+      // importado, e uma falha nela (ex.: regra do Firestore ainda sem essa seção) vira aviso,
+      // nunca derruba a publicação das seções que já funcionavam.
       const optionalKeys = ['META_EXEC_BY_MONTH', 'INT_EXEC_BY_MONTH'];
       const keys = Object.keys(payload).filter(k => optionalKeys.indexOf(k) < 0);
       // Publica todas as seções em paralelo — mais rápido, e cada uma é independente
@@ -8980,8 +7562,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         try { await window.fsWriteSection(k, payload[k]); }
         catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: ' + rotulos[k] + ' importado(s) NÃO foi(ram) salvo(s) (' + window.escHtml(e.message) + ').</span>'; }
       }
-      // T6140B inteiro (pedido do Victor, 09/10/2026; V1 em 13/10) — só quando um T6140B novo foi importado nesta aba; seção
-      // à parte, não lida no login. Falha aqui vira aviso: a aba T6140B da planilha só sai resumida, nada mais quebra.
+      // T6140B inteiro (pedido do Victor, 09/10/2026) — só quando um T6140B novo foi importado nesta aba; seção à parte,
+      // não lida no login. Falha aqui vira aviso: a aba T6140B da planilha só sai resumida, nada mais quebra.
       if (window.__T6140B_EXTRATO_PENDENTE && window.__T6140B_EXTRATO){
         try { await window.fsWriteSection('T6140B_EXTRATO', window.__T6140B_EXTRATO); window.__T6140B_EXTRATO_PENDENTE = false; }
         catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: o extrato completo do T6140B NÃO foi salvo (' + window.escHtml(e.message) + ') — a aba T6140B do "Baixar .xlsx" vai sair resumida pra quem baixar de outro computador.</span>'; }
@@ -8991,7 +7573,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('publicou', keys.length + ' seções' + (window.__T6140B_EXTRATO && !window.__T6140B_EXTRATO_PENDENTE ? ' + extrato T6140B' : ''));
     } catch(err){
       const permMsg = (err.code === 'permission-denied')
-        ? ' Seu usuário pode não estar marcado como admin na allowlist_v1 do Firestore — confira com quem administra o painel.'
+        ? ' Seu usuário pode não estar marcado como admin na allowlist do Firestore — confira com quem administra o painel.'
         : '';
       status.innerHTML = '<span style="color:var(--red);">Erro ao publicar: ' + window.escHtml(err.message) + '.' + permMsg + ' Pode baixar o backup abaixo e tentar de novo depois.</span>';
     } finally {
@@ -9012,7 +7594,6 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   });
   window.__buildDataJson = buildDataJson;
 })();
-
 
 /* =========================================================
    METAS POR EXECUTIVO + VISÃO POR TRIMESTRE (Desempenho Comercial)
@@ -9093,16 +7674,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
       const m = /(\d{4})/.exec(String((g[0] && g[0][0]) || ''));
       if (m) year = m[1];
     }
-    // Sem ano no título da TRI GERAL: mesma regra do Excel NDI SP (window.inferYearForMonth), pelo 1º
-    // mês do arquivo, aceitando até 2 meses à frente — o "1º TRI" de 2027 subido em Nov ou Dez/26 vira
-    // 2027 (antes usava o ano do computador e gravava as metas por cima de Jan–Mar/2026); em Out/26 um
-    // "1º TRI" sem ano continua sendo o de 2026.
-    if (!year){
-      const nums = wb.SheetNames.map(n => Number(MES_PT[norm(n)])).filter(Boolean);
-      year = (nums.length && window.inferYearForMonth)
-        ? String(window.inferYearForMonth(Math.min.apply(null, nums), 2))
-        : String(new Date().getFullYear());
-    }
+    if (!year) year = String(new Date().getFullYear());
     wb.SheetNames.forEach(sheetName => {
       const mm = MES_PT[norm(sheetName)];
       if (!mm) return;
@@ -9204,8 +7776,8 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // ===== Dados históricos fora do código público — ETAPA 2 (22/10/2026, item 3 de segurança) =====
   // INT_CODE_SEED / INT_CODE_NAMES / INT_CODE_INFO / metas por executivo compactas (META_EXEC_C), jan–set/26, ficam só
   // no Firestore (seção SEEDS_HIST, lida no login e protegida pelas regras: só quem está na allowlist). Copiados pra lá
-  // em 22/10/2026 17:22 pela cópia automática da etapa 1 (admin no celular) e conferidos idênticos à cópia que ficava aqui. Cópia de segurança
-  // local: DASHBOARD CAUDA LONGA/BACKUPS/2026-10-22_seeds-etapa1-publicada/app.js. Se a seção faltar, a visão por trimestre e os
+  // em 22/10/2026 17:06 pelo "Publicar" da etapa 1 e conferidos idênticos à cópia que ficava aqui. Cópia de segurança
+  // local: DASHBOARD V2/BACKUPS/2026-10-22_seeds-etapa1-publicada/app.js. Se a seção faltar, a visão por trimestre e os
   // meses Jan–Mai reconstruídos ficam sem jan–set e a barra "Período" avisa — nada mais quebra.
   const SEEDS_HIST_FS = window.__DASH_DATA__.SEEDS_HIST || null;
   const SEEDS_HIST_OK = !!(SEEDS_HIST_FS && SEEDS_HIST_FS.INT_CODE_SEED && SEEDS_HIST_FS.META_EXEC_C);
