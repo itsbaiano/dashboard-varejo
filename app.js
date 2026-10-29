@@ -275,7 +275,7 @@ function showView(view){
   document.getElementById('navBtnConversao').classList.toggle('active', view==='conversao');
   document.getElementById('viewConversao').classList.toggle('active', view==='conversao');
   if (view==="rank" && !window.rankInitialized){ window.rankInitialized = true; renderRanking(); }
-  if (view==='conversao' && window.renderConversao){ window.renderConversao(); }
+  if (view==='conversao' && window.renderConversao){ telaRedesenhaSePreciso('viewConversao', window.renderConversao); }
   document.getElementById('mainHeader').style.display = '';
   // Cabeçalho enxuto (2026-10-07): o título mostra a tela em que a pessoa está.
   const dhTitle = document.getElementById('dhViewTitle');
@@ -285,12 +285,40 @@ function showView(view){
     window.renderEligibilidade();
   }
   if(view==='overview' && window.renderOverview){
-    window.renderOverview();
+    telaRedesenhaSePreciso('viewOverview', window.renderOverview);
   }
   if(view==='compare' && window.renderCompare){
-    window.renderCompare();
+    telaRedesenhaSePreciso('viewCompare', window.renderCompare);
   }
 }
+// Desempenho no celular (29/10/2026, pedido do Victor; portado do V2): Visão Geral, Comparativo e Conversão eram
+// redesenhadas a cada troca de tela (gráficos recriados, números contando, cartões subindo) mesmo sem nada ter mudado —
+// no celular isso travava o toque. Agora a troca de tela só redesenha se mudou algo desde a última vez que a tela foi
+// desenhada: filtro da própria tela, mês de referência ou dados (window.__dadosGen__, aumentado a cada importação e em
+// toda função que troca dados — embrulho no fim do arquivo). Filtros, troca de mês e importação redesenham na hora.
+const telaDesenhada = {};
+function telaAssinatura(id){
+  const el = document.getElementById(id);
+  const campos = el ? [...el.querySelectorAll('select, input')].map(i => (i.type === 'checkbox' || i.type === 'radio') ? i.checked : i.value) : [];
+  const mes = document.getElementById('globalMonthSelect');
+  return campos.join('|') + '#' + (mes ? mes.value : '') + '#' + (window.__dadosGen__ || 0);
+}
+// A assinatura é anotada DEPOIS de desenhar: o desenho preenche os próprios filtros (lista de equipes etc.).
+function telaRedesenhaSePreciso(id, desenha){
+  if (telaDesenhada[id] === telaAssinatura(id)) return;
+  desenha();
+  telaDesenhada[id] = telaAssinatura(id);
+}
+// Filtro mexido com a tela aberta: o próprio filtro já redesenha — só anota a assinatura nova (depois do desenho, que
+// em alguns campos espera a pessoa parar de digitar), pra não redesenhar de novo quando a pessoa voltar pra tela.
+['change', 'input'].forEach(tipo => document.addEventListener(tipo, e => {
+  ['viewOverview', 'viewCompare', 'viewConversao'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.classList.contains('active') && el.contains(e.target) && id in telaDesenhada){
+      setTimeout(() => { telaDesenhada[id] = telaAssinatura(id); }, 600);
+    }
+  });
+}));
 document.getElementById('navBtnOverview').addEventListener('click', ()=>showView('overview'));
 document.getElementById('navBtnMj').addEventListener('click', ()=>showView('mj'));
 document.getElementById('navBtnEl').addEventListener('click', ()=>showView('el'));
@@ -1836,6 +1864,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     pendStatusPanelSet(false);
     renderPendencias();
     document.getElementById('pendModalOverlay').style.display = 'flex';
+    // Desempenho no celular (29/10/2026): já baixa em segundo plano as bibliotecas do "Baixar relatório" (PDF) e do
+    // "Baixar funil (Excel)" (só na 1ª vez que o funil abre; depois ficam guardadas) — no clique o arquivo sai sem
+    // esperar o download. Erro aqui é silencioso: o clique tenta de novo e mostra a mensagem se falhar.
+    const preCarrega = () => { pendLoadJsPdf().catch(() => {}); pendLoadExcelJS().catch(() => {}); pendLoadJsZip().catch(() => {}); };
+    if (window.requestIdleCallback) requestIdleCallback(preCarrega, { timeout: 3000 }); else setTimeout(preCarrega, 1500);
   };
   document.getElementById('btnClosePend').addEventListener('click', () => { document.getElementById('pendModalOverlay').style.display = 'none'; });
   document.getElementById('pendModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'pendModalOverlay') document.getElementById('pendModalOverlay').style.display = 'none'; });
@@ -8898,6 +8931,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     }
     const ts = new Date().toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'});
     const el = document.getElementById('sidebarUpdatedAt'); if (el) el.textContent = ts;
+    window.__dadosGen__ = (window.__dadosGen__ || 0) + 1; // dados novos: troca de tela redesenha (ver telaRedesenhaSePreciso)
     if (window.renderOverview) window.renderOverview();
     if (window.renderCompare) window.renderCompare();
     if (window.renderEligibilidade) window.renderEligibilidade();
@@ -9960,5 +9994,18 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const nome = 'Registro de acessos - ' + new Date().toLocaleDateString('pt-BR').replace(/\//g, '.') + '.xlsx';
     XLSX.writeFile(wb, nome);
     if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', nome);
+  });
+})();
+
+// Desempenho no celular (29/10/2026): toda função que troca dados do painel avisa a troca de tela que precisa
+// redesenhar (window.__dadosGen__ — ver telaRedesenhaSePreciso no topo). Fica no fim do arquivo porque só aqui
+// todas já existem.
+(function(){
+  ['updateMetaJunhoData', 'updateIntegradoFromRaw', 'updateEligibilidadeData', 'updatePendenciasData', 'updatePropostasData',
+   'updateAssinaturaData', 'updateConvOntemHoje', 'updateRankingData', 'reconciliarPendenciasComPropostas', 'saveDailySnapshot',
+   'mjSetSynthMonths'].forEach(nome => {
+    const original = window[nome];
+    if (typeof original !== 'function') return;
+    window[nome] = function(){ window.__dadosGen__ = (window.__dadosGen__ || 0) + 1; return original.apply(this, arguments); };
   });
 })();
