@@ -460,6 +460,14 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       }}]
     });
   };
+  // Celular (03/11/2026): nome longo cortava à esquerda no gráfico; quebra em linhas de até 16 letras, sem cortar palavra.
+  function dsQuebraNome(nome){
+    return String(nome).split(/\s+/).reduce((linhas, p) => {
+      const u = linhas[linhas.length - 1];
+      if (u && (u + ' ' + p).length <= 16) linhas[linhas.length - 1] = u + ' ' + p; else linhas.push(p);
+      return linhas;
+    }, []);
+  }
   // metas/ints por linha; cores = cor da barra de cada linha (ex.: gestor selecionado em laranja).
   window.__dsMetaChart = function(canvas, labels, metas, ints, cores, extra){
     const maxV = Math.max(1, ...metas, ...ints) * 1.04;
@@ -469,7 +477,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
       options:Object.assign({ indexAxis:'y', responsive:true, maintainAspectRatio:false, layout:{padding:{right:58}},
         plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{ const m = metas[c.dataIndex] || 0, v = c.raw || 0;
           return [`Integrado: ${Math.round(v).toLocaleString('pt-BR')} vidas`, `Meta: ${Math.round(m).toLocaleString('pt-BR')} vidas`, `Atingimento: ${m ? dsPct(v/m*100) : '—'}`]; }}}},
-        scales:{x:{beginAtZero:true, suggestedMax:maxV, grid:{color:dsGrade()}, ticks:{callback:v=>Math.round(v).toLocaleString('pt-BR'), maxTicksLimit:6}}, y:{grid:{display:false}, ticks:{font:{size:11}}}} }, extra || {}),
+        scales:{x:{beginAtZero:true, suggestedMax:maxV, grid:{color:dsGrade()}, ticks:{callback:v=>Math.round(v).toLocaleString('pt-BR'), maxTicksLimit:6}}, y:{grid:{display:false}, ticks:{font:{size:11}, callback(v){ const t = this.getLabelForValue(v); return this.chart.width < 520 ? dsQuebraNome(t) : t; }}}} }, extra || {}),
       plugins:[{ id:'dsMeta', afterDatasetsDraw(chart){
         const ctx = chart.ctx, sx = chart.scales.x;
         chart.getDatasetMeta(0).data.forEach((bar, i) => {
@@ -577,6 +585,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   }
 
   function renderMetaJunho(){
+    if (window.__equipeTravada__ && currentTeam === 'ALL_TEAMS' && Object.keys(MJ_TEAMS).length) currentTeam = Object.keys(MJ_TEAMS)[0];
     if (currentTeam !== 'ALL_TEAMS' && !MJ_TEAMS[currentTeam]) { currentTeam = Object.keys(MJ_TEAMS)[0]; }
     const td = getTeamRenderData(currentTeam);
     const teamLabel = currentTeam === 'ALL_TEAMS' ? 'Todos os Times (NDI SP)' : currentTeam;
@@ -589,7 +598,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('mjTeamBannerName').textContent = selectedMember ? `${selectedMember.nome} — ${teamLabel}` : teamLabel;
     const resetBtn = document.getElementById('mjResetTeam');
     if (selectedMember){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Ver o time todo'; }
-    else if (currentTeam !== 'ALL_TEAMS'){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Voltar para Todos os Times'; }
+    else if (currentTeam !== 'ALL_TEAMS' && !window.__equipeTravada__){ resetBtn.style.display = 'inline-flex'; resetBtn.textContent = '↺ Voltar para Todos os Times'; }
     else { resetBtn.style.display = 'none'; }
 
     const isAllTeamsAggregate = currentTeam === 'ALL_TEAMS' && !selectedMember;
@@ -1298,7 +1307,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     F(ws.getRow(obsRow), 'A').value = 'OBSERVAÇÕES'; ws.mergeCells(`A${obsRow}:A${obsTot}`);
     // total da diretora
     const dRowN = obsTot + 2, drow = ws.getRow(dRowN);
-    F(drow, 'A').value = 'TOTAL FABYANNA BOAVENTURA - NDI SP';
+    F(drow, 'A').value = window.__equipeTravada__ ? 'TOTAL DA EQUIPE' : 'TOTAL FABYANNA BOAVENTURA - NDI SP';
     const lst = (c, extra) => `=SUM(${teamTotalRows.map(x => c + x).concat(extra ? [c + obsTot] : []).join(',')})`;
     const fDm = {}, fDi = {}; CATS.forEach(k => { fDm[k] = lst(COLS[k][0], false); fDi[k] = lst(COLS[k][1], true); });
     const dirInt = {}; CATS.forEach(k => { dirInt[k] = dirAcc.int[k] + naoInt[k]; });
@@ -1614,6 +1623,21 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }));
     return combinado;
   }
+  const PEND_PASSO = 200;
+  let pendTabela = null;
+  function pendMostrarMais(qtd){
+    const t = pendTabela, fim = Math.min(t.vistos + qtd, t.lista.length);
+    t.corpo.insertAdjacentHTML('beforeend', t.lista.slice(t.vistos, fim).map(t.linha).join(''));
+    t.vistos = fim;
+    const resta = t.lista.length - fim, fmt = n => n.toLocaleString('pt-BR');
+    document.getElementById('pendMais').hidden = resta <= 0;
+    document.getElementById('pendMaisConta').textContent = `Mostrando ${fmt(fim)} de ${fmt(t.lista.length)}`;
+    document.getElementById('pendMaisBtn').textContent = `Mostrar mais ${fmt(Math.min(PEND_PASSO, resta))}`;
+    document.getElementById('pendMaisTudo').hidden = resta <= PEND_PASSO;
+    document.getElementById('pendMaisTudo').textContent = `Mostrar todas (${fmt(t.lista.length)})`;
+  }
+  document.getElementById('pendMaisBtn').addEventListener('click', () => pendMostrarMais(PEND_PASSO));
+  document.getElementById('pendMaisTudo').addEventListener('click', () => pendMostrarMais(Infinity));
   function renderPendencias(){
     const gestorNome = pendCurrentGestor;
     const pme = pendenciasDoGestor(PENDENCIAS_PME, gestorNome, 'proposta');
@@ -1638,7 +1662,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('pendFilterLabel').textContent = pendActiveTab === 'pme' ? 'Filtrar por Data Vigência' : 'Filtrar por Data Status';
     document.getElementById('pendPropostaLabel').textContent = pendActiveTab === 'pme' ? 'Buscar por Nº da Proposta' : 'Buscar por Nº do Orçamento';
     document.getElementById('pendPropostaSearch').placeholder = pendActiveTab === 'pme' ? 'Ex.: 12345' : 'Ex.: 67890';
-    document.getElementById('pendModalGestor').textContent = gestorNome || 'Todas as equipes';
+    document.getElementById('pendModalGestor').textContent = gestorNome || window.__rotuloTodas__();
 
     // "Consultar Funil" (pedido do Victor, 2026-09-29) — o dropdown de Gestor DENTRO do popup
     // troca pendCurrentGestor e re-renderiza, igual mês/corretora já faziam; nulo = todos os
@@ -1854,15 +1878,24 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         <p>${pendHasActiveFilters ? 'Filtros ativos: '+pendFilterParts.join(' · ')+'.' : 'Não há pendências cadastradas pra esse gestor no momento.'}</p>
         ${pendHasActiveFilters ? '<button type="button" class="btn-reset pend-empty-clear">Limpar filtros</button>' : ''}
       </div></td></tr>`;
-    document.getElementById('pendPmeBody').innerHTML = pmeFiltered.length ? pmeFiltered.map(p => `
+    // Funil no celular (03/11/2026): só a aba aberta é desenhada, 200 linhas por vez. Total, filtros, busca e downloads
+    // continuam usando a lista inteira (pmeFiltered/pfFiltered).
+    const pmeLinha = p => `
       <tr><td>${p.proposta}</td><td class="num">${p.beneficiarios}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td>
         <span class="tag ${p.status.planium==='pendencia'?'react':'noelig'}" title="Planium: ${p.status.planium||'—'}">${pendPlaniumView(p)}</span>${pendImplantaAmanha(p) ? '<span class="pend-amanha">Implanta amanhã</span>' : ''}
         <div style="font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.6;">${['cadastro','ditec'].filter(k=>pendTxt(p.status[k])).map(k=>`${k.charAt(0).toUpperCase()+k.slice(1)}: <b>${pendSemLogin(p.status[k])}</b>`).join(' · ')}</div>
       </td><td>${p.dataReceb}</td><td>${p.dataVigencia}</td></tr>
-    `).join('') : pendEmptyRow(showGestorCol?7:6, 'pendência PME/SS');
-    document.getElementById('pendPfBody').innerHTML = pfFiltered.length ? pfFiltered.map(p => `
+    `;
+    const pfLinha = p => `
       <tr><td>${p.orcamento}</td><td class="num">${p.vidas}</td><td class="name">${p.corretora}</td>${showGestorCol?`<td>${p._gestor||''}</td>`:''}<td><span class="tag react">${p.status}</span></td><td>${p.dataStatus}</td></tr>
-    `).join('') : pendEmptyRow(showGestorCol?6:5, 'pendência PF');
+    `;
+    const abaPme = pendActiveTab === 'pme';
+    const corpoAberto = document.getElementById(abaPme ? 'pendPmeBody' : 'pendPfBody');
+    document.getElementById(abaPme ? 'pendPfBody' : 'pendPmeBody').innerHTML = '';
+    const listaAberta = abaPme ? pmeFiltered : pfFiltered;
+    corpoAberto.innerHTML = listaAberta.length ? '' : (abaPme ? pendEmptyRow(showGestorCol?7:6, 'pendência PME/SS') : pendEmptyRow(showGestorCol?6:5, 'pendência PF'));
+    pendTabela = { corpo: corpoAberto, lista: listaAberta, linha: abaPme ? pmeLinha : pfLinha, vistos: 0 };
+    pendMostrarMais(PEND_PASSO);
     document.querySelectorAll('#pendPmeBody .pend-empty-clear, #pendPfBody .pend-empty-clear').forEach(btn => {
       btn.addEventListener('click', () => {
         pendMesSel.clear(); pendCorSel.clear();
@@ -1890,7 +1923,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // chamada dentro de renderPendencias(), então aqui só guarda o que veio mesmo.
     pendCurrentGestor = gestorNome || null;
     pendActiveTab = 'pme';
-    document.getElementById('pendModalGestor').textContent = gestorNome || 'Todas as equipes';
+    document.getElementById('pendModalGestor').textContent = gestorNome || window.__rotuloTodas__();
     document.getElementById('pendTabPme').classList.add('active');
     document.getElementById('pendTabPf').classList.remove('active');
     document.getElementById('pendPmeSection').style.display = '';
@@ -1936,7 +1969,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // tudo o resto.
   document.getElementById('pendGestorFilter').addEventListener('change', (e) => {
     pendCurrentGestor = e.target.value || null;
-    document.getElementById('pendModalGestor').textContent = pendCurrentGestor || 'Todas as equipes';
+    document.getElementById('pendModalGestor').textContent = pendCurrentGestor || window.__rotuloTodas__();
     pendMesSel.clear(); pendCorSel.clear(); pendMultiFechar(); document.getElementById('pendCorBusca').value = '';
     pendSelectedStatuses.clear();
     renderPendencias();
@@ -1976,7 +2009,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   function pendRelatorioDados(){
     const isPme = pendActiveTab === 'pme';
     const rows = (isPme ? pendLastPmeFiltered : pendLastPfFiltered).slice();
-    const gestor = pendCurrentGestor ? (window.getGestorFriendlyName ? window.getGestorFriendlyName(pendCurrentGestor) : pendCurrentGestor) : 'Todas as equipes';
+    const gestor = pendCurrentGestor ? (window.getGestorFriendlyName ? window.getGestorFriendlyName(pendCurrentGestor) : pendCurrentGestor) : window.__rotuloTodas__();
     const comGestor = !pendCurrentGestor;
     const vidasDe = p => isPme ? (p.beneficiarios || 0) : (p.vidas || 0);
     const dataDe = p => isPme ? (p.dataVigencia || '') : (p.dataStatus || '');
@@ -2640,7 +2673,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     // Refeita a cada abertura (equipes podem mudar depois de um import) — mantém a equipe escolhida se ainda existir.
     const equipeAntes = equipeSelEl.value;
     const equipesAgora = resumoEquipes();
-    equipeSelEl.innerHTML = '<option value="">Todas as equipes</option>' + equipesAgora.map(eq=>`<option value="${eq}">${eq}</option>`).join('');
+    equipeSelEl.innerHTML = '<option value="">' + window.__rotuloTodas__() + '</option>' + equipesAgora.map(eq=>`<option value="${eq}">${eq}</option>`).join('');
     equipeSelEl.value = equipesAgora.includes(equipeAntes) ? equipeAntes : '';
     resumoAtualizarGestorSel();
     resumoActiveTab = 'pme';
@@ -3101,7 +3134,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // ser usada pra isso. Recalcula toda vez que é chamada, então sempre reflete DATA atual
   // (inclusive depois de um import no meio da sessão).
   function scopedData(){
-    return window.__eligTeamScope__ ? DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === window.__eligTeamScope__) : DATA;
+    return (window.__eligTeamScope__ && !window.__equipeTravada__) ? DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === window.__eligTeamScope__) : DATA;
   }
   // Mês global (0=Jan/25) em que cada equipe realmente passou a ter histórico na base —
   // Cauda Longa está desde o início (Jan/25); as 3 equipes novas entraram só em Jan/26
@@ -5106,7 +5139,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   function rankPopulateFilters(){
     const eqSel = document.getElementById('rankEquipe');
     const equipes = [...new Set(RANKDATA.map(r=>r.e).filter(e=>e && e!=='—'))].sort();
-    eqSel.innerHTML = '<option value="">Todas as equipes (SP)</option>' + equipes.map(e=>`<option value="${e}">${e}</option>`).join('');
+    eqSel.innerHTML = '<option value="">' + (window.__equipeTravada__ ? 'Minha equipe' : 'Todas as equipes (SP)') + '</option>' + equipes.map(e=>`<option value="${e}">${e}</option>`).join('');
     rankPopulateGestores();
     // Rótulos de mês (rankMonthsLabel/rankPodiumMonth/rankThCur/rankThPrev) NÃO ficam mais
     // aqui — isso só roda uma vez por import (rankPopulated), mas o "Mês de Referência" pode
@@ -5589,7 +5622,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   // + Notificadas). A parte "macro" (trimestral) só mostra números
   // reais quando SLA_HISTORICO já tiver dado suficiente acumulado.
   // ══════════════════════════════════════════════════════════════
-  let convFiltroEquipe = 'CAUDA LONGA';
+  let convFiltroEquipe = window.__equipeTravada__ ? window.__equipeTravada__.elig : 'CAUDA LONGA';
   let convFiltroGestor = '';
   let convFiltersReady = false;
   function convPopulateGestorSelect(){
@@ -5601,9 +5634,9 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   function convSetupFilters(){
     if (convFiltersReady) return;
     convFiltersReady = true;
-    const equipes = [...new Set(Object.values(GESTOR_EQUIPE))].sort();
+    const equipes = window.__equipeTravada__ ? [window.__equipeTravada__.elig] : [...new Set(Object.values(GESTOR_EQUIPE))].sort();
     const selE = document.getElementById('convEquipe');
-    selE.innerHTML = '<option value="">Todas as equipes</option>' + equipes.map(eq => `<option value="${eq}">${eq}</option>`).join('');
+    selE.innerHTML = '<option value="">' + window.__rotuloTodas__() + '</option>' + equipes.map(eq => `<option value="${eq}">${eq}</option>`).join('');
     selE.value = convFiltroEquipe;
     convPopulateGestorSelect();
     selE.addEventListener('change', () => { convFiltroEquipe = selE.value; convFiltroGestor=''; convPopulateGestorSelect(); window.renderConversao(); });
@@ -6199,7 +6232,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     return `${MONTH_NUM_TO_NAME[monthNum]} ${String(year).slice(2)}`;
   }
   function buildEligExportLayout(team){
-    const rows = DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === team);
+    const rows = window.__equipeTravada__ ? (team === window.__equipeTravada__.elig ? DATA : []) : DATA.filter(d => ELIG_GESTOR_TEAM[d.g] === team);
     if (!rows.length) return null;
     const lastIdx = rows[0].m.length - 1;
     const tem2025 = rows.some(d => d.m.slice(0, 12).some(v => v));
@@ -6487,11 +6520,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const sel = document.getElementById('ovTeam');
     const prevValue = sel.value;
     const teamNames = Object.keys(mjData.teams);
-    let html = '<option value="ALL_TEAMS"><i class=ic-building></i> Todos os Times (NDI SP)</option>';
+    let html = window.__equipeTravada__ ? '' : '<option value="ALL_TEAMS"><i class=ic-building></i> Todos os Times (NDI SP)</option>';
     html += teamNames.map(t => `<option value="${t}"><i class=ic-building></i> ${t}</option>`).join('');
     sel.innerHTML = html;
     const stillValid = prevValue && (prevValue === 'ALL_TEAMS' || teamNames.includes(prevValue));
-    sel.value = stillValid ? prevValue : 'ALL_TEAMS';
+    sel.value = stillValid && !(window.__equipeTravada__ && prevValue === 'ALL_TEAMS') ? prevValue : (window.__equipeTravada__ ? (teamNames[0] || '') : 'ALL_TEAMS');
   }
 
   function populateExecutivoSelect(mjData, teamName, resetToAll){
@@ -6513,7 +6546,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   function renderOverview(){
     const mjData = window.getMetaJunhoData ? window.getMetaJunhoData() : null;
     const eligAll = window.getEligibilidadeData ? window.getEligibilidadeData() : [];
-    if (!mjData || !mjData.teams || !Object.keys(mjData.teams).some(k => /\(Cauda Longa\)\s*$/.test(k))) return;
+    if (!mjData || !mjData.teams || !Object.keys(mjData.teams).some(k => window.__equipeTravada__ || /\(Cauda Longa\)\s*$/.test(k))) return;
 
     const teamSel = document.getElementById('ovTeam');
     const wasTeamChange = teamSel.dataset.lastTeam !== undefined && teamSel.dataset.lastTeam !== teamSel.value;
@@ -6760,7 +6793,7 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   document.getElementById('ovTeam').addEventListener('change', renderOverview);
   document.getElementById('ovExecutivo').addEventListener('change', renderOverview);
   document.getElementById('ovResetFilters').addEventListener('click', () => {
-    document.getElementById('ovTeam').value = 'ALL_TEAMS';
+    document.getElementById('ovTeam').value = window.__equipeTravada__ ? document.getElementById('ovTeam').options[0].value : 'ALL_TEAMS';
     document.getElementById('ovTeam').dataset.lastTeam = '';
     renderOverview();
   });
@@ -7966,6 +7999,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
   // passar por updateIntegradoFromRaw (que sempre grava no mês ativo) e atribuir o seed embutido.
   window.parseCorretorasRawWorkbook = parseCorretorasRawWorkbook;
   window.attributeCorretorasAgg = attributeCorretorasAgg;
+  window.__resolverCarteira__ = resolveGestorFromCarteira;
 
   // Achata o resultado de parseCorretorasRawWorkbook pro formato que updateRankingData
   // espera — assim o upload do extrato bruto (sem o arquivo "NDI SP - Por Gestor" inteiro)
@@ -9060,6 +9094,14 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
         try { await window.fsWriteSection('T6140B_EXTRATO', window.__T6140B_EXTRATO); window.__T6140B_EXTRATO_PENDENTE = false; }
         catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: o extrato completo do T6140B NÃO foi salvo (' + window.escHtml(e.message) + ') — a aba T6140B do "Baixar .xlsx" vai sair resumida pra quem baixar de outro computador.</span>'; }
       }
+      // Item 9 (opção C, 03/11/2026): cópia de cada seção por equipe, a única coisa que o executivo com equipe consegue ler.
+      status.innerHTML = '<span class="spinner" style="border-color:rgba(16,30,99,.25); border-top-color:var(--navy);"></span> Separando os dados por equipe...';
+      const payloadCompleto = Object.assign({}, payload, { SEEDS_HIST: window.__DASH_DATA__.SEEDS_HIST || null });
+      for (const eq of window.__EQUIPES_SERVIDOR__){
+        const copia = window.__dadosDaEquipe__(payloadCompleto, eq.key, window.getGestorFriendlyName, payloadCompleto.CARTEIRA_MAP ? (c, n) => window.__resolverCarteira__({c, n}, payloadCompleto.CARTEIRA_MAP, 'CAUDA LONGA') : null);
+        try { await Promise.all(window.__SECOES_POR_EQUIPE__.map(s => window.fsWriteSection('EQ_' + eq.key + '__' + s, copia[s]))); }
+        catch(e){ avisoMeta += ' <span style="color:var(--red); font-weight:600;">Atenção: os dados da equipe ' + window.escHtml(eq.elig) + ' NÃO foram atualizados (' + window.escHtml(e.message) + '). Publique de novo.</span>'; }
+      }
       status.innerHTML = '<span style="color:#1b7a63; font-weight:700;">Publicado! Quem já estiver com o painel aberto vê a atualização só no próximo login/recarregamento.</span>' + avisoMeta;
       // Registro de acessos (item 4, 26/10/2026): quem publicou e o quê.
       if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('publicou', keys.length + ' seções' + (window.__T6140B_EXTRATO && !window.__T6140B_EXTRATO_PENDENTE ? ' + extrato T6140B' : ''));
@@ -9518,7 +9560,7 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     const per = multi ? 'do Período' : 'do Trimestre';
 
     $('mjTriTitle').textContent = `Meta vs. Integrado por Executivo — ${lab}`;
-    $('mjTriSub').textContent = `${scoped ? scopedKey : 'Todas as equipes (sem Interior)'} · ${nomesMeses} somados · passe o mouse numa linha pra ver por categoria`;
+    $('mjTriSub').textContent = `${scoped ? scopedKey : (window.__equipeTravada__ ? 'Minha equipe' : 'Todas as equipes (sem Interior)')} · ${nomesMeses} somados · passe o mouse numa linha pra ver por categoria`;
     $('mjTriThMeta').textContent = `Meta ${lab}`;
     $('mjTriThInt').textContent = `Integrado ${lab}`;
 
@@ -10031,6 +10073,17 @@ return `<div class="cat-row"><div class="cat-name">${k}</div><div class="bar-bg"
     XLSX.writeFile(wb, nome);
     if (window.fsRegistrarAcesso) window.fsRegistrarAcesso('baixou', nome);
   });
+})();
+
+// Item 9 (opção C, 03/11/2026): textos fixos da página que falam de todas as equipes, trocados pra quem só vê a própria.
+(function(){
+  if (!window.__equipeTravada__) return;
+  const funil = [...document.querySelectorAll('span')].find(s => s.textContent === 'Todas as equipes juntas, com filtro de gestor lá dentro');
+  if (funil) funil.textContent = 'Sua equipe, com filtro de gestor lá dentro';
+  const ranking = document.getElementById('rankMonthsLabel');
+  if (ranking && ranking.parentElement.firstChild) ranking.parentElement.firstChild.textContent = 'Sua equipe · ';
+  const seniores = document.querySelector('#dhTeamToggle .dh-stat-value');
+  if (seniores && seniores.firstChild) seniores.firstChild.textContent = '1 ';
 })();
 
 // Desempenho no celular (29/10/2026): toda função que troca dados do painel avisa a troca de tela que precisa

@@ -1812,6 +1812,118 @@
    rodam com dado incompleto ou antes da permissão ser conferida.
    ========================================================= */
 window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+/* CADA EXECUTIVO SÓ A PRÓPRIA EQUIPE, NO SERVIDOR (item 9 de segurança, opção C do Victor, 03/11/2026). O "Publicar" do
+   admin grava, além das seções completas, uma cópia filtrada de cada seção por equipe (EQ_<equipe>__<seção>). Quem tem
+   eligTeam no cadastro e não é admin nem verTudo lê só essas cópias, e as Regras do Firestore recusam o resto.
+   tipo = texto entre parênteses no rótulo do time ("Marcelo Lima (Cauda Longa)"); elig = valor do campo eligTeam. */
+window.__EQUIPES_SERVIDOR__ = [
+  { elig:'CAUDA LONGA', key:'CAUDA_LONGA', tipo:'Cauda Longa' },
+  { elig:'PLATAFORMA SP', key:'PLATAFORMA_SP', tipo:'Plataforma' },
+  { elig:'DIGITAL', key:'DIGITAL', tipo:'Digital' },
+  { elig:'PLATAFORMA ABC/ALTO TIETÊ/BX', key:'PLATAFORMA_ABC', tipo:'ABC' }
+];
+window.__SECOES_POR_EQUIPE__ = ['MJ_TEAMS_BY_MONTH','PENDENCIAS_PME','PENDENCIAS_PF','PENDENCIAS_ASSINATURA','MJ_CORRETORAS_BY_MONTH',
+  'MJ_NAO_ATRIBUIDO_BY_MONTH','MJ_BENCHMARK','DATA','RANKDATA','PROPOSTAS','SLA_HISTORICO','DAILY_SNAPSHOTS','CONV_ONTEM_HOJE',
+  'META_EXEC_BY_MONTH','INT_EXEC_BY_MONTH','CARTEIRA_MAP','SEEDS_HIST'];
+window.__equipeTravada__ = null;
+window.__rotuloTodas__ = function(){ return window.__equipeTravada__ ? 'Minha equipe' : 'Todas as equipes'; };
+// Monta a cópia de uma equipe a partir do payload completo. A equipe de cada gestor vem da estrutura do mês oficial mais
+// recente; nome sem equipe conhecida (Interior, Venda Interna, "#N/D", vazio) não entra em nenhuma cópia: só admin vê.
+window.__dadosDaEquipe__ = function(payload, key, amigavel, donoDoCodigo){
+  var eq = window.__EQUIPES_SERVIDOR__.filter(function(e){ return e.key === key; })[0];
+  var norm = function(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim(); };
+  var tipoDe = function(rotulo){ return (/\(([^)]*)\)\s*$/.exec(rotulo) || [])[1] || ''; };
+  var rotuloOk = function(rotulo){ return tipoDe(rotulo) === eq.tipo; };
+  var meses = payload.MJ_TEAMS_BY_MONTH || {};
+  var maisRecente = meses[Object.keys(meses).sort().pop()] || {};
+  var pessoas = [];
+  Object.keys(maisRecente).forEach(function(rotulo){
+    var e = window.__EQUIPES_SERVIDOR__.filter(function(x){ return x.tipo === tipoDe(rotulo); })[0];
+    if (!e) return;
+    (maisRecente[rotulo].members || []).forEach(function(m){ pessoas.push({ nome:norm(m.nome), palavras:norm(m.nome).split(' '), key:e.key }); });
+  });
+  var cache = {};
+  var equipeDe = function(nome){
+    if (Object.prototype.hasOwnProperty.call(cache, nome)) return cache[nome];
+    var cru = norm(nome), bonito = norm(amigavel ? amigavel(nome) : nome);
+    var achou = pessoas.filter(function(p){ return p.nome === cru || p.nome === bonito; });
+    if (!achou.length){
+      // "Jonathan Leal" x "Jonathan Leal dos Santos Silva": todas as palavras do nome menor estão no maior (mínimo 2).
+      achou = pessoas.filter(function(p){
+        var a = cru.split(' ');
+        var menor = a.length <= p.palavras.length ? a : p.palavras, maior = a.length <= p.palavras.length ? p.palavras : a;
+        return menor.length >= 2 && menor.every(function(w){ return maior.indexOf(w) >= 0; });
+      });
+    }
+    var chaves = achou.map(function(p){ return p.key; }).filter(function(k, i, l){ return l.indexOf(k) === i; });
+    return (cache[nome] = chaves.length === 1 ? chaves[0] : null);
+  };
+  var meu = function(nome){ return equipeDe(nome) === key; };
+  var pegar = function(obj, ok){ var out = {}; Object.keys(obj || {}).forEach(function(k){ if (ok(k)) out[k] = obj[k]; }); return out; };
+  var porMes = function(obj, ok){ var out = {}; Object.keys(obj || {}).forEach(function(mo){ out[mo] = pegar(obj[mo], ok); }); return out; };
+  // Metas por executivo seguem a equipe de HOJE da pessoa (visão da carteira): quem trocou de equipe leva o histórico junto,
+  // mesmo gravado sob o rótulo antigo (caso real: Lais em Jan–Mai/26). Nome não reconhecido fica no rótulo em que foi gravado.
+  var metasPorPessoa = function(obj, nomeDe){
+    var out = {};
+    Object.keys(obj || {}).forEach(function(mo){
+      out[mo] = {};
+      Object.keys(obj[mo]).forEach(function(rotulo){
+        var l = obj[mo][rotulo].filter(function(r){ var e = equipeDe(nomeDe(r)); return e === key || (e === null && rotuloOk(rotulo)); });
+        if (l.length) out[mo][rotulo] = l;
+      });
+    });
+    return out;
+  };
+  var carteira = null, cart = payload.CARTEIRA_MAP;
+  if (cart){
+    var byCodigo = {};
+    Object.keys(cart.byCodigo || {}).forEach(function(c){
+      var l = cart.byCodigo[c].filter(function(e){ return meu(e.gestorRaw); });
+      if (l.length) byCodigo[c] = l;
+    });
+    carteira = { map:pegar(cart.map, function(k){ return meu(cart.map[k].gestorRaw); }), byCodigo:byCodigo,
+      byCnpj:pegar(cart.byCnpj, function(k){ return meu(cart.byCnpj[k]); }), totalRows:cart.totalRows };
+  }
+  var seeds = null, sh = payload.SEEDS_HIST;
+  if (sh){
+    var codigos = carteira ? carteira.byCodigo : {};
+    var codigoMeu = function(c){
+      // Código com mais de um dono na Carteira: quem decide é a regra do painel completo, antes de filtrar (06GV, 0834).
+      if (donoDoCodigo){
+        var d = donoDoCodigo(c, (sh.INT_CODE_NAMES || {})[c] || ((sh.INT_CODE_INFO || {})[c] || [])[0] || '');
+        return !!(d && meu(d.gestorRaw));
+      }
+      return !!codigos[c] || (/^\d+$/.test(c) && !!codigos[c.padStart(4, '0')]);
+    };
+    seeds = { INT_CODE_SEED:porMes(sh.INT_CODE_SEED, codigoMeu), INT_CODE_NAMES:pegar(sh.INT_CODE_NAMES, codigoMeu),
+      INT_CODE_INFO:pegar(sh.INT_CODE_INFO, codigoMeu), META_EXEC_C:metasPorPessoa(sh.META_EXEC_C, function(r){ return r[0]; }) };
+  }
+  var snaps = {};
+  Object.keys(payload.DAILY_SNAPSHOTS || {}).forEach(function(d){
+    // Só os campos do retrato atual: retrato antigo guarda dados de todos os gestores em outros campos (achado no teste).
+    var s = payload.DAILY_SNAPSHOTS[d];
+    if (s && s.g) snaps[d] = { v:s.v, em:s.em, meses:s.meses, rk:s.rk, g:pegar(s.g, meu) };
+  });
+  return {
+    MJ_TEAMS_BY_MONTH:porMes(meses, rotuloOk),
+    PENDENCIAS_PME:pegar(payload.PENDENCIAS_PME, meu),
+    PENDENCIAS_PF:pegar(payload.PENDENCIAS_PF, meu),
+    PENDENCIAS_ASSINATURA:pegar(payload.PENDENCIAS_ASSINATURA, meu),
+    MJ_CORRETORAS_BY_MONTH:porMes(payload.MJ_CORRETORAS_BY_MONTH, meu),
+    MJ_NAO_ATRIBUIDO_BY_MONTH:{},
+    MJ_BENCHMARK:(payload.MJ_BENCHMARK || []).filter(function(b){ return rotuloOk(b.time); }),
+    DATA:(payload.DATA || []).filter(function(d){ return meu(d.g); }),
+    RANKDATA:(payload.RANKDATA || []).filter(function(r){ return meu(r.g); }),
+    PROPOSTAS:(payload.PROPOSTAS || []).filter(function(p){ return meu(p.g); }),
+    SLA_HISTORICO:(payload.SLA_HISTORICO || []).filter(function(h){ return meu(h.gestor); }),
+    DAILY_SNAPSHOTS:snaps,
+    CONV_ONTEM_HOJE:pegar(payload.CONV_ONTEM_HOJE, meu),
+    META_EXEC_BY_MONTH:metasPorPessoa(payload.META_EXEC_BY_MONTH, function(r){ return r.nome; }),
+    INT_EXEC_BY_MONTH:porMes(payload.INT_EXEC_BY_MONTH, meu),
+    CARTEIRA_MAP:carteira,
+    SEEDS_HIST:seeds
+  };
+};
 (function(){
   var EMPTY = {SEEDS_HIST:null, MJ_TEAMS_BY_MONTH:{}, currentMonth:"", PENDENCIAS_PME:{}, PENDENCIAS_PF:{}, PENDENCIAS_ASSINATURA:{}, MJ_CORRETORAS_BY_MONTH:{}, MJ_NAO_ATRIBUIDO_BY_MONTH:{}, MJ_BENCHMARK:[], DATA:[], RANKDATA:[], PROPOSTAS:[], SLA_HISTORICO:[], DAILY_SNAPSHOTS:{}, CONV_ONTEM_HOJE:{}, META_EXEC_BY_MONTH:{}, INT_EXEC_BY_MONTH:{}, RANK_CUR_LABEL:"", RANK_PREV_LABEL:"", CARTEIRA_MAP:null, LAST_UPDATED_BY_SOURCE:{}, publishedAt:""};
   window.__EMPTY_DASH_DATA__ = EMPTY;
@@ -2121,6 +2233,7 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       window.__userEmail__ = null;
       window.__noEleg__ = false;
       window.__eligTeamScope__ = null;
+      window.__equipeTravada__ = null;
       document.getElementById('authGateCard').style.display = 'flex';
       gate.style.display = 'flex';
       gate.style.opacity = '1';
@@ -2376,12 +2489,28 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
       fsRegistrarAcesso('entrou', '');
       window.__acessoLiberado__();
       document.dispatchEvent(new CustomEvent('authReady', { detail: { role: window.__userRole__, email: window.__userEmail__, noEleg: window.__noEleg__, eligTeamScope: window.__eligTeamScope__ } }));
-      const values = await Promise.all(FS_SECTIONS.map(s => fsReadSection(s).catch(e => {
+      // Item 9 (opção C, 03/11/2026): executivo com equipe lê só as cópias da equipe. Enquanto o admin não publicar
+      // pela primeira vez com este código, as cópias não existem e a leitura continua como antes.
+      const minhaEquipe = (window.__userRole__ !== 'admin' && myAllow.verTudo !== true)
+        ? window.__EQUIPES_SERVIDOR__.find(e => e.elig === myAllow.eligTeam) : null;
+      if (minhaEquipe){
+        const copiaExiste = await fsReadSection('EQ_' + minhaEquipe.key + '__MJ_TEAMS_BY_MONTH').catch(() => undefined);
+        if (copiaExiste !== undefined) window.__equipeTravada__ = minhaEquipe;
+      }
+      const secaoNoServidor = s => (window.__equipeTravada__ && window.__SECOES_POR_EQUIPE__.includes(s))
+        ? 'EQ_' + window.__equipeTravada__.key + '__' + s : s;
+      const recusadas = new Set();
+      const values = await Promise.all(FS_SECTIONS.map(s => fsReadSection(secaoNoServidor(s)).catch(e => {
         // seção DATA bloqueada por noEleg cai aqui como permission-denied — trata como
         // "sem esse dado" (valor padrão), não como erro fatal, já que é esperado pra essa pessoa.
-        if (e && e.code === 'permission-denied') return undefined;
+        if (e && e.code === 'permission-denied'){ recusadas.add(s); return undefined; }
         throw e;
       })));
+      // Sem equipe válida no cadastro, as Regras recusam os dados: explica em vez de abrir um painel vazio.
+      if (!window.__equipeTravada__ && recusadas.has('MJ_TEAMS_BY_MONTH')){
+        window.__showFatalError__('Seu acesso ainda não tem uma equipe definida. Fale com o administrador do painel.');
+        return;
+      }
       const data = {};
       FS_SECTIONS.forEach((s, i) => {
         data[s] = (values[i] !== undefined) ? values[i] : window.__EMPTY_DASH_DATA__[s];
@@ -2812,6 +2941,17 @@ window.__IS_LOCAL_TEST__ = window.location.hostname === '' || /^(localhost|127\.
             <tbody id="pendPfBody"></tbody>
           </table>
         </div>
+      </div>
+      <style>
+        .pend-mais{display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px; margin-top:12px;}
+        .pend-mais[hidden], .pend-mais [hidden]{display:none !important;}
+        .pend-mais .btn-modern, .pend-mais .btn-reset{width:auto; flex:0 0 auto;}
+        .pend-mais-conta{font-size:12.5px; color:var(--muted); width:100%; text-align:center;}
+      </style>
+      <div class="pend-mais" id="pendMais" hidden>
+        <div class="pend-mais-conta" id="pendMaisConta"></div>
+        <button type="button" class="btn-modern btn-modern-primary" id="pendMaisBtn"></button>
+        <button type="button" class="btn-reset" id="pendMaisTudo"></button>
       </div>
     </div>
   </div>
