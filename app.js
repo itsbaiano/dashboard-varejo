@@ -427,6 +427,60 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
   let mjExpandedTeams = new Set(); // times abertos (mostrando gestores) na visão "Todos os Times"
   function destroyMJChart(key){ if(mjCharts[key]){ mjCharts[key].destroy(); delete mjCharts[key]; } }
 
+  // ===== Gráficos de barra deitada (rodada de design do V2 de 14/10/2026, portada pro V1 em 29/10/2026) =====
+  // Barra fina azul + traço marcando a meta (100%) + número escrito na ponta com a cor do status
+  // (verde bateu, laranja de 70% a 99%, vermelho abaixo de 70%). Usado no "% Atingimento por Categoria"
+  // (Visão Geral e Desempenho Comercial) e no "Meta vs. Integrado" (por time e por gestor).
+  const dsEscuro = () => document.documentElement.getAttribute('data-theme') === 'dark';
+  const dsStatus = p => p >= 100 ? '#16B87A' : (p >= 70 ? '#F26B21' : '#F5364A');
+  const dsPct = v => v.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '%';
+  const dsGrade = () => dsEscuro() ? 'rgba(255,255,255,.07)' : 'rgba(139,147,184,.18)';
+  function dsMarca(ctx, x, yTop, yBot){
+    ctx.save(); ctx.strokeStyle = dsEscuro() ? '#C9D2F5' : '#101E63'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, yTop); ctx.lineTo(x, yBot); ctx.stroke(); ctx.restore();
+  }
+  function dsRotulo(ctx, txt, cor, x, y){
+    ctx.save(); ctx.fillStyle = cor; ctx.font = '700 11px Inter, "Segoe UI", sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(txt, x, y); ctx.restore();
+  }
+  // pcts: % de atingimento (0–100+) por linha. extra: onClick/onHover do gráfico.
+  window.__dsCatChart = function(canvas, labels, pcts, extra){
+    return new Chart(canvas, {
+      type:'bar',
+      data:{ labels, datasets:[{ label:'% Atingimento', data:pcts, backgroundColor:'#2E52D4', borderRadius:5, barPercentage:.5, categoryPercentage:.9 }] },
+      options:Object.assign({ indexAxis:'y', responsive:true, maintainAspectRatio:false, layout:{padding:{right:56, top:14}},
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>dsPct(c.raw)}}},
+        scales:{x:{beginAtZero:true, max:Math.ceil(Math.max(110, ...pcts.map(v=>v*1.08))/10)*10, grid:{color:dsGrade()}, ticks:{callback:v=>v+'%', maxTicksLimit:7}}, y:{grid:{display:false}}} }, extra || {}),
+      plugins:[{ id:'dsCat', afterDatasetsDraw(chart){
+        const ctx = chart.ctx, x100 = chart.scales.x.getPixelForValue(100), area = chart.chartArea;
+        ctx.save(); ctx.setLineDash([4,3]); ctx.strokeStyle = dsEscuro() ? 'rgba(201,210,245,.7)' : 'rgba(16,30,99,.55)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x100, area.top); ctx.lineTo(x100, area.bottom); ctx.stroke(); ctx.restore();
+        dsRotulo(ctx, 'meta', dsEscuro() ? '#C9D2F5' : '#56608F', x100 - 12, area.top - 7);
+        chart.getDatasetMeta(0).data.forEach((bar, i) => { const v = chart.data.datasets[0].data[i]; dsRotulo(ctx, dsPct(v), dsStatus(v), bar.x + 6, bar.y); });
+      }}]
+    });
+  };
+  // metas/ints por linha; cores = cor da barra de cada linha (ex.: gestor selecionado em laranja).
+  window.__dsMetaChart = function(canvas, labels, metas, ints, cores, extra){
+    const maxV = Math.max(1, ...metas, ...ints) * 1.04;
+    return new Chart(canvas, {
+      type:'bar',
+      data:{ labels, datasets:[{ label:'Integrado', data:ints, backgroundColor:cores, borderRadius:5, barPercentage:.5, categoryPercentage:.9 }] },
+      options:Object.assign({ indexAxis:'y', responsive:true, maintainAspectRatio:false, layout:{padding:{right:58}},
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>{ const m = metas[c.dataIndex] || 0, v = c.raw || 0;
+          return [`Integrado: ${Math.round(v).toLocaleString('pt-BR')} vidas`, `Meta: ${Math.round(m).toLocaleString('pt-BR')} vidas`, `Atingimento: ${m ? dsPct(v/m*100) : '—'}`]; }}}},
+        scales:{x:{beginAtZero:true, suggestedMax:maxV, grid:{color:dsGrade()}, ticks:{callback:v=>Math.round(v).toLocaleString('pt-BR'), maxTicksLimit:6}}, y:{grid:{display:false}, ticks:{font:{size:11}}}} }, extra || {}),
+      plugins:[{ id:'dsMeta', afterDatasetsDraw(chart){
+        const ctx = chart.ctx, sx = chart.scales.x;
+        chart.getDatasetMeta(0).data.forEach((bar, i) => {
+          const m = metas[i] || 0, v = ints[i] || 0, xm = sx.getPixelForValue(m), h = bar.height || 10;
+          if (m) dsMarca(ctx, xm, bar.y - h/2 - 4, bar.y + h/2 + 4);
+          if (m) dsRotulo(ctx, dsPct(v/m*100), dsStatus(v/m*100), Math.max(bar.x, xm) + 7, bar.y);
+        });
+      }}]
+    });
+  };
+
   function renderCorretoras(gestorNome){
     mjCorretorasGestor = gestorNome;
     const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
@@ -671,14 +725,11 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     }
 
     destroyMJChart('categoria');
-    mjCharts.categoria = new Chart(document.getElementById('mjChartCategoria'), {
-      type:'bar',
-      data:{ labels:catKeys.map(k=>catLabels[k]), datasets:[{ label:'% Atingimento', data:catKeys.map(k=>(total.cat[k].meta?total.cat[k].int/total.cat[k].meta:0)*100), backgroundColor:catKeys.map(k=>{ const p = total.cat[k].meta?total.cat[k].int/total.cat[k].meta:0; return p>=1?'#16B87A':(p>=0.7?'#FFB81C':'#F5364A'); }), borderRadius:6 }] },
-      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+    mjCharts.categoria = window.__dsCatChart(document.getElementById('mjChartCategoria'),
+      catKeys.map(k=>catLabels[k]), catKeys.map(k=>(total.cat[k].meta?total.cat[k].int/total.cat[k].meta:0)*100), {
         onClick:(evt,els)=>{ if(!els||!els.length) return; const key = catKeys[els[0].index]; if (key === 'ADM') return; const c = total.cat[key]; openMjCatModal(key, c.meta ? c.int/c.meta : 0); },
         onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target){ const key = els&&els.length ? catKeys[els[0].index] : null; evt.native.target.style.cursor = (key && key!=='ADM') ? 'pointer' : 'default'; } },
-        plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw.toFixed(1)+'%'}}}, scales:{x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{callback:v=>v+'%'}}, y:{grid:{display:false}}} }
-    });
+      });
 
     destroyMJChart('metaGestor');
     document.getElementById('mjCorretorasPanel').style.display = isAllTeamsAggregate ? 'none' : '';
@@ -690,18 +741,12 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
         return {name:t, meta:tt.meta, int:tt.int};
       });
       document.getElementById('mjMetaGestorTitle').textContent = 'Meta vs. Integrado por Time';
-      document.getElementById('mjMetaGestorSub').textContent = 'Clique numa barra para abrir o detalhe daquele time';
-      mjCharts.metaGestor = new Chart(document.getElementById('mjChartMetaGestor'), {
-        type:'bar',
-        data:{ labels:teamRows.map(r=>r.name), datasets:[
-          {label:'Meta', data:teamRows.map(r=>r.meta), backgroundColor:'#cbd5e1', borderRadius:6, barPercentage:.6},
-          {label:'Integrado', data:teamRows.map(r=>r.int), backgroundColor:'#2E52D4', borderRadius:6, barPercentage:.6},
-        ]},
-        options:{ responsive:true, maintainAspectRatio:false,
+      document.getElementById('mjMetaGestorSub').textContent = 'Barra = integrado · traço = meta. Clique numa barra para abrir o detalhe daquele time';
+      mjCharts.metaGestor = window.__dsMetaChart(document.getElementById('mjChartMetaGestor'),
+        teamRows.map(r=>r.name), teamRows.map(r=>r.meta), teamRows.map(r=>r.int), teamRows.map(()=>'#2E52D4'), {
           onClick:(evt,els)=>{ if(!els||!els.length) return; const name = teamRows[els[0].index].name; setTimeout(()=>{ currentTeam = name; renderMetaJunho(); }, 0); },
           onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?'pointer':'default'; },
-          plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}}, scales:{y:{beginAtZero:true, grid:{color:'#eef1f6'}}, x:{grid:{display:false}, ticks:{font:{size:10}}}} }
-      });
+        });
 
       document.getElementById('mjGestorGridTitle').textContent = 'Desempenho por Time';
       document.getElementById('mjGestorGridSub').textContent = 'Clique num card pra abrir o detalhe completo do time — ou use o botão pra ver todos os gestores aqui mesmo';
@@ -761,21 +806,15 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     document.getElementById('mjTeamsExpand').innerHTML = '';
 
     document.getElementById('mjMetaGestorTitle').textContent = `Meta vs. Integrado por Gestor — ${teamLabel}`;
-    document.getElementById('mjMetaGestorSub').textContent = 'Clique numa barra para ver o detalhe daquele gestor';
+    document.getElementById('mjMetaGestorSub').textContent = 'Barra = integrado · traço = meta. Clique numa barra para ver o detalhe daquele gestor';
     document.getElementById('mjGestorGridTitle').textContent = `Performance Individual por Gestor — ${teamLabel}`;
     document.getElementById('mjGestorGridSub').textContent = 'Quebra por categoria: Individual (IND) · Super Simples (SS) · PME · Administradora (ADM)';
 
-    mjCharts.metaGestor = new Chart(document.getElementById('mjChartMetaGestor'), {
-      type:'bar',
-      data:{ labels:members.map(m=>m.nome), datasets:[
-        {label:'Meta', data:members.map(m=>m.total.meta), backgroundColor:'#cbd5e1', borderRadius:6, barPercentage:.6},
-        {label:'Integrado', data:members.map(m=>m.total.int), backgroundColor:members.map(m=>m.nome===mjSelectedGestor?'#F26B21':'#2E52D4'), borderRadius:6, barPercentage:.6},
-      ]},
-      options:{ responsive:true, maintainAspectRatio:false,
+    mjCharts.metaGestor = window.__dsMetaChart(document.getElementById('mjChartMetaGestor'),
+      members.map(m=>m.nome), members.map(m=>m.total.meta), members.map(m=>m.total.int), members.map(m=>m.nome===mjSelectedGestor?'#F26B21':'#2E52D4'), {
         onClick:(evt, els)=>{ if(!els || !els.length) return; const idx = els[0].index; setTimeout(()=>{ mjSelectedGestor = (mjSelectedGestor===members[idx].nome) ? null : members[idx].nome; renderMetaJunho(); renderCorretoras(members[idx].nome); document.querySelectorAll('#mjCorretorasTabs .subtab-btn').forEach(b=>b.classList.toggle('active', b.dataset.g===members[idx].nome)); }, 0); },
         onHover:(evt,els)=>{ if(evt && evt.native && evt.native.target) evt.native.target.style.cursor = (els && els.length) ? 'pointer' : 'default'; },
-        plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}}, scales:{y:{beginAtZero:true, grid:{color:'#eef1f6'}}, x:{grid:{display:false}, ticks:{font:{size:10}}}} }
-    });
+      });
 
     document.getElementById('mjGestorGrid').innerHTML = members.map(m => {
       const pTotal = m.total.meta ? m.total.int/m.total.meta : 0;
@@ -6573,11 +6612,8 @@ document.getElementById('globalMonthSelect').addEventListener('change', (e) => {
     const catKeys = Object.keys(catLabels);
     const scopeCat = scopeTotal.cat || (scopeMembers[0] ? scopeMembers[0].cat : {IND:{meta:0,int:0},SS:{meta:0,int:0},PME:{meta:0,int:0},ADM:{meta:0,int:0}});
     destroyOv('categoria');
-    ovCharts.categoria = new Chart(document.getElementById('ovChartCategoria'), {
-      type:'bar',
-      data:{ labels:catKeys.map(k=>catLabels[k]), datasets:[{ data:catKeys.map(k=>(scopeCat[k].meta?scopeCat[k].int/scopeCat[k].meta:0)*100), backgroundColor:catKeys.map(k=>{ const p = scopeCat[k].meta?scopeCat[k].int/scopeCat[k].meta:0; return p>=1?'#16B87A':(p>=0.7?'#FFB81C':'#F5364A'); }), borderRadius:6 }] },
-      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw.toFixed(1)+'%'}}}, scales:{x:{beginAtZero:true, grid:{color:'#eef1f6'}, ticks:{callback:v=>v+'%'}}, y:{grid:{display:false}}} }
-    });
+    ovCharts.categoria = window.__dsCatChart(document.getElementById('ovChartCategoria'),
+      catKeys.map(k=>catLabels[k]), catKeys.map(k=>(scopeCat[k].meta?scopeCat[k].int/scopeCat[k].meta:0)*100));
 
     // Gestor mini-cards (clicáveis — levam pro detalhe daquele gestor na Elegibilidade, se for Cauda Longa)
     // — só faz sentido quando um time específico está selecionado; no agregado (ALL_TEAMS), 19 cards
